@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'scanner_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -30,7 +31,10 @@ class HomePage extends StatelessWidget {
               icon: Icons.camera_enhance,
               color: Theme.of(context).colorScheme.primary,
               onTap: () {
-                // Navigate to ScannerPage (Next step)
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ScannerPage()),
+                );
               },
             ),
           ],

@@ -5,6 +5,16 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Force all dependencies to use AndroidX instead of the old support library
+configurations.all {
+    exclude(group = "com.android.support", module = "support-compat")
+    exclude(group = "com.android.support", module = "support-core-ui")
+    exclude(group = "com.android.support", module = "support-core-utils")
+    exclude(group = "com.android.support", module = "support-fragment")
+    exclude(group = "com.android.support", module = "support-media-compat")
+    exclude(group = "com.android.support", module = "support-v4")
+}
+
 android {
     namespace = "com.example.mangroveguardapp"
     compileSdk = flutter.compileSdkVersion

@@ -1,7 +1,19 @@
+import 'package:ar_flutter_plugin/ar_flutter_plugin.dart';
+import 'package:ar_flutter_plugin/managers/ar_anchor_manager.dart';
+import 'package:ar_flutter_plugin/managers/ar_location_manager.dart';
+import 'package:ar_flutter_plugin/managers/ar_object_manager.dart';
+import 'package:ar_flutter_plugin/managers/ar_session_manager.dart';
 import 'package:flutter/material.dart';
 
-class ScannerPage extends StatelessWidget {
+class ScannerPage extends StatefulWidget {
   const ScannerPage({super.key});
+
+  @override
+  State<ScannerPage> createState() => _ScannerPageState();
+}
+
+class _ScannerPageState extends State<ScannerPage> {
+  bool _isARInitialized = false;
 
   @override
   Widget build(BuildContext context) {
@@ -14,13 +26,36 @@ class ScannerPage extends StatelessWidget {
       ),
       body: Stack(
         children: [
-          // Placeholder for the AR/AI Camera Feed
-          Container(color: Colors.black),
+          // AR View
+          ARView(
+            onARViewCreated: (
+              ARSessionManager arSessionManager,
+              ARObjectManager arObjectManager,
+              ARAnchorManager arAnchorManager,
+              ARLocationManager arLocationManager,
+            ) {
+              setState(() {
+                _isARInitialized = true;
+              });
+            },
+          ),
           
-          const Center(
-            child: Text(
-              'Initializing ARCore & YOLOv10...',
-              style: TextStyle(color: Colors.white70),
+          // Loading indicator while AR initializes
+          if (!_isARInitialized)
+            const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            ),
+          
+          // Status text
+          const Positioned(
+            top: 100,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Text(
+                'Point camera at mangrove to scan',
+                style: TextStyle(color: Colors.white70, fontSize: 16),
+              ),
             ),
           ),
           
@@ -47,7 +82,7 @@ class ScannerPage extends StatelessWidget {
       children: [
         CircleAvatar(
           radius: 30,
-          backgroundColor: Colors.white.withOpacity(0.3),
+          backgroundColor: Colors.white.withValues(alpha: 0.3),
           child: Icon(icon, color: Colors.white, size: 30),
         ),
         const SizedBox(height: 8),
