@@ -1,75 +1,40 @@
-import 'package:ar_flutter_plugin/ar_flutter_plugin.dart';
-import 'package:ar_flutter_plugin/managers/ar_anchor_manager.dart';
-import 'package:ar_flutter_plugin/managers/ar_location_manager.dart';
-import 'package:ar_flutter_plugin/managers/ar_object_manager.dart';
-import 'package:ar_flutter_plugin/managers/ar_session_manager.dart';
 import 'package:flutter/material.dart';
 
-class ScannerPage extends StatefulWidget {
+class ScannerPage extends StatelessWidget {
   const ScannerPage({super.key});
-
-  @override
-  State<ScannerPage> createState() => _ScannerPageState();
-}
-
-class _ScannerPageState extends State<ScannerPage> {
-  bool _isARInitialized = false;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
+      backgroundColor: Colors.black, // Typical background for camera views
       body: Stack(
         children: [
-          // AR View
-          ARView(
-            onARViewCreated: (
-              ARSessionManager arSessionManager,
-              ARObjectManager arObjectManager,
-              ARAnchorManager arAnchorManager,
-              ARLocationManager arLocationManager,
-            ) {
-              setState(() {
-                _isARInitialized = true;
-              });
-            },
-          ),
-          
-          // Loading indicator while AR initializes
-          if (!_isARInitialized)
-            const Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
-          
-          // Status text
-          const Positioned(
-            top: 100,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Text(
-                'Point camera at mangrove to scan',
-                style: TextStyle(color: Colors.white70, fontSize: 16),
-              ),
+          const Center(
+            child: Text(
+              "ARCore Camera Feed Placeholder",
+              style: TextStyle(color: Colors.white),
             ),
           ),
           
-          // Bottom Scanning Controls
+          // Floating Action Bar for Field Tools
           Positioned(
-            bottom: 40,
+            bottom: 30,
             left: 20,
             right: 20,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildScannerButton(Icons.straighten, "Measure DBH"),
-                _buildScannerButton(Icons.psychology, "Count Roots"),
-              ],
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 15),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _scannerAction(Icons.straighten, "Measure DBH"),
+                  _scannerAction(Icons.psychology, "Root Count"),
+                  _scannerAction(Icons.save, "Log Data"),
+                ],
+              ),
             ),
           ),
         ],
@@ -77,16 +42,13 @@ class _ScannerPageState extends State<ScannerPage> {
     );
   }
 
-  Widget _buildScannerButton(IconData icon, String label) {
+  Widget _scannerAction(IconData icon, String label) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        CircleAvatar(
-          radius: 30,
-          backgroundColor: Colors.white.withValues(alpha: 0.3),
-          child: Icon(icon, color: Colors.white, size: 30),
-        ),
-        const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12)),
+        Icon(icon, color: Colors.white, size: 28),
+        const SizedBox(height: 5),
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 10)),
       ],
     );
   }
