@@ -33,9 +33,10 @@ class _MainNavPageState extends State<MainNavPage> {
         currentIndex: _selectedIndex,
         onTap: (index) => setState(() => _selectedIndex = index),
         type: BottomNavigationBarType.fixed,
-        showUnselectedLabels: true, // Recommended for clear navigation
+        showSelectedLabels: false,
+        showUnselectedLabels: false,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.dashboard_rounded), label: ''),
           BottomNavigationBarItem(icon: Icon(Icons.center_focus_strong), label: 'Scan'),
           BottomNavigationBarItem(icon: Icon(Icons.history_rounded), label: 'Logs'),
           BottomNavigationBarItem(icon: Icon(Icons.info_rounded), label: 'Info'),
