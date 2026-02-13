@@ -1,17 +1,17 @@
-# 🌿 MangroveGuard
+# MangroveGuard
 
 An Optimized Computer Vision Tool for Mangrove Stability Assessment
 
 MangroveGuard is a mobile application designed to automate the assessment of mangrove tree health and coastal stability. By leveraging YOLOv10-Nano for real-time root quantification, it provides a high-accessibility tool for researchers and coastal communities—even on mid-range hardware.
 
-## 🚀 Key Features
+## Key Features
 
 - **Real-time Root Quantification**: Uses an optimized YOLOv10-Nano model (Quantized) for near-instant detection of aerial roots.
 - **Stability Indexing**: Generates a quantitative "Stability Score" based on root density and trunk structural integrity.
 - **Offline-First Research**: All AI inference happens on-device via LiteRT, enabling use in remote mangrove forests without internet.
 - **Educational Onboarding**: Built-in information modules on mangrove conservation and data privacy.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Component          | Technology                          |
 |--------------------|-------------------------------------|
@@ -20,7 +20,7 @@ MangroveGuard is a mobile application designed to automate the assessment of man
 | Inference Engine   | LiteRT (formerly TFLite)            |
 | Architecture       | Clean Architecture (Data, Domain, Presentation) |
 
-## 📊 MSRI System
+## MSRI System
 
 **Mangrove Structural Resilience Index (MSRI)**
 
@@ -107,7 +107,7 @@ The app should not just show a number; it must explain the Reality of the data:
 - **Feature Breakdown**: A bar chart showing which penalty (Erosion vs Damage) lowered the score.
 - **Safety Verdict**: A text summary (e.g., "High Root Density detected; the tree is an Elite Protector").
 
-## 🏗️ Project Structure
+## Project Structure
 
 The project follows Clean Architecture to maintain high performance during AI tasks:
 
@@ -122,7 +122,7 @@ lib/
 └── main.dart           # Application entry point
 ```
 
-## 📱 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -150,7 +150,7 @@ lib/
    flutter run
    ```
 
-## 🛡️ Data Privacy & Terms
+## Data Privacy & Terms
 
 MangroveGuard is designed for ecological research. By using this tool:
 
@@ -158,15 +158,23 @@ MangroveGuard is designed for ecological research. By using this tool:
 - Location data is used only for tagging tree assessments and is not shared with third parties.
 - All image processing is done locally on your device; no images are uploaded to external servers.
 
-## 👥 Proponents
+## Proponents
 
-- **Ivan Kly B. Lamason** - Leader
-- **Dan Coby G. Tabao** - Member
-- **Elzen Rein Marco Maceda** - Member
+- **Ivan Kly B. Lamason** | Lead Systems Architect & Project Coordinator
 
-**Institution**: Leyte Normal University - College of Arts and Sciences
+- **Dan Coby G. Tabao** | Lead Systems Developer & Data Engineer
 
-## 📝 License
+- **Elzen Rein Marco Maceda** | UI/UX Designer & ML Specialist
+
+- **Vincent N. Pensader** | Solutions Engineer & Technical Writer
+
+## Co-Author / Adviser
+
+- **Devine Grace Funcion, MSIT** - Bachelor of Science in Information Technology
+
+**Institution**: Leyte Normal University - College of Arts and Sciences | Bachelor of Science in Information Technology
+
+## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
