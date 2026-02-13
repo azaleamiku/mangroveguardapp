@@ -1,15 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Camera permission for ARCore -->
+    <!-- Camera permission -->
     <uses-permission android:name="android.permission.CAMERA" />
 
     <application
         android:label="mangroveguardapp"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        <!-- ARCore metadata - optional means ARCore is not required to install the app -->
-        <meta-data
-            android:name="com.google.ar.core"
-            android:value="optional" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
