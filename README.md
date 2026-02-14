@@ -59,11 +59,12 @@ Where:
 
 Based on structural engineering principles, we define the Safety Threshold for storm resilience:
 
-| Threshold | Classification | Description |
-|-----------|----------------|-------------|
-| $\ge 75\%$ | **Safe** | The "Best Result." High root density provides enough "clout" and redundancy to survive Category 4+ wind/waves. |
-| 50% - 74% | **Vulnerable** | Standing, but unlikely to withstand high storm surge. |
-| < 50% | **Critical** | Immediate risk of failure; requires intervention. |
+| Resilience Score | Safety Rating | Storm Impact Prediction |
+|-----------------|---------------|------------------------|
+| 85% - 100% | Optimal | Likely to survive category 4+ winds; will trap sediment and protect the inland area. |
+| 75% - 84% | Safe | High chance of survival; might lose some branches but the "Anchor" will hold. |
+| 50% - 74% | Warning | At risk of "Windthrow" (uprooting). The foundation is too weak for high surge. |
+| Below 50% | Critical | Highly likely to fail. These trees may become "debris" that hits other trees. |
 
 ### 4. Flutter Implementation (Inference Logic)
 
