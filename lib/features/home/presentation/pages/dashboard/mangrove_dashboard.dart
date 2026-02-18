@@ -63,6 +63,7 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
       padding: const EdgeInsets.all(16),
       constraints: const BoxConstraints(maxWidth: 600),
       child: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 110),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [

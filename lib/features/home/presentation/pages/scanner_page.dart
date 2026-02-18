@@ -85,7 +85,7 @@ class _ScannerPageState extends State<ScannerPage> {
 
           // Floating Action Bar for Field Tools
           Positioned(
-            bottom: 30,
+            bottom: 110,
             left: 20,
             right: 20,
             child: Container(
@@ -117,14 +117,84 @@ class _ScannerPageState extends State<ScannerPage> {
   }
 
   void _analyzeHealth() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Health analysis feature coming soon")),
-    );
+    _showTopNotification("Health analysis feature coming soon");
   }
 
   void _logData() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Data logging feature coming soon")),
+    _showTopNotification("Data logging feature coming soon");
+  }
+
+  void _showTopNotification(String message) {
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'notification',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted && Navigator.of(context, rootNavigator: true).canPop()) {
+            Navigator.of(context, rootNavigator: true).pop();
+          }
+        });
+
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: darkGreen.withOpacity(0.94),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: caribbeanGreen.withOpacity(0.35)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.35),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.notifications_active, color: caribbeanGreen, size: 20),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          message,
+                          style: const TextStyle(
+                            color: antiFlashWhite,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, -0.2),
+            end: Offset.zero,
+          ).animate(curved),
+          child: FadeTransition(
+            opacity: curved,
+            child: child,
+          ),
+        );
+      },
     );
   }
 
@@ -153,4 +223,3 @@ class _ScannerPageState extends State<ScannerPage> {
     );
   }
 }
-

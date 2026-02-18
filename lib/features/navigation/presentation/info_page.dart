@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'app_header.dart';
 
 // Import the color constants
 const Color caribbeanGreen = Color(0xFF00DF81);
@@ -13,46 +14,52 @@ class InfoPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("About MangroveGuard"),
-        centerTitle: true,
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        foregroundColor: antiFlashWhite,
-      ),
+      appBar: buildAppHeader("About MangroveGuard"),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 110),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildSection(
               title: "About Mangroves",
-              content: "Mangroves are vital coastal ecosystems that protect shorelines from erosion, storm surges, and flooding. They sequester carbon at rates 4 times higher than tropical rainforests, making them crucial for climate change mitigation. Mangroves provide habitats for diverse marine life and support coastal communities worldwide.",
+              content: "Mangroves are critical coastal ecosystems that reduce erosion, absorb storm surge impact, and support marine biodiversity. Protecting mangroves directly improves shoreline resilience and community safety.",
               icon: Icons.eco,
             ),
             const SizedBox(height: 30),
             _buildSection(
               title: "MangroveGuard App",
-              content: "MangroveGuard uses advanced AI technology to assess mangrove tree health. Our YOLOv10-Nano model, combined with ARCore integration, enables precise health measurements directly on your mobile device. This tool helps researchers, conservationists, and communities monitor mangrove ecosystems effectively.",
+              content: "MangroveGuard is an optimized computer vision tool for mangrove stability assessment. It automates field assessment using AI and is designed to run well even on mid-range mobile hardware.",
               icon: Icons.auto_awesome,
             ),
             const SizedBox(height: 30),
             _buildSection(
-              title: "How It Works",
-              content: "1. Use the Scan tab to capture mangrove trees with your camera.\n2. Our AI analyzes tree structure, leaf density, and health indicators.\n3. Receive instant health scores and recommendations.\n4. Contribute to global mangrove conservation efforts.",
+              title: "Core Capabilities",
+              content: "1. Real-time root quantification using YOLOv8-Nano (Quantized).\n2. Stability indexing to produce a structural resilience score.\n3. Offline-first operation with on-device inference via LiteRT.\n4. Educational modules for conservation context and responsible data use.",
               icon: Icons.center_focus_strong,
             ),
             const SizedBox(height: 30),
             _buildSection(
-              title: "Privacy & Data",
-              content: "We prioritize your privacy. Location data is used solely for ecological research and is never shared with third parties. All processing happens on-device where possible, ensuring your data stays secure.",
+              title: "Tech Stack",
+              content: "Framework: Flutter (Dart)\nAI Model: YOLOv8-Nano (Quantized)\nInference Engine: LiteRT (formerly TFLite)\nArchitecture: Clean Architecture (Data, Domain, Presentation)",
               icon: Icons.security,
             ),
             const SizedBox(height: 30),
             _buildSection(
-              title: "Get Involved",
-              content: "Join the mangrove conservation movement! Share your findings, participate in community monitoring programs, and help protect these vital ecosystems for future generations.",
+              title: "Privacy & Terms",
+              content: "MangroveGuard is designed for ecological research. Location data is used only to tag assessments and is not shared with third parties. Image processing is performed locally on-device and no images are uploaded to external servers.",
               icon: Icons.group,
+            ),
+            const SizedBox(height: 30),
+            _buildSection(
+              title: "Researchers",
+              content: "Ivan Kly B. Lamason - Lead Systems Architect & Project Coordinator\nDan Coby G. Tabao - Lead Systems Developer & Data Engineer\nElzen Rein Marco Maceda - UI/UX Designer & ML Specialist\nVincent N. Pensader - Solutions Engineer & Technical Writer",
+              icon: Icons.groups,
+            ),
+            const SizedBox(height: 30),
+            _buildSection(
+              title: "Co-Author / Adviser",
+              content: "Devine Grace Funcion, MSIT - Bachelor of Science in Information Technology",
+              icon: Icons.school,
             ),
           ],
         ),

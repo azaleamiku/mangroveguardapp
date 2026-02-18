@@ -43,6 +43,10 @@ class MangroveGuardApp extends StatelessWidget {
         appBarTheme: const AppBarTheme(
           backgroundColor: darkGreen,
           foregroundColor: antiFlashWhite,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
         ),
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
           backgroundColor: darkGreen,

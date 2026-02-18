@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../navigation/presentation/app_header.dart';
 import 'dashboard/mangrove_dashboard.dart';
 
 class HomePage extends StatelessWidget {
@@ -8,19 +9,9 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF021B1A),
-      appBar: AppBar(
-        title: const Text(
-          'MangroveGuard',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-          ),
-        ),
-        centerTitle: true,
-        backgroundColor: const Color(0xFF032221),
-        elevation: 0,
-      ),
+      appBar: buildAppHeader('MangroveGuard'),
       body: SafeArea(
+        bottom: false,
         child: MangroveDashboard(),
       ),
     );
