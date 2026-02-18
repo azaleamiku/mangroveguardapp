@@ -1,6 +1,6 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
-// Color constants
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
 const Color darkGreen = Color(0xFF032221);
@@ -13,35 +13,132 @@ class ScannerPage extends StatefulWidget {
   State<ScannerPage> createState() => _ScannerPageState();
 }
 
-class _ScannerPageState extends State<ScannerPage> {
-  bool isLoading = true;
+class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
+  CameraController? _cameraController;
+  List<CameraDescription> _cameras = [];
+  bool _isInitializing = true;
+  bool _isCapturing = false;
+  bool _isAnalyzing = false;
+  String? _cameraError;
 
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 1), () {
-      setState(() {
-        isLoading = false;
-      });
+    WidgetsBinding.instance.addObserver(this);
+    _initCamera();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    if (state == AppLifecycleState.inactive) {
+      controller.dispose();
+    } else if (state == AppLifecycleState.resumed) {
+      _initCamera();
+    }
+  }
+
+  Future<void> _initCamera() async {
+    setState(() {
+      _isInitializing = true;
+      _cameraError = null;
     });
+
+    try {
+      _cameras = await availableCameras();
+      if (_cameras.isEmpty) {
+        setState(() {
+          _cameraError = 'No camera available on this device.';
+          _isInitializing = false;
+        });
+        return;
+      }
+
+      final selectedCamera = _cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.back,
+        orElse: () => _cameras.first,
+      );
+
+      final controller = CameraController(
+        selectedCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.yuv420,
+      );
+
+      await controller.initialize();
+
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      await _cameraController?.dispose();
+      _cameraController = controller;
+      setState(() => _isInitializing = false);
+    } on CameraException catch (e) {
+      setState(() {
+        _cameraError = 'Camera error: ${e.description ?? e.code}';
+        _isInitializing = false;
+      });
+    } catch (_) {
+      setState(() {
+        _cameraError = 'Unable to initialize camera.';
+        _isInitializing = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return Scaffold(
+    if (_isInitializing) {
+      return const Scaffold(
         backgroundColor: richBlack,
-        body: const Center(
+        body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               CircularProgressIndicator(color: caribbeanGreen),
               SizedBox(height: 20),
               Text(
-                "Initializing Scanner...",
+                'Initializing Scanner...',
                 style: TextStyle(color: antiFlashWhite, fontSize: 16),
               ),
             ],
+          ),
+        ),
+      );
+    }
+
+    if (_cameraError != null) {
+      return Scaffold(
+        backgroundColor: richBlack,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.videocam_off, color: Colors.redAccent, size: 36),
+                const SizedBox(height: 12),
+                Text(_cameraError!, style: const TextStyle(color: antiFlashWhite)),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: _initCamera,
+                  style: ElevatedButton.styleFrom(backgroundColor: caribbeanGreen),
+                  child: const Text('Retry', style: TextStyle(color: richBlack)),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -51,19 +148,7 @@ class _ScannerPageState extends State<ScannerPage> {
       backgroundColor: richBlack,
       body: Stack(
         children: [
-          // Camera Placeholder
-          Container(
-            color: Colors.black,
-            child: const Center(
-              child: Text(
-                "Camera Feed\n(Point at mangrove tree)",
-                style: TextStyle(color: Colors.white, fontSize: 18),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-
-          // Overlay UI
+          Positioned.fill(child: _buildCameraPreview()),
           Positioned(
             top: 50,
             left: 20,
@@ -71,19 +156,17 @@ class _ScannerPageState extends State<ScannerPage> {
             child: Container(
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
-                color: darkGreen.withOpacity(0.8),
+                color: darkGreen.withValues(alpha: 0.8),
                 borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: caribbeanGreen.withOpacity(0.3)),
+                border: Border.all(color: caribbeanGreen.withValues(alpha: 0.3)),
               ),
               child: const Text(
-                "Point camera at mangrove tree to analyze health",
+                'Point camera at mangrove tree to analyze health',
                 style: TextStyle(color: antiFlashWhite, fontSize: 14),
                 textAlign: TextAlign.center,
               ),
             ),
           ),
-
-          // Floating Action Bar for Field Tools
           Positioned(
             bottom: 110,
             left: 20,
@@ -91,12 +174,12 @@ class _ScannerPageState extends State<ScannerPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 15),
               decoration: BoxDecoration(
-                color: darkGreen.withOpacity(0.9),
+                color: darkGreen.withValues(alpha: 0.9),
                 borderRadius: BorderRadius.circular(25),
-                border: Border.all(color: caribbeanGreen.withOpacity(0.3)),
+                border: Border.all(color: caribbeanGreen.withValues(alpha: 0.3)),
                 boxShadow: [
                   BoxShadow(
-                    color: caribbeanGreen.withOpacity(0.2),
+                    color: caribbeanGreen.withValues(alpha: 0.2),
                     blurRadius: 10,
                     spreadRadius: 2,
                   ),
@@ -105,8 +188,8 @@ class _ScannerPageState extends State<ScannerPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _scannerAction(Icons.psychology, "Analyze Health", _analyzeHealth),
-                  _scannerAction(Icons.save, "Log Data", _logData),
+                  _scannerAction(Icons.camera_alt, _isCapturing ? 'Capturing...' : 'Capture', _capturePhoto, disabled: _isCapturing),
+                  _scannerAction(Icons.psychology, _isAnalyzing ? 'Analyzing...' : 'Analyze', _analyzeHealth, disabled: _isAnalyzing),
                 ],
               ),
             ),
@@ -116,12 +199,51 @@ class _ScannerPageState extends State<ScannerPage> {
     );
   }
 
-  void _analyzeHealth() {
-    _showTopNotification("Health analysis feature coming soon");
+  Widget _buildCameraPreview() {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      return const ColoredBox(color: Colors.black);
+    }
+
+    return ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.center,
+        child: FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(
+            width: controller.value.previewSize!.height,
+            height: controller.value.previewSize!.width,
+            child: CameraPreview(controller),
+          ),
+        ),
+      ),
+    );
   }
 
-  void _logData() {
-    _showTopNotification("Data logging feature coming soon");
+  Future<void> _capturePhoto() async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized || _isCapturing) return;
+
+    setState(() => _isCapturing = true);
+    try {
+      final file = await controller.takePicture();
+      if (!mounted) return;
+      _showTopNotification('Photo captured: ${file.name}');
+    } on CameraException catch (e) {
+      if (!mounted) return;
+      _showTopNotification('Capture failed: ${e.description ?? e.code}');
+    } finally {
+      if (mounted) setState(() => _isCapturing = false);
+    }
+  }
+
+  Future<void> _analyzeHealth() async {
+    if (_isAnalyzing) return;
+    setState(() => _isAnalyzing = true);
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    _showTopNotification('Health analysis pipeline ready for model integration.');
+    setState(() => _isAnalyzing = false);
   }
 
   void _showTopNotification(String message) {
@@ -148,12 +270,12 @@ class _ScannerPageState extends State<ScannerPage> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: darkGreen.withOpacity(0.94),
+                    color: darkGreen.withValues(alpha: 0.94),
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: caribbeanGreen.withOpacity(0.35)),
+                    border: Border.all(color: caribbeanGreen.withValues(alpha: 0.35)),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.35),
+                        color: Colors.black.withValues(alpha: 0.35),
                         blurRadius: 14,
                         offset: const Offset(0, 6),
                       ),
@@ -198,27 +320,30 @@ class _ScannerPageState extends State<ScannerPage> {
     );
   }
 
-  Widget _scannerAction(IconData icon, String label, VoidCallback onTap) {
+  Widget _scannerAction(IconData icon, String label, VoidCallback onTap, {bool disabled = false}) {
     return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: caribbeanGreen.withOpacity(0.2),
-              border: Border.all(color: caribbeanGreen.withOpacity(0.5)),
+      onTap: disabled ? null : onTap,
+      child: Opacity(
+        opacity: disabled ? 0.6 : 1,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: caribbeanGreen.withValues(alpha: 0.2),
+                border: Border.all(color: caribbeanGreen.withValues(alpha: 0.5)),
+              ),
+              child: Icon(icon, color: caribbeanGreen, size: 24),
             ),
-            child: Icon(icon, color: caribbeanGreen, size: 24),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            label,
-            style: const TextStyle(color: antiFlashWhite, fontSize: 10),
-          ),
-        ],
+            const SizedBox(height: 5),
+            Text(
+              label,
+              style: const TextStyle(color: antiFlashWhite, fontSize: 10),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>MangroveGuard uses the camera to scan mangrove trees for health and resilience analysis.</string>
 </dict>
 </plist>

@@ -27,25 +27,45 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
   int? selectedRadarIndex;
   Offset? tooltipPosition;
 
-  double get score {
+  double get structuralScore {
     final structural = (anchorHigh * 100) + (anchorLow * 60) - (erosion * 50) - (damage * 90);
-    final multiplier = 1.0 - necrosis;
-    final finalScore = structural * multiplier;
+    return math.min(math.max(structural, 0), 100);
+  }
+
+  double get healthScore {
+    final health = (1 - necrosis) * 100;
+    return math.min(math.max(health, 0), 100);
+  }
+
+  double get resilienceIndex {
+    final finalScore = structuralScore * (healthScore / 100);
     return math.min(math.max(finalScore, 0), 100);
   }
 
-  Color getStatusColor(double s) {
-    if (s >= 75) return caribbeanGreen;
-    if (s >= 50) return const Color(0xFFEAB308);
+  double get mangroveTreeConfidence {
+    final confidence = (anchorHigh + (1 - erosion) + (1 - damage) + (1 - necrosis)) / 4;
+    return confidence.clamp(0, 1).toDouble();
+  }
+
+  Color getStatusColor(double ri) {
+    if (ri >= 71) return caribbeanGreen;
+    if (ri >= 41) return const Color(0xFFEAB308);
     return const Color(0xFFEF4444);
   }
 
   List<Map<String, dynamic>> get radarAxes => [
-    {'label': 'Anchoring', 'value': anchorHigh * 100, 'desc': 'Density of stilt/prop roots.'},
-    {'label': 'Integrity', 'value': (1 - damage) * 100, 'desc': 'Freedom from trunk fractures.'},
-    {'label': 'Soil Grip', 'value': (1 - erosion) * 100, 'desc': 'Foundation depth vs scour.'},
-    {'label': 'Vigor', 'value': (1 - necrosis) * 100, 'desc': 'Chlorophyll/health of canopy.'},
-    {'label': 'Redundancy', 'value': 80.0, 'desc': 'Secondary root support systems.'},
+    {'label': 'Stability', 'value': structuralScore, 'desc': 'Physical strength and anchoring support (S).'},
+    {'label': 'Health', 'value': healthScore, 'desc': 'Canopy vitality and disease burden (H).'},
+    {'label': 'Resilience', 'value': resilienceIndex, 'desc': 'Final resilience index (RI).'},
+  ];
+
+  List<Map<String, dynamic>> get historicalScans => [
+    {'date': 'Sep', 's': 58.0, 'h': 49.0, 'ri': 28.4},
+    {'date': 'Oct', 's': 64.0, 'h': 56.0, 'ri': 35.8},
+    {'date': 'Nov', 's': 70.0, 'h': 63.0, 'ri': 44.1},
+    {'date': 'Dec', 's': 74.0, 'h': 71.0, 'ri': 52.5},
+    {'date': 'Jan', 's': 79.0, 'h': 84.0, 'ri': 66.4},
+    {'date': 'Feb', 's': structuralScore, 'h': healthScore, 'ri': resilienceIndex},
   ];
 
   Map<String, double> _polarToCartesian(double centerX, double centerY, double radius, double angleInDegrees) {
@@ -73,6 +93,8 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
             const SizedBox(height: 16),
             _buildBiomechanicalRadar(),
             const SizedBox(height: 16),
+            _buildLongitudinalTrendLines(),
+            const SizedBox(height: 16),
             _buildProbabilityBars(),
             const SizedBox(height: 16),
             _buildActionVerdict(),
@@ -87,38 +109,49 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
     return Row(
       children: [
         Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: darkGreen, borderRadius: BorderRadius.circular(16), border: Border.all(color: bangladeshGreen)),
-            child: Column(
-              children: [
-                const Icon(Icons.bar_chart, size: 16, color: Color(0xFF34D399)),
-                const SizedBox(height: 4),
-                const Text('MONITORING LOG', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: antiFlashWhite)),
-                Text('#${totalTreesAssessed + 1}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: caribbeanGreen)),
-              ],
+          child: SizedBox(
+            height: 120,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: darkGreen, borderRadius: BorderRadius.circular(16), border: Border.all(color: bangladeshGreen)),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.bar_chart, size: 16, color: Color(0xFF34D399)),
+                  const SizedBox(height: 4),
+                  const Text('MONITORING LOG', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: antiFlashWhite)),
+                  Text('#${totalTreesAssessed + 1}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: caribbeanGreen)),
+                ],
+              ),
             ),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: darkGreen, borderRadius: BorderRadius.circular(16), border: Border.all(color: bangladeshGreen)),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: isHighTide ? Colors.blue.withValues(alpha: 0.2) : Colors.green.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(isHighTide ? 'SUBMERGED' : 'OPTIMAL VISIBILITY', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: isHighTide ? Colors.blue : Colors.green)),
+          child: SizedBox(
+            height: 120,
+            child: GestureDetector(
+              onTap: () => setState(() => isHighTide = !isHighTide),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: darkGreen, borderRadius: BorderRadius.circular(16), border: Border.all(color: bangladeshGreen)),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isHighTide ? Colors.blue.withValues(alpha: 0.2) : Colors.green.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(isHighTide ? 'SUBMERGED' : 'OPTIMAL VISIBILITY', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: isHighTide ? Colors.blue : Colors.green)),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text('TIDAL CONTEXT', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: antiFlashWhite)),
+                    Text(isHighTide ? 'High Tide' : 'Low Tide', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: caribbeanGreen)),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                const Text('TIDAL CONTEXT', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: antiFlashWhite)),
-                Text(isHighTide ? 'High Tide' : 'Low Tide', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: caribbeanGreen)),
-              ],
+              ),
             ),
           ),
         ),
@@ -141,7 +174,7 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
                 const Row(children: [
                   Icon(Icons.bolt, size: 16, color: caribbeanGreen),
                   SizedBox(width: 8),
-                  Text('STABILITY SCORE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 3, color: antiFlashWhite)),
+                  Text('RESILIENCE GAUGE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 3, color: antiFlashWhite)),
                 ]),
                 Icon(activeTab == 'score' ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 16, color: antiFlashWhite.withValues(alpha: 0.4)),
               ],
@@ -157,13 +190,13 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
                     angle: -math.pi / 2,
                     child: CustomPaint(
                       size: const Size(200, 200),
-                      painter: _CircularProgressPainter(progress: score / 100, progressColor: getStatusColor(score), backgroundColor: bangladeshGreen.withValues(alpha: 0.3), strokeWidth: 16),
+                      painter: _CircularProgressPainter(progress: resilienceIndex / 100, progressColor: getStatusColor(resilienceIndex), backgroundColor: bangladeshGreen.withValues(alpha: 0.3), strokeWidth: 16),
                     ),
                   ),
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(score.toStringAsFixed(0), style: TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: getStatusColor(score))),
+                      Text(resilienceIndex.toStringAsFixed(0), style: TextStyle(fontSize: 56, fontWeight: FontWeight.w900, color: getStatusColor(resilienceIndex))),
                       const Text('RESILIENCE INDEX', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: antiFlashWhite)),
                     ],
                   ),
@@ -181,12 +214,12 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
                     const Row(children: [
                       Icon(Icons.info_outline, size: 12, color: Color(0xFF34D399)),
                       SizedBox(width: 6),
-                      Text('CALCULATION FORMULA', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: Color(0xFF34D399))),
+                      Text('RI BANDS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: Color(0xFF34D399))),
                     ]),
                     const SizedBox(height: 8),
-                    Text('RI = ((AnchorHigh × 1.0) + (AnchorLow × 0.6) - (Scour × 0.5) - (Damage × 0.9)) × (1.0 - Necrosis)', style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: antiFlashWhite.withValues(alpha: 0.7))),
+                    Text('0-40: Critical Risk  |  41-70: Vulnerable  |  71-100: Resilient', style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: antiFlashWhite.withValues(alpha: 0.7))),
                     const SizedBox(height: 8),
-                    Text('Weights derived from LNU Capstone Biomechanical Study (2026).', style: TextStyle(fontSize: 9, fontStyle: FontStyle.italic, color: antiFlashWhite.withValues(alpha: 0.4))),
+                    Text('RI combines physical stability (S) and biological vitality (H).', style: TextStyle(fontSize: 9, fontStyle: FontStyle.italic, color: antiFlashWhite.withValues(alpha: 0.4))),
                   ],
                 ),
               ),
@@ -210,9 +243,9 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Row(children: [
-                  Icon(Icons.track_changes, size: 16, color: caribbeanGreen),
+                  Icon(Icons.radar, size: 16, color: caribbeanGreen),
                   SizedBox(width: 8),
-                  Text('BIOMECHANICAL DISTRIBUTION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: antiFlashWhite)),
+                  Text('COMPARISON RADAR (S VS H)', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5, color: antiFlashWhite)),
                 ]),
                 Icon(activeTab == 'radar' ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 16, color: antiFlashWhite.withValues(alpha: 0.4)),
               ],
@@ -235,7 +268,7 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
                             onTapDown: (details) => _handleRadarTap(details, size),
                             child: CustomPaint(
                               size: Size(size, size),
-                              painter: _PentagonRadarChartPainter(axes: radarAxes, selectedIndex: selectedRadarIndex, gridColor: bangladeshGreen, fillColor: caribbeanGreen, lineColor: caribbeanGreen),
+                              painter: _RadarChartPainter(axes: radarAxes, selectedIndex: selectedRadarIndex, gridColor: bangladeshGreen, fillColor: caribbeanGreen, lineColor: caribbeanGreen),
                             ),
                           ),
                           if (selectedRadarIndex != null && tooltipPosition != null)
@@ -262,6 +295,8 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
             ),
             const SizedBox(height: 4),
             Text(selectedRadarIndex != null ? 'Tap another point to see different value' : 'Tap on a data point to see its value', style: TextStyle(fontSize: 9, color: antiFlashWhite.withValues(alpha: 0.4))),
+            const SizedBox(height: 8),
+            Text('Shape guide: wider toward Stability = strong roots but stressed canopy. Wider toward Health = healthy canopy but weak support.', style: TextStyle(fontSize: 9, color: antiFlashWhite.withValues(alpha: 0.5))),
             if (activeTab == 'radar') ...[
               const SizedBox(height: 16),
               Container(
@@ -304,6 +339,51 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
         tooltipPosition = details.localPosition;
       }
     });
+  }
+
+  Widget _buildLongitudinalTrendLines() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: darkGreen, borderRadius: BorderRadius.circular(24), border: Border.all(color: bangladeshGreen)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(children: [
+            Icon(Icons.show_chart, size: 16, color: caribbeanGreen),
+            SizedBox(width: 8),
+            Text('LONGITUDINAL TREND LINES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2, color: antiFlashWhite)),
+          ]),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 170,
+            width: double.infinity,
+            child: CustomPaint(painter: _TrendLinesPainter(data: historicalScans, gridColor: bangladeshGreen, stabilityColor: const Color(0xFF22C55E), healthColor: const Color(0xFFEAB308), resilienceColor: const Color(0xFF38BDF8))),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _buildLegendChip('Stability', const Color(0xFF22C55E)),
+              const SizedBox(width: 8),
+              _buildLegendChip('Health', const Color(0xFFEAB308)),
+              const SizedBox(width: 8),
+              _buildLegendChip('Resilience Index', const Color(0xFF38BDF8), bold: true),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegendChip(String label, Color color, {bool bold = false}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.25), borderRadius: BorderRadius.circular(999), border: Border.all(color: color.withValues(alpha: 0.6))),
+      child: Row(children: [
+        Container(width: bold ? 10 : 8, height: bold ? 10 : 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 6),
+        Text(label, style: TextStyle(fontSize: 9, fontWeight: bold ? FontWeight.w900 : FontWeight.w700, color: antiFlashWhite)),
+      ]),
+    );
   }
 
   Widget _buildRadarDetailRow({required int index, required String label, required double value, required String desc}) {
@@ -358,14 +438,10 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
             Text('AI CLASS PROBABILITIES', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2, color: antiFlashWhite)),
           ]),
           const SizedBox(height: 20),
-          _buildProbabilityBar(label: 'High Root Density', value: anchorHigh, color: caribbeanGreen),
-          _buildProbabilityBar(label: 'Low Root Density', value: anchorLow, color: const Color(0xFFEAB308)),
-          const SizedBox(height: 16),
-          Divider(color: Colors.white.withValues(alpha: 0.05)),
-          const SizedBox(height: 16),
-          _buildProbabilityBar(label: 'Substrate Scour', value: erosion, color: const Color(0xFFEF4444), isNegative: true),
-          _buildProbabilityBar(label: 'Mechanical Damage', value: damage, color: const Color(0xFFDC2626), isNegative: true),
-          _buildProbabilityBar(label: 'Canopy Necrosis', value: necrosis, color: const Color(0xFFF97316), isNegative: true),
+          _buildProbabilityBar(label: 'Mangrove Tree', value: mangroveTreeConfidence, color: caribbeanGreen),
+          _buildProbabilityBar(label: 'PropRoot', value: anchorHigh, color: caribbeanGreen),
+          _buildProbabilityBar(label: 'Healthy Leaf', value: (1 - necrosis).clamp(0, 1).toDouble(), color: caribbeanGreen),
+          _buildProbabilityBar(label: 'Necrosis', value: necrosis, color: const Color(0xFFEF4444), isNegative: true),
         ],
       ),
     );
@@ -392,10 +468,10 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
   }
 
   Widget _buildActionVerdict() {
-    final isStable = score >= 75;
+    final isStable = resilienceIndex >= 71;
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: darkGreen, borderRadius: BorderRadius.circular(20), border: Border(left: BorderSide(color: getStatusColor(score), width: 4)), boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 2))]),
+      decoration: BoxDecoration(color: darkGreen, borderRadius: BorderRadius.circular(20), border: Border(left: BorderSide(color: getStatusColor(resilienceIndex), width: 4)), boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 2))]),
       child: Row(
         children: [
           Container(
@@ -404,7 +480,7 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
             child: isStable ? const Icon(Icons.shield, size: 20, color: caribbeanGreen) : const Icon(Icons.warning, size: 20, color: Color(0xFFEF4444)),
           ),
           const SizedBox(width: 12),
-          Expanded(child: Text(isStable ? 'Stability Confirmed: Optimal structural lock for storm surges.' : 'Structural Alert: Potential foundation/trunk failure imminent.', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5, color: antiFlashWhite.withValues(alpha: 0.8)))),
+          Expanded(child: Text(isStable ? 'Resilient: high anchoring density and healthy canopy.' : 'Critical/Vulnerable: inspect weak anchoring zones and disease stress.', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5, color: antiFlashWhite.withValues(alpha: 0.8)))),
         ],
       ),
     );
@@ -430,20 +506,20 @@ class _CircularProgressPainter extends CustomPainter {
   bool shouldRepaint(covariant _CircularProgressPainter oldDelegate) => oldDelegate.progress != progress || oldDelegate.progressColor != progressColor;
 }
 
-class _PentagonRadarChartPainter extends CustomPainter {
+class _RadarChartPainter extends CustomPainter {
   final List<Map<String, dynamic>> axes;
   final int? selectedIndex;
   final Color gridColor;
   final Color fillColor;
   final Color lineColor;
-  _PentagonRadarChartPainter({required this.axes, this.selectedIndex, required this.gridColor, required this.fillColor, required this.lineColor});
+  _RadarChartPainter({required this.axes, this.selectedIndex, required this.gridColor, required this.fillColor, required this.lineColor});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2 - 20;
     final gridPaint = Paint()..color = gridColor.withValues(alpha: 0.2)..strokeWidth = 1..style = PaintingStyle.stroke;
-    for (final m in [0.2, 0.4, 0.6, 0.8, 1.0]) _drawPentagon(canvas, center, radius * m, gridPaint);
+    for (final m in [0.2, 0.4, 0.6, 0.8, 1.0]) _drawPolygon(canvas, center, radius * m, gridPaint, axes.length);
     final axisPaint = Paint()..color = gridColor.withValues(alpha: 0.2)..strokeWidth = 1;
     for (var i = 0; i < axes.length; i++) {
       final angle = i * (360 / axes.length) - 90;
@@ -478,10 +554,10 @@ class _PentagonRadarChartPainter extends CustomPainter {
     return Offset(centerX + (radius * math.cos(angleInRadians)), centerY + (radius * math.sin(angleInRadians)));
   }
 
-  void _drawPentagon(Canvas canvas, Offset center, double radius, Paint paint) {
+  void _drawPolygon(Canvas canvas, Offset center, double radius, Paint paint, int sides) {
     final path = Path();
-    for (var i = 0; i < 5; i++) {
-      final angle = i * 72.0 - 90.0;
+    for (var i = 0; i < sides; i++) {
+      final angle = i * (360 / sides) - 90.0;
       final point = _polarToCartesian(center.dx, center.dy, radius, angle);
       if (i == 0) { path.moveTo(point.dx, point.dy); } else { path.lineTo(point.dx, point.dy); }
     }
@@ -490,5 +566,49 @@ class _PentagonRadarChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _PentagonRadarChartPainter oldDelegate) => oldDelegate.selectedIndex != selectedIndex || oldDelegate.axes != axes;
+  bool shouldRepaint(covariant _RadarChartPainter oldDelegate) => oldDelegate.selectedIndex != selectedIndex || oldDelegate.axes != axes;
+}
+
+class _TrendLinesPainter extends CustomPainter {
+  final List<Map<String, dynamic>> data;
+  final Color gridColor;
+  final Color stabilityColor;
+  final Color healthColor;
+  final Color resilienceColor;
+  _TrendLinesPainter({required this.data, required this.gridColor, required this.stabilityColor, required this.healthColor, required this.resilienceColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const pad = 20.0;
+    final w = size.width - (pad * 2);
+    final h = size.height - (pad * 2);
+    final origin = Offset(pad, pad);
+    final gridPaint = Paint()..color = gridColor.withValues(alpha: 0.25)..strokeWidth = 1;
+    for (int i = 0; i <= 5; i++) {
+      final y = origin.dy + (h * i / 5);
+      canvas.drawLine(Offset(origin.dx, y), Offset(origin.dx + w, y), gridPaint);
+    }
+    canvas.drawRect(Rect.fromLTWH(origin.dx, origin.dy, w, h), Paint()..color = Colors.transparent..style = PaintingStyle.stroke..strokeWidth = 1..color = gridColor.withValues(alpha: 0.4));
+
+    void drawLine(String key, Color color, {double stroke = 2}) {
+      final path = Path();
+      for (int i = 0; i < data.length; i++) {
+        final x = origin.dx + (w * i / (data.length - 1));
+        final y = origin.dy + h - ((data[i][key] as double) / 100 * h);
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(path, Paint()..color = color..style = PaintingStyle.stroke..strokeWidth = stroke..strokeCap = StrokeCap.round);
+    }
+
+    drawLine('s', stabilityColor, stroke: 2);
+    drawLine('h', healthColor, stroke: 2);
+    drawLine('ri', resilienceColor, stroke: 3.5);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TrendLinesPainter oldDelegate) => oldDelegate.data != data;
 }

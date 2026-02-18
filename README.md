@@ -20,93 +20,103 @@ MangroveGuard is a mobile application designed to automate the assessment of man
 | Inference Engine   | LiteRT (formerly TFLite)            |
 | Architecture       | Clean Architecture (Data, Domain, Presentation) |
 
-## MSRI System
+## Calculation Framework (From Calculations.pdf)
 
-**Mangrove Structural Resilience Index (MSRI)**
+### 1. AI Class Definitions
 
-A YOLOv8-Nano Classification Framework for Coastal Protection
+The model is trained on four mask classes:
 
-### 1. Dataset Architecture
+| Class ID | Name | Role |
+|---|---|---|
+| 0 | `mangrove_tree` | Parent mask: defines the Area of Interest (AOI) |
+| 1 | `prop_root` | Child mask: structural anchoring calculations |
+| 2 | `leaf_healthy` | Child mask: baseline biological health |
+| 3 | `necrosis` | Child mask: disease/stress indicator |
 
-To train the YOLOv8-Nano model, the dataset must be organized into five distinct classification categories based on botanical biomechanics.
+### 2. Mathematical Ledger
 
-| Class Folder Name | Visual Indicators | Scientific Significance |
-|-------------------|--------------------|--------------------------|
-| Structural_Anchor_High | Dense, interlocking prop roots or thick pneumatophore matrices. | **Maximum Anchoring**: High root density increases shear strength and sediment binding. |
-| Structural_Anchor_Low | Sparse, thin, or singular root systems; mostly visible mud. | **Vulnerability**: Minimum stability required to stand; zero redundancy against surge. |
-| Erosional_Stress | Scoured mud, hollows under the trunk, roots hanging in the air. | **Foundation Failure**: Loss of substrate grip; the "lever arm" of the tree is compromised. |
-| Mechanical_Damage | Snapped trunks, fractures, or leaning angles $>30^\circ$. | **Critical Failure**: Irreversible loss of wood integrity and load-bearing capacity. |
-| Canopy_Necrosis | Yellowing, brown, or falling leaves (defoliation). | **Biological Vigor**: Indicator of recovery potential and root-cell health. |
+#### Phase A: Structural Integrity (Root Scan)
 
-### 2. The Biomechanical Scoring Engine
+1. Anchor Zone (`P_anchor`), lower 30% of `mangrove_tree`:
 
-The system uses a Weighted Additive Model with a Biological Multiplier. The weights are assigned based on the hierarchy of structural importance.
+$$P_{anchor} = \sum \text{pixels} \in [y_{base}, y_{base} - 0.3H_{tree}]$$
 
-**The Formula**
+2. Tidal Correction Factor (`γ`):
+- Low Tide: `γ = 1.0` (full visibility)
+- Mid Tide: `γ = 1.4` (obscured lower roots correction)
+- High Tide: invalid scan (blocked by UI)
 
-$$RI = \left[ (P_{HA} \times 100) + (P_{LA} \times 60) - (P_{ES} \times 50) - (P_{MD} \times 90) \right] \times (1.0 - P_{CN})$$
+3. Root Density:
 
-Where:
+$$D_r = \left( \frac{P_{root}}{P_{anchor}} \right) \times \gamma$$
 
-- $P$ = Probability (0.0 - 1.0) provided by YOLOv8-Nano.
-- **100** (High Anchor): The "Gold Standard" of resilience.
-- **60** (Low Anchor): The baseline for survival.
-- **-50** (Erosion): A penalty for a failing foundation.
-- **-90** (Damage): A heavy penalty for a broken pillar (trunk).
-- **Multiplier** (1.0 - Necrosis): Voids the score if the tree is dead/dying (dead wood rots).
+4. Normalized Stability:
 
-### 3. The "Safe Zone" Threshold
+$$S = \min\left(100, \left( \frac{D_r}{0.60} \right) \times 100\right)$$
 
-Based on structural engineering principles, we define the Safety Threshold for storm resilience:
+#### Phase B: Biological Health (Canopy Scan)
 
-| Resilience Score | Safety Rating | Storm Impact Prediction |
-|-----------------|---------------|------------------------|
-| 85% - 100% | Optimal | Likely to survive category 4+ winds; will trap sediment and protect the inland area. |
-| 75% - 84% | Safe | High chance of survival; might lose some branches but the "Anchor" will hold. |
-| 50% - 74% | Warning | At risk of "Windthrow" (uprooting). The foundation is too weak for high surge. |
-| Below 50% | Critical | Highly likely to fail. These trees may become "debris" that hits other trees. |
+1. Total Leaf Area:
 
-### 4. Flutter Implementation (Inference Logic)
+$$P_{leaf\_all} = \sum \text{pixels}_{Class\ 2} + \sum \text{pixels}_{Class\ 3}$$
 
-The following logic processes the AI results using a Map to manage probabilities and `.clamp()` to ensure UI stability.
+2. Necrosis Index:
+
+$$NI = \frac{\sum \text{pixels}_{Class\ 3}}{P_{leaf\_all}}$$
+
+3. Normalized Health:
+
+$$H = (1 - NI) \times 100$$
+
+#### Phase C: Final Resilience Score
+
+$$RI = (S \times 0.70) + (H \times 0.30)$$
+
+### 3. Data Visualization Strategy
+
+- **Resilience Gauge**: Radial/Donut gauge for `RI` (0–100)
+  - Red (0–40): Critical Risk
+  - Yellow (41–70): Vulnerable
+  - Green (71–100): Resilient
+- **Comparison Radar Chart**: Balance between `S` and `H`
+- **Longitudinal Trend Lines**: Tracks `S`, `H`, and `RI` over time
+
+### 4. Flutter Implementation Architecture
+
+#### Required Plugins
+
+- `ultralytics_yolo` (AI inference)
+- `geolocator` (GPS coordinates for tide queries)
+- `http` (real-time tide API integration)
+- `fl_chart` (data visualizations)
+
+#### Tidal Validation Logic
 
 ```dart
-// Logic for calculating Resilience Index
-double calculateResilience(Map<String, double> results) {
-  // Extract probabilities from YOLO Map
-  double pHA = results['Structural_Anchor_High'] ?? 0.0;
-  double pLA = results['Structural_Anchor_Low'] ?? 0.0;
-  double pES = results['Erosional_Stress'] ?? 0.0;
-  double pMD = results['Mechanical_Damage'] ?? 0.0;
-  double pCN = results['Canopy_Necrosis'] ?? 0.0;
+Future<bool> isTideAcceptable() async {
+  Position pos = await Geolocator.getCurrentPosition();
+  double waterLevel = await TideAPI.getLevel(pos.latitude, pos.longitude);
 
-  // 1. Calculate base structural score
-  double structuralScore = (pHA * 100) + (pLA * 60) - (pES * 50) - (pMD * 90);
-
-  // 2. Apply Biological Multiplier (Vigor)
-  double finalScore = structuralScore * (1.0 - pCN);
-
-  // 3. Use .clamp to keep score between 0 and 100
-  return finalScore.clamp(0.0, 100.0);
+  if (waterLevel > thresholdHigh) {
+    return false; // Show "High Tide Warning" UI
+  }
+  return true;
 }
 ```
 
-### 5. Field Data Collection Protocol
+#### System State Logic
 
-To ensure the "Best Result" in classification accuracy, follow these rules:
+1. Tidal check via GPS/API before scan.
+2. Identification state: detect `mangrove_tree`.
+3. Root scanning state: apply `γ` correction to `P_root`.
+4. Canopy scanning state: evaluate leaf pixels.
+5. Final state: display `RI` with a tidal confidence tag.
 
-- **Low Tide Only**: Photos for Erosional_Stress and Root_Density are invalid if submerged. The "Mud-to-Root" relationship must be visible.
-- **Angle of Attack**: Eye-level (1.5m), 2–4 meters distance.
-- **The "Trunk-Root" Junction**: Ensure the photo captures where the trunk meets the roots; this is the primary point of mechanical failure.
-- **No High Tide Photos**: High tide creates reflections and hides foundation scours, leading to false "Safe" readings.
+### 5. Field Data Constraints
 
-### 6. Visualization Strategy
-
-The app should not just show a number; it must explain the Reality of the data:
-
-- **Resilience Gauge**: A color-coded progress bar (Red/Yellow/Green).
-- **Feature Breakdown**: A bar chart showing which penalty (Erosion vs Damage) lowered the score.
-- **Safety Verdict**: A text summary (e.g., "High Root Density detected; the tree is an Elite Protector").
+- Best collection window: ±2 hours from lowest tide
+- Recommended scan distance: ~1.5m
+- Avoid harsh midday hotspot lighting
 
 ## Project Structure
 
@@ -178,4 +188,3 @@ MangroveGuard is designed for ecological research. By using this tool:
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
