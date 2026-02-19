@@ -68,6 +68,27 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
     {'date': 'Feb', 's': structuralScore, 'h': healthScore, 'ri': resilienceIndex},
   ];
 
+  List<Map<String, dynamic>> get necrosisHistory => [
+    {'date': 'Sep', 'n': 0.24},
+    {'date': 'Oct', 'n': 0.20},
+    {'date': 'Nov', 'n': 0.17},
+    {'date': 'Dec', 'n': 0.14},
+    {'date': 'Jan', 'n': 0.11},
+    {'date': 'Feb', 'n': necrosis},
+  ];
+
+  String get necrosisStatus {
+    if (necrosis <= 0.10) return 'Low';
+    if (necrosis <= 0.25) return 'Moderate';
+    return 'Severe';
+  }
+
+  Color get necrosisStatusColor {
+    if (necrosis <= 0.10) return caribbeanGreen;
+    if (necrosis <= 0.25) return const Color(0xFFEAB308);
+    return const Color(0xFFEF4444);
+  }
+
   Map<String, double> _polarToCartesian(double centerX, double centerY, double radius, double angleInDegrees) {
     final angleInRadians = (angleInDegrees - 90) * math.pi / 180.0;
     return {'x': centerX + (radius * math.cos(angleInRadians)), 'y': centerY + (radius * math.sin(angleInRadians))};
@@ -94,6 +115,8 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
             _buildBiomechanicalRadar(),
             const SizedBox(height: 16),
             _buildLongitudinalTrendLines(),
+            const SizedBox(height: 16),
+            _buildDynamicNecrosisCard(),
             const SizedBox(height: 16),
             _buildProbabilityBars(),
             const SizedBox(height: 16),
@@ -374,6 +397,52 @@ class _MangroveDashboardState extends State<MangroveDashboard> {
     );
   }
 
+  Widget _buildDynamicNecrosisCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: darkGreen, borderRadius: BorderRadius.circular(24), border: Border.all(color: bangladeshGreen)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.monitor_heart, size: 16, color: caribbeanGreen),
+                  SizedBox(width: 8),
+                  Text('DYNAMIC NECROSIS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.8, color: antiFlashWhite)),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: necrosisStatusColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(999), border: Border.all(color: necrosisStatusColor.withValues(alpha: 0.55))),
+                child: Text(necrosisStatus.toUpperCase(), style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: necrosisStatusColor)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 130,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _NecrosisTrendPainter(
+                data: necrosisHistory,
+                gridColor: bangladeshGreen,
+                lineColor: const Color(0xFFEF4444),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Current necrosis: ${(necrosis * 100).toStringAsFixed(1)}% of canopy',
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: antiFlashWhite.withValues(alpha: 0.75)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLegendChip(String label, Color color, {bool bold = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -611,4 +680,48 @@ class _TrendLinesPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TrendLinesPainter oldDelegate) => oldDelegate.data != data;
+}
+
+class _NecrosisTrendPainter extends CustomPainter {
+  final List<Map<String, dynamic>> data;
+  final Color gridColor;
+  final Color lineColor;
+  _NecrosisTrendPainter({required this.data, required this.gridColor, required this.lineColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const pad = 16.0;
+    final w = size.width - (pad * 2);
+    final h = size.height - (pad * 2);
+    final origin = Offset(pad, pad);
+    final gridPaint = Paint()..color = gridColor.withValues(alpha: 0.25)..strokeWidth = 1;
+    for (int i = 0; i <= 4; i++) {
+      final y = origin.dy + (h * i / 4);
+      canvas.drawLine(Offset(origin.dx, y), Offset(origin.dx + w, y), gridPaint);
+    }
+
+    final trendPath = Path();
+    for (int i = 0; i < data.length; i++) {
+      final x = origin.dx + (w * i / (data.length - 1));
+      final n = (data[i]['n'] as double).clamp(0.0, 1.0);
+      final y = origin.dy + h - (n * h);
+      if (i == 0) {
+        trendPath.moveTo(x, y);
+      } else {
+        trendPath.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(trendPath, Paint()..color = lineColor..style = PaintingStyle.stroke..strokeWidth = 3..strokeCap = StrokeCap.round);
+
+    final dotPaint = Paint()..color = lineColor;
+    for (int i = 0; i < data.length; i++) {
+      final x = origin.dx + (w * i / (data.length - 1));
+      final n = (data[i]['n'] as double).clamp(0.0, 1.0);
+      final y = origin.dy + h - (n * h);
+      canvas.drawCircle(Offset(x, y), 3, dotPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _NecrosisTrendPainter oldDelegate) => oldDelegate.data != data || oldDelegate.lineColor != lineColor;
 }

@@ -20,7 +20,7 @@ MangroveGuard is a mobile application designed to automate the assessment of man
 | Inference Engine   | LiteRT (formerly TFLite)            |
 | Architecture       | Clean Architecture (Data, Domain, Presentation) |
 
-## Calculation Framework (From Calculations.pdf)
+## Calculation Framework (From Calculations-1.pdf)
 
 ### 1. AI Class Definitions
 
@@ -37,14 +37,16 @@ The model is trained on four mask classes:
 
 #### Phase A: Structural Integrity (Root Scan)
 
+Objective: Calculate Root Area Ratio (RAR) and Stability with tidal correction.
+
 1. Anchor Zone (`P_anchor`), lower 30% of `mangrove_tree`:
 
 $$P_{anchor} = \sum \text{pixels} \in [y_{base}, y_{base} - 0.3H_{tree}]$$
 
 2. Tidal Correction Factor (`γ`):
-- Low Tide: `γ = 1.0` (full visibility)
-- Mid Tide: `γ = 1.4` (obscured lower roots correction)
-- High Tide: invalid scan (blocked by UI)
+- Low Tide: `γ = 1.0`
+- Mid Tide: `γ = 1.4`
+- High Tide: `γ = INVALID` (scan blocked)
 
 3. Root Density:
 
@@ -54,69 +56,72 @@ $$D_r = \left( \frac{P_{root}}{P_{anchor}} \right) \times \gamma$$
 
 $$S = \min\left(100, \left( \frac{D_r}{0.60} \right) \times 100\right)$$
 
-#### Phase B: Biological Health (Canopy Scan)
+#### Phase B: Biological Health (Optional Canopy Scan)
 
-1. Total Leaf Area:
+Objective: Calculate Necrosis Index (NI) and Health. If canopy is inaccessible (e.g., tall trees), this phase is skipped.
 
-$$P_{leaf\_all} = \sum \text{pixels}_{Class\ 2} + \sum \text{pixels}_{Class\ 3}$$
+1. Necrosis Index:
 
-2. Necrosis Index:
+$$NI = \frac{\sum \text{pixels}_{Class\ 3}}{\sum \text{pixels}_{Class\ 2} + \sum \text{pixels}_{Class\ 3}}$$
 
-$$NI = \frac{\sum \text{pixels}_{Class\ 3}}{P_{leaf\_all}}$$
-
-3. Normalized Health:
+2. Normalized Health:
 
 $$H = (1 - NI) \times 100$$
 
-#### Phase C: Final Resilience Score
+#### Phase C: Final Score (Dynamic Resilience Index)
 
-$$RI = (S \times 0.70) + (H \times 0.30)$$
+The system switches modes based on data availability:
+
+| Mode | Trigger | Formula | Confidence |
+|---|---|---|---|
+| Comprehensive | Root + Canopy scans | `RI = (S × 0.70) + (H × 0.30)` | High (100%) |
+| Structural Only | Root scan only | `RI = S × 1.0` | Medium (70%) |
 
 ### 3. Data Visualization Strategy
 
-- **Resilience Gauge**: Radial/Donut gauge for `RI` (0–100)
-  - Red (0–40): Critical Risk
-  - Yellow (41–70): Vulnerable
-  - Green (71–100): Resilient
-- **Comparison Radar Chart**: Balance between `S` and `H`
-- **Longitudinal Trend Lines**: Tracks `S`, `H`, and `RI` over time
+- **Resilience Gauge**: Radial gauge for `RI` (0–100) with confidence badge (`High`/`Medium`) depending on canopy scan availability.
+- **Comparison Radar Chart**:
+  - Full data: `Stability` vs `Health`
+  - Partial data: `Stability` vs `Historical Average`
+- **Longitudinal Trend Lines**: Track `S`, `H`, and `RI` over time; structural-only data points are dashed.
+- **Dynamic Necrosis View**: Displays necrosis trend over time with a current severity state (`Low`, `Moderate`, `Severe`) for faster canopy stress interpretation.
 
 ### 4. Flutter Implementation Architecture
 
 #### Required Plugins
 
 - `ultralytics_yolo` (AI inference)
-- `geolocator` (GPS coordinates for tide queries)
-- `http` (real-time tide API integration)
+- `geolocator` + `http` (tide data integration)
 - `fl_chart` (data visualizations)
 
-#### Tidal Validation Logic
+#### Dynamic Workflow Logic
 
 ```dart
-Future<bool> isTideAcceptable() async {
-  Position pos = await Geolocator.getCurrentPosition();
-  double waterLevel = await TideAPI.getLevel(pos.latitude, pos.longitude);
-
-  if (waterLevel > thresholdHigh) {
-    return false; // Show "High Tide Warning" UI
+double calculateFinalRI(double stability, double? health) {
+  if (health == null) {
+    // Mode: Structural Only (for tall trees or skipped canopy scans)
+    return stability;
+  } else {
+    // Mode: Comprehensive
+    return (stability * 0.7) + (health * 0.3);
   }
-  return true;
 }
 ```
 
 #### System State Logic
 
-1. Tidal check via GPS/API before scan.
-2. Identification state: detect `mangrove_tree`.
-3. Root scanning state: apply `γ` correction to `P_root`.
-4. Canopy scanning state: evaluate leaf pixels.
-5. Final state: display `RI` with a tidal confidence tag.
+1. Pre-flight: tidal validation via GPS/API.
+2. Identification: detect `mangrove_tree`.
+3. Primary scan: analyze roots and compute `S`.
+4. User choice: `Scan Canopy? (Skip for tall trees)`.
+5. Secondary scan (optional): analyze leaves and compute `H`.
+6. Result: compute `RI` using dynamic weighting and display confidence rating.
 
 ### 5. Field Data Constraints
 
-- Best collection window: ±2 hours from lowest tide
-- Recommended scan distance: ~1.5m
-- Avoid harsh midday hotspot lighting
+- Height workaround: if tree height is `>3m`, use Structural Only mode for safety/accuracy.
+- Tidal timing: best results ±2 hours from lowest tide.
+- Image scaling: maintain ~1.5m distance for root scans.
 
 ## Project Structure
 
