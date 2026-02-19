@@ -20,7 +20,7 @@ MangroveGuard is a mobile application designed to automate the assessment of man
 | Inference Engine   | LiteRT (formerly TFLite)            |
 | Architecture       | Clean Architecture (Data, Domain, Presentation) |
 
-## Calculation Framework (From Calculations-1.pdf)
+## Calculation Framework
 
 ### 1. AI Class Definitions
 
