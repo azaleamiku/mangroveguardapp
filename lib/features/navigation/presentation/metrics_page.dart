@@ -16,48 +16,48 @@ class MetricsPage extends StatelessWidget {
     return Scaffold(
       appBar: buildAppHeader("Metrics"),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 110),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildMetricCard(
-              title: "Total Trees Assessed",
-              value: "124",
-              icon: Icons.park,
-              trend: "+12%",
+              title: "Root-First Scans Completed",
+              value: "124 trees",
+              icon: Icons.hub,
+              trend: "This cycle",
               isPositive: true,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             _buildMetricCard(
-              title: "Healthy Trees",
-              value: "98",
-              icon: Icons.check_circle,
-              trend: "+8%",
+              title: "Average Structural Score (S)",
+              value: "79.0%",
+              icon: Icons.account_tree,
+              trend: "Tidal corrected",
               isPositive: true,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             _buildMetricCard(
-              title: "Trees Needing Attention",
-              value: "26",
-              icon: Icons.warning,
-              trend: "-4%",
+              title: "Average Health Score (H)",
+              value: "84.0%",
+              icon: Icons.eco,
+              trend: "Optional canopy scan",
+              isPositive: true,
+            ),
+            const SizedBox(height: 12),
+            _buildMetricCard(
+              title: "Average Necrosis",
+              value: "8.0%",
+              icon: Icons.warning_amber_rounded,
+              trend: "Leaf/canopy subset",
               isPositive: false,
             ),
-            const SizedBox(height: 16),
-            _buildMetricCard(
-              title: "Average Health Score",
-              value: "82%",
-              icon: Icons.analytics,
-              trend: "+5%",
-              isPositive: true,
-            ),
-            const SizedBox(height: 30),
-            _buildSectionTitle("Conservation Impact"),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
+            _buildSectionTitle("Assessment Context"),
+            const SizedBox(height: 12),
             _buildImpactMetrics(),
-            const SizedBox(height: 30),
-            _buildSectionTitle("Recent Activity"),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
+            _buildSectionTitle("Recent Scan Activity"),
+            const SizedBox(height: 12),
             _buildActivityList(),
           ],
         ),
@@ -73,7 +73,7 @@ class MetricsPage extends StatelessWidget {
     required bool isPositive,
   }) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: darkGreen,
         borderRadius: BorderRadius.circular(16),
@@ -96,7 +96,7 @@ class MetricsPage extends StatelessWidget {
             ),
             child: Icon(icon, color: caribbeanGreen, size: 28),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -104,45 +104,42 @@ class MetricsPage extends StatelessWidget {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
                     color: antiFlashWhite.withOpacity(0.7),
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 Text(
                   value,
                   style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
                     color: antiFlashWhite,
                   ),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            constraints: const BoxConstraints(maxWidth: 118),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: isPositive 
-                  ? caribbeanGreen.withOpacity(0.2) 
-                  : Colors.red.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(20),
+              color: isPositive ? caribbeanGreen.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  isPositive ? Icons.trending_up : Icons.trending_down,
-                  size: 16,
-                  color: isPositive ? caribbeanGreen : Colors.red,
-                ),
+                Icon(isPositive ? Icons.trending_up : Icons.trending_down, size: 14, color: isPositive ? caribbeanGreen : Colors.red),
                 const SizedBox(width: 4),
-                Text(
-                  trend,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: isPositive ? caribbeanGreen : Colors.red,
+                Flexible(
+                  child: Text(
+                    trend,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: isPositive ? caribbeanGreen : Colors.red),
                   ),
                 ),
               ],
@@ -157,21 +154,21 @@ class MetricsPage extends StatelessWidget {
     return Row(
       children: [
         Container(
-          width: 4,
-          height: 20,
+          width: 3,
+          height: 18,
           decoration: BoxDecoration(
             color: caribbeanGreen,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Text(
           title,
           style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
             color: antiFlashWhite,
-            letterSpacing: 1,
+            letterSpacing: 0.6,
           ),
         ),
       ],
@@ -180,7 +177,7 @@ class MetricsPage extends StatelessWidget {
 
   Widget _buildImpactMetrics() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [darkGreen.withOpacity(0.8), bangladeshGreen.withOpacity(0.6)],
@@ -193,27 +190,27 @@ class MetricsPage extends StatelessWidget {
       child: Column(
         children: [
           _buildImpactRow(
-            icon: Icons.eco,
-            label: "Carbon Sequestered",
-            value: "2.4 tons",
+            icon: Icons.waves,
+            label: "High Tide Scans",
+            value: "31%",
           ),
-          const Divider(color: bangladeshGreen, height: 24),
+          const Divider(color: bangladeshGreen, height: 20),
           _buildImpactRow(
             icon: Icons.water_drop,
-            label: "Water Quality Improved",
-            value: "85%",
+            label: "Low Tide Scans",
+            value: "69%",
           ),
-          const Divider(color: bangladeshGreen, height: 24),
+          const Divider(color: bangladeshGreen, height: 20),
           _buildImpactRow(
-            icon: Icons.shield,
-            label: "Shoreline Protected",
-            value: "12 km",
+            icon: Icons.tune,
+            label: "Tidal Correction Factor",
+            value: "x0.92 (high tide)",
           ),
-          const Divider(color: bangladeshGreen, height: 24),
+          const Divider(color: bangladeshGreen, height: 20),
           _buildImpactRow(
-            icon: Icons.bug_report,
-            label: "Biodiversity Index",
-            value: "High",
+            icon: Icons.route,
+            label: "Primary Workflow",
+            value: "Root-first",
           ),
         ],
       ),
@@ -227,13 +224,13 @@ class MetricsPage extends StatelessWidget {
   }) {
     return Row(
       children: [
-        Icon(icon, color: caribbeanGreen, size: 24),
-        const SizedBox(width: 16),
+        Icon(icon, color: caribbeanGreen, size: 20),
+        const SizedBox(width: 12),
         Expanded(
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               color: antiFlashWhite.withOpacity(0.8),
             ),
           ),
@@ -241,8 +238,8 @@ class MetricsPage extends StatelessWidget {
         Text(
           value,
           style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
             color: caribbeanGreen,
           ),
         ),
@@ -252,10 +249,10 @@ class MetricsPage extends StatelessWidget {
 
   Widget _buildActivityList() {
     final activities = [
-      {"time": "2 hours ago", "action": "Scanned 5 trees", "icon": Icons.center_focus_strong},
-      {"time": "5 hours ago", "action": "Updated health status", "icon": Icons.edit},
-      {"time": "1 day ago", "action": "Added new location", "icon": Icons.add_location},
-      {"time": "2 days ago", "action": "Generated report", "icon": Icons.description},
+      {"time": "45 min ago", "action": "Root scan recorded • Tree #07", "icon": Icons.hub},
+      {"time": "1 hr ago", "action": "Tidal context set to High Tide", "icon": Icons.waves},
+      {"time": "2 hrs ago", "action": "Optional necrosis analysis completed", "icon": Icons.eco},
+      {"time": "Today", "action": "Recent scan saved to local study record", "icon": Icons.save_alt},
     ];
 
     return Container(
@@ -277,6 +274,7 @@ class MetricsPage extends StatelessWidget {
           final activity = activities[index];
           return ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            minVerticalPadding: 8,
             leading: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
@@ -293,7 +291,8 @@ class MetricsPage extends StatelessWidget {
               activity["action"] as String,
               style: const TextStyle(
                 color: antiFlashWhite,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
               ),
             ),
             subtitle: Text(

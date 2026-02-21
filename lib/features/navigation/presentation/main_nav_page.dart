@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../home/presentation/pages/home_page.dart';
 import '../../home/presentation/pages/scanner_page.dart';
+import 'recent_scan_page.dart';
 import 'info_page.dart';
 import 'metrics_page.dart';
 
@@ -26,7 +27,7 @@ class _MainNavPageState extends State<MainNavPage> {
     const HomePage(),
     const MetricsPage(),
     const ScannerPage(), // Your AR & YOLO camera view
-    const Center(child: Text('History Page', style: TextStyle(color: Color(0xFFF1F7F6)))),
+    const RecentScanPage(),
     const InfoPage(),
   ];
 

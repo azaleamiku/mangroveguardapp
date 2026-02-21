@@ -17,7 +17,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   CameraController? _cameraController;
   List<CameraDescription> _cameras = [];
   bool _isInitializing = true;
-  bool _isCapturing = false;
+  bool _isRootScanning = false;
   bool _isAnalyzing = false;
   String? _cameraError;
 
@@ -161,7 +161,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                 border: Border.all(color: caribbeanGreen.withValues(alpha: 0.3)),
               ),
               child: const Text(
-                'Point camera at mangrove tree to analyze health',
+                'Root-first assessment is primary; canopy/necrosis remains optional for reachable young trees.',
                 style: TextStyle(color: antiFlashWhite, fontSize: 14),
                 textAlign: TextAlign.center,
               ),
@@ -188,8 +188,18 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _scannerAction(Icons.camera_alt, _isCapturing ? 'Capturing...' : 'Capture', _capturePhoto, disabled: _isCapturing),
-                  _scannerAction(Icons.psychology, _isAnalyzing ? 'Analyzing...' : 'Analyze', _analyzeHealth, disabled: _isAnalyzing),
+                  _scannerAction(
+                    Icons.hub,
+                    _isRootScanning ? 'Scanning Roots...' : 'Root Scan',
+                    _startRootScan,
+                    disabled: _isRootScanning,
+                  ),
+                  _scannerAction(
+                    Icons.eco,
+                    _isAnalyzing ? 'Analyzing Necrosis...' : 'Analyze',
+                    _analyzeNecrosis,
+                    disabled: _isAnalyzing,
+                  ),
                 ],
               ),
             ),
@@ -220,29 +230,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _capturePhoto() async {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized || _isCapturing) return;
-
-    setState(() => _isCapturing = true);
-    try {
-      final file = await controller.takePicture();
-      if (!mounted) return;
-      _showTopNotification('Photo captured: ${file.name}');
-    } on CameraException catch (e) {
-      if (!mounted) return;
-      _showTopNotification('Capture failed: ${e.description ?? e.code}');
-    } finally {
-      if (mounted) setState(() => _isCapturing = false);
-    }
+  Future<void> _startRootScan() async {
+    if (_isRootScanning) return;
+    setState(() => _isRootScanning = true);
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+    _showTopNotification('Root scanning started (real-time). Model hook ready.');
+    setState(() => _isRootScanning = false);
   }
 
-  Future<void> _analyzeHealth() async {
+  Future<void> _analyzeNecrosis() async {
     if (_isAnalyzing) return;
     setState(() => _isAnalyzing = true);
     await Future<void>.delayed(const Duration(milliseconds: 700));
     if (!mounted) return;
-    _showTopNotification('Health analysis pipeline ready for model integration.');
+    _showTopNotification('Optional canopy/leaf necrosis analysis started.');
     setState(() => _isAnalyzing = false);
   }
 

@@ -26,6 +26,7 @@ class MangroveGuardApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
       theme: ThemeData(
         colorScheme: ColorScheme(
           brightness: Brightness.dark,
