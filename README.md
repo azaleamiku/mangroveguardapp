@@ -2,7 +2,7 @@
 
 An Optimized Computer Vision Tool for Mangrove Stability Assessment
 
-MangroveGuard is a mobile application designed to automate the assessment of mangrove tree health and coastal stability. By leveraging YOLOv10-Nano for real-time root quantification, it provides a high-accessibility tool for researchers and coastal communities—even on mid-range hardware.
+MangroveGuard is a mobile application designed to automate the assessment of mangrove tree stability. By leveraging YOLOv10-Nano for real-time root quantification, it provides a high-accessibility tool for researchers and coastal communities—even on mid-range hardware.
 
 ## Key Features
 
@@ -24,103 +24,69 @@ MangroveGuard is a mobile application designed to automate the assessment of man
 
 ### 1. AI Class Definitions
 
-The model is trained on four mask classes:
+The model is trained on two mask classes:
 
 | Class ID | Name | Role |
 |---|---|---|
 | 0 | `mangrove_tree` | Parent mask: defines the Area of Interest (AOI) |
 | 1 | `prop_root` | Child mask: structural anchoring calculations |
-| 2 | `leaf_healthy` | Child mask: baseline biological health |
-| 3 | `necrosis` | Child mask: disease/stress indicator |
 
 ### 2. Mathematical Ledger
 
 #### Phase A: Structural Integrity (Root Scan)
 
-Objective: Calculate Root Area Ratio (RAR) and Stability with tidal correction.
+Objective: Calculate Root Area Ratio (RAR) and Stability.
 
 1. Anchor Zone (`P_anchor`), lower 30% of `mangrove_tree`:
 
 $$P_{anchor} = \sum \text{pixels} \in [y_{base}, y_{base} - 0.3H_{tree}]$$
 
-2. Tidal Correction Factor (`γ`):
-- Low Tide: `γ = 1.0`
-- Mid Tide: `γ = 1.4`
-- High Tide: `γ = INVALID` (scan blocked)
+2. Root Density:
 
-3. Root Density:
+$$D_r = \frac{P_{root}}{P_{anchor}}$$
 
-$$D_r = \left( \frac{P_{root}}{P_{anchor}} \right) \times \gamma$$
-
-4. Normalized Stability:
+3. Normalized Stability:
 
 $$S = \min\left(100, \left( \frac{D_r}{0.60} \right) \times 100\right)$$
 
-#### Phase B: Biological Health (Optional Canopy Scan)
+#### Phase B: Final Score (Resilience Index)
 
-Objective: Calculate Necrosis Index (NI) and Health. If canopy is inaccessible (e.g., tall trees), this phase is skipped.
-
-1. Necrosis Index:
-
-$$NI = \frac{\sum \text{pixels}_{Class\ 3}}{\sum \text{pixels}_{Class\ 2} + \sum \text{pixels}_{Class\ 3}}$$
-
-2. Normalized Health:
-
-$$H = (1 - NI) \times 100$$
-
-#### Phase C: Final Score (Dynamic Resilience Index)
-
-The system switches modes based on data availability:
+The final score is based on structural scan output:
 
 | Mode | Trigger | Formula | Confidence |
 |---|---|---|---|
-| Comprehensive | Root + Canopy scans | `RI = (S × 0.70) + (H × 0.30)` | High (100%) |
-| Structural Only | Root scan only | `RI = S × 1.0` | Medium (70%) |
+| Structural | Root scan | `RI = S × 1.0` | High (100%) |
 
 ### 3. Data Visualization Strategy
 
-- **Resilience Gauge**: Radial gauge for `RI` (0–100) with confidence badge (`High`/`Medium`) depending on canopy scan availability.
+- **Resilience Gauge**: Radial gauge for `RI` (0–100) with confidence badge (`High`).
 - **Comparison Radar Chart**:
-  - Full data: `Stability` vs `Health`
-  - Partial data: `Stability` vs `Historical Average`
-- **Longitudinal Trend Lines**: Track `S`, `H`, and `RI` over time; structural-only data points are dashed.
-- **Dynamic Necrosis View**: Displays necrosis trend over time with a current severity state (`Low`, `Moderate`, `Severe`) for faster canopy stress interpretation.
+  - `Stability` vs `Historical Average`
+- **Longitudinal Trend Lines**: Track `S` and `RI` over time.
 
 ### 4. Flutter Implementation Architecture
 
 #### Required Plugins
 
 - `ultralytics_yolo` (AI inference)
-- `geolocator` + `http` (tide data integration)
 - `fl_chart` (data visualizations)
 
 #### Dynamic Workflow Logic
 
 ```dart
-double calculateFinalRI(double stability, double? health) {
-  if (health == null) {
-    // Mode: Structural Only (for tall trees or skipped canopy scans)
-    return stability;
-  } else {
-    // Mode: Comprehensive
-    return (stability * 0.7) + (health * 0.3);
-  }
+double calculateFinalRI(double stability) {
+  return stability;
 }
 ```
 
 #### System State Logic
 
-1. Pre-flight: tidal validation via GPS/API.
-2. Identification: detect `mangrove_tree`.
-3. Primary scan: analyze roots and compute `S`.
-4. User choice: `Scan Canopy? (Skip for tall trees)`.
-5. Secondary scan (optional): analyze leaves and compute `H`.
-6. Result: compute `RI` using dynamic weighting and display confidence rating.
+1. Identification: detect `mangrove_tree`.
+2. Primary scan: analyze roots and compute `S`.
+3. Result: compute `RI` and display confidence rating.
 
 ### 5. Field Data Constraints
 
-- Height workaround: if tree height is `>3m`, use Structural Only mode for safety/accuracy.
-- Tidal timing: best results ±2 hours from lowest tide.
 - Image scaling: maintain ~1.5m distance for root scans.
 
 ## Project Structure
