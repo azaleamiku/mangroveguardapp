@@ -31,16 +31,14 @@
 
 ## Scan Flow
 
-```mermaid
-flowchart LR
-  A[Open Scanner] --> B[Capture Frame]
-  B --> C[Run TFLite Inference]
-  C --> D[Compute Root/Trunk Ratio]
-  D --> E[Assign Stability Class]
-  E --> F[Save Scan Locally]
-  F --> G[Update Metrics Dashboard]
-  F --> H[Generate PDF Report]
-```
+1. Open Scanner
+2. Capture Frame
+3. Run TFLite Inference
+4. Compute Root/Trunk Ratio
+5. Assign Stability Class
+6. Save Scan Locally
+7. Update Metrics Dashboard
+8. Generate PDF Report
 
 ## Stability Logic
 
