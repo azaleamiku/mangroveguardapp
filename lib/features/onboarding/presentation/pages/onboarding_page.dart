@@ -34,19 +34,22 @@ class _OnboardingPageState extends State<OnboardingPage> {
             // Page 1: Terms & Privacy
             _buildOnboardingScreen(
               title: "Data Privacy & Terms",
-              desc: "By using MangroveGuard, you consent to our data collection for ecological research. We do not share your personal location with third parties.",
+              desc:
+                  "By using MangroveGuard, you consent to our data collection for ecological research. We do not share your personal location with third parties.",
               icon: Icons.security,
             ),
             // Page 2: About Mangroves
             _buildOnboardingScreen(
               title: "Why Mangroves?",
-              desc: "Mangroves are vital coastal guardians. They protect against storm surges and sequester 4x more carbon than tropical rainforests.",
+              desc:
+                  "Mangroves are vital coastal guardians. They protect against storm surges and sequester 4x more carbon than tropical rainforests.",
               icon: Icons.eco,
             ),
             // Page 3: About the App
             _buildOnboardingScreen(
               title: "MangroveGuard AI",
-              desc: "Our YOLOv10-Nano model and ARCore integration allow you to measure tree health with expert-level precision on your mobile device.",
+              desc:
+                  "Our YOLOv10-Nano model and ARCore integration allow you to measure tree support with expert-level precision on your mobile device.",
               icon: Icons.auto_awesome,
             ),
           ],
@@ -63,7 +66,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: caribbeanGreen.withOpacity(0.3),
+                    color: caribbeanGreen.withValues(alpha: 0.3),
                     blurRadius: 10,
                     spreadRadius: 2,
                   ),
@@ -74,13 +77,18 @@ class _OnboardingPageState extends State<OnboardingPage> {
                   foregroundColor: antiFlashWhite,
                   minimumSize: const Size.fromHeight(80),
                 ),
-                child: const Text('I ACCEPT & GET STARTED', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500)),
+                child: const Text(
+                  'I ACCEPT & GET STARTED',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+                ),
                 onPressed: () async {
                   final prefs = await SharedPreferences.getInstance();
                   await prefs.setBool('showHome', true);
                   if (mounted) {
                     Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(builder: (context) => const MainNavPage()),
+                      MaterialPageRoute(
+                        builder: (context) => const MainNavPage(),
+                      ),
                     );
                   }
                 },
@@ -89,13 +97,18 @@ class _OnboardingPageState extends State<OnboardingPage> {
           : Container(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               height: 80,
-              color: darkGreen.withOpacity(0.9),
+              color: darkGreen.withValues(alpha: 0.9),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   TextButton(
                     onPressed: () => controller.jumpToPage(2),
-                    child: Text('SKIP', style: TextStyle(color: antiFlashWhite.withOpacity(0.7))),
+                    child: Text(
+                      'SKIP',
+                      style: TextStyle(
+                        color: antiFlashWhite.withValues(alpha: 0.7),
+                      ),
+                    ),
                   ),
                   Center(
                     child: SmoothPageIndicator(
@@ -103,13 +116,19 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       count: 3,
                       effect: WormEffect(
                         activeDotColor: caribbeanGreen,
-                        dotColor: antiFlashWhite.withOpacity(0.3),
+                        dotColor: antiFlashWhite.withValues(alpha: 0.3),
                       ),
                     ),
                   ),
                   TextButton(
-                    onPressed: () => controller.nextPage(duration: const Duration(milliseconds: 500), curve: Curves.easeInOut),
-                    child: Text('NEXT', style: TextStyle(color: caribbeanGreen)),
+                    onPressed: () => controller.nextPage(
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.easeInOut,
+                    ),
+                    child: Text(
+                      'NEXT',
+                      style: TextStyle(color: caribbeanGreen),
+                    ),
                   ),
                 ],
               ),
@@ -117,7 +136,11 @@ class _OnboardingPageState extends State<OnboardingPage> {
     );
   }
 
-  Widget _buildOnboardingScreen({required String title, required String desc, required IconData icon}) {
+  Widget _buildOnboardingScreen({
+    required String title,
+    required String desc,
+    required IconData icon,
+  }) {
     return Container(
       color: richBlack,
       child: Column(
@@ -128,11 +151,14 @@ class _OnboardingPageState extends State<OnboardingPage> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: LinearGradient(
-                colors: [caribbeanGreen.withOpacity(0.2), bangladeshGreen.withOpacity(0.2)],
+                colors: [
+                  caribbeanGreen.withValues(alpha: 0.2),
+                  bangladeshGreen.withValues(alpha: 0.2),
+                ],
               ),
               boxShadow: [
                 BoxShadow(
-                  color: caribbeanGreen.withOpacity(0.5),
+                  color: caribbeanGreen.withValues(alpha: 0.5),
                   blurRadius: 20,
                   spreadRadius: 5,
                 ),
@@ -149,7 +175,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               color: antiFlashWhite,
               shadows: [
                 Shadow(
-                  color: caribbeanGreen.withOpacity(0.5),
+                  color: caribbeanGreen.withValues(alpha: 0.5),
                   blurRadius: 10,
                 ),
               ],
@@ -163,7 +189,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 16,
-                color: antiFlashWhite.withOpacity(0.8),
+                color: antiFlashWhite.withValues(alpha: 0.8),
                 height: 1.5,
               ),
             ),

@@ -20,6 +20,6 @@ Update the Flutter app's UI to be futuristic and nature-themed using the provide
 
 ## Followup Steps
 - Test the app on a physical Android device
-- Add YOLOv10-Nano model integration for mangrove health analysis
+- Add YOLOv10-Nano model integration for mangrove support analysis
 - Add data logging features with export capabilities
 

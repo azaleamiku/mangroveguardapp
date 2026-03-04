@@ -1,5 +1,8 @@
-import 'dart:math' as math;
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../home/models/mangrove_tree.dart';
 import 'app_header.dart';
 
 const Color caribbeanGreen = Color(0xFF00DF81);
@@ -9,388 +12,1024 @@ const Color darkGreen = Color(0xFF032221);
 const Color richBlack = Color(0xFF021B1A);
 
 class RecentScanPage extends StatefulWidget {
-  const RecentScanPage({super.key});
+  final ValueListenable<List<RecentTreeScan>> scansListenable;
+  final Future<String?> Function(int index)? onSaveScan;
+  final Future<void> Function(int index)? onDeleteScan;
+  final Future<bool> Function(String pdfPath)? onOpenExportPath;
+
+  const RecentScanPage({
+    super.key,
+    required this.scansListenable,
+    this.onSaveScan,
+    this.onDeleteScan,
+    this.onOpenExportPath,
+  });
 
   @override
   State<RecentScanPage> createState() => _RecentScanPageState();
 }
 
 class _RecentScanPageState extends State<RecentScanPage> {
-  bool _isHighTide = false;
+  int? _expandedIndex;
+  Timer? _noticeTimer;
+  _RecentScanNotice? _notice;
+  bool _showNoticeCard = false;
+
+  Future<void> _handleSaveScan(int index) async {
+    final saveCallback = widget.onSaveScan;
+    if (saveCallback == null) return;
+
+    final exportedPdfPath = await saveCallback(index);
+    if (!mounted) return;
+    final filename = exportedPdfPath?.split('/').last;
+    _showNotice(
+      message: filename == null
+          ? 'PDF export failed. Try a full app restart.'
+          : 'PDF exported to Downloads/MangroveGuard: $filename',
+      kind: filename == null ? _NoticeKind.error : _NoticeKind.success,
+      actionPath: exportedPdfPath,
+    );
+  }
+
+  Future<void> _handleDeleteScan(int index, String treeId) async {
+    final deleteCallback = widget.onDeleteScan;
+    if (deleteCallback == null) return;
+
+    await deleteCallback(index);
+    if (!mounted) return;
+    setState(() {
+      if (_expandedIndex == index) {
+        _expandedIndex = null;
+      } else if (_expandedIndex != null && _expandedIndex! > index) {
+        _expandedIndex = _expandedIndex! - 1;
+      }
+    });
+    _showNotice(message: '$treeId deleted.', kind: _NoticeKind.delete);
+  }
+
+  void _showNotice({
+    required String message,
+    required _NoticeKind kind,
+    String? actionPath,
+  }) {
+    _noticeTimer?.cancel();
+    if (!mounted) return;
+
+    setState(() {
+      _notice = _RecentScanNotice(
+        message: message,
+        kind: kind,
+        actionPath: actionPath,
+      );
+      _showNoticeCard = true;
+    });
+
+    _noticeTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() => _showNoticeCard = false);
+    });
+  }
+
+  void _dismissNotice() {
+    _noticeTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _showNoticeCard = false);
+  }
+
+  Future<void> _handleNoticeTap() async {
+    final notice = _notice;
+    final openExportPath = widget.onOpenExportPath;
+    if (notice == null || notice.actionPath == null || openExportPath == null) {
+      return;
+    }
+
+    final opened = await openExportPath(notice.actionPath!);
+    if (!mounted || opened) return;
+
+    _showNotice(
+      message: 'Unable to open Files app for this export.',
+      kind: _NoticeKind.error,
+    );
+  }
+
+  @override
+  void dispose() {
+    _noticeTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    const baseResilience = 66.4;
-    const baseStructural = 79.0;
-    const baseHealth = 84.0;
-    const baseNecrosis = 8.0;
-    const scanTime = 'Most recent scan: Feb 21, 2026 • 09:40 AM';
-    const treeId = 'Tree #07';
-    const location = 'Plot 2 • Transect B';
-    const months = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb'];
-    const tidalCorrection = 0.92;
-
-    final structural = _isHighTide ? (baseStructural * tidalCorrection).clamp(0, 100).toDouble() : baseStructural;
-    final health = baseHealth;
-    final necrosis = _isHighTide ? (baseNecrosis * 1.12).clamp(0, 100).toDouble() : baseNecrosis;
-    final resilience = _isHighTide ? (baseResilience * tidalCorrection).clamp(0, 100).toDouble() : baseResilience;
-    final trend = _isHighTide
-        ? [31.2, 38.8, 44.3, 52.5, 57.4, 66.4].map((v) => (v * tidalCorrection).clamp(0, 100).toDouble()).toList()
-        : [31.2, 38.8, 44.3, 52.5, 57.4, 66.4];
-
     return Scaffold(
+      backgroundColor: richBlack,
       appBar: buildAppHeader('Recent Scan'),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(18, 20, 18, 110),
-        child: Column(
-          children: [
-            _panel(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Latest Resilience', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: antiFlashWhite.withValues(alpha: 0.75))),
-                        const SizedBox(height: 8),
-                        Text('${resilience.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: antiFlashWhite)),
-                        const SizedBox(height: 6),
-                        Text(scanTime, style: TextStyle(fontSize: 11, color: antiFlashWhite.withValues(alpha: 0.6))),
-                        const SizedBox(height: 8),
-                        Text('Scanned: $treeId', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: antiFlashWhite)),
-                        Text(location, style: TextStyle(fontSize: 10, color: antiFlashWhite.withValues(alpha: 0.65))),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.45)),
-                    ),
+      body: Stack(
+        children: [
+          ValueListenableBuilder<List<RecentTreeScan>>(
+            valueListenable: widget.scansListenable,
+            builder: (context, scans, child) {
+              if (_expandedIndex != null && _expandedIndex! >= scans.length) {
+                _expandedIndex = null;
+              }
+
+              if (scans.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
                     child: Text(
-                      _isHighTide ? 'Tidal corr. x0.92 applied' : 'Baseline tide correction',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF38BDF8)),
+                      'No measured tree scans yet.\nCapture a tree after model analysis to populate this list.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: antiFlashWhite.withValues(alpha: 0.72),
+                        fontSize: 13,
+                        height: 1.5,
+                      ),
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            _panel(
-              child: Row(
+                );
+              }
+
+              return Column(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Tidal Context', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: antiFlashWhite.withValues(alpha: 0.8))),
-                        const SizedBox(height: 4),
-                        Text(
-                          _isHighTide ? 'High tide conditions selected' : 'Low tide conditions selected',
-                          style: TextStyle(fontSize: 10, color: antiFlashWhite.withValues(alpha: 0.62)),
-                        ),
-                      ],
+                  Container(
+                    margin: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: darkGreen.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: bangladeshGreen.withValues(alpha: 0.95),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  _tideToggle(),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _panel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Text('Resilience Gauge', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: antiFlashWhite.withValues(alpha: 0.75))),
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          height: 130,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              CustomPaint(size: const Size(130, 130), painter: _RingGaugePainter(value: resilience / 100)),
-                              Text('${resilience.toStringAsFixed(1)}%', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: antiFlashWhite)),
-                            ],
+                        const Icon(
+                          Icons.forest_rounded,
+                          color: caribbeanGreen,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          '${scans.length} trees scanned',
+                          style: const TextStyle(
+                            color: antiFlashWhite,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          'Tap a tree for details',
+                          style: TextStyle(
+                            color: antiFlashWhite.withValues(alpha: 0.68),
+                            fontSize: 11,
                           ),
                         ),
                       ],
                     ),
                   ),
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 110),
+                      itemCount: scans.length,
+                      separatorBuilder: (_, index) =>
+                          const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final scan = scans[index];
+                        final expanded = _expandedIndex == index;
+                        return _ExpandableScanCard(
+                          scan: scan,
+                          expanded: expanded,
+                          onTap: () {
+                            setState(() {
+                              _expandedIndex = expanded ? null : index;
+                            });
+                          },
+                          onSave: () => _handleSaveScan(index),
+                          onDelete: () => _handleDeleteScan(index, scan.treeId),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+          Positioned(
+            top: 12,
+            left: 16,
+            right: 16,
+            child: IgnorePointer(
+              ignoring: !_showNoticeCard,
+              child: AnimatedSlide(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                offset: _showNoticeCard ? Offset.zero : const Offset(0, -0.4),
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  opacity: _showNoticeCard ? 1 : 0,
+                  child: _notice == null
+                      ? const SizedBox.shrink()
+                      : _RecentScanNoticeCard(
+                          notice: _notice!,
+                          onClose: _dismissNotice,
+                          onTap: _handleNoticeTap,
+                        ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _NoticeKind { success, delete, error }
+
+class _RecentScanNotice {
+  final String message;
+  final _NoticeKind kind;
+  final String? actionPath;
+
+  const _RecentScanNotice({
+    required this.message,
+    required this.kind,
+    this.actionPath,
+  });
+}
+
+class _RecentScanNoticeCard extends StatelessWidget {
+  final _RecentScanNotice notice;
+  final VoidCallback onClose;
+  final VoidCallback onTap;
+
+  const _RecentScanNoticeCard({
+    required this.notice,
+    required this.onClose,
+    required this.onTap,
+  });
+
+  Color _accentColor() {
+    switch (notice.kind) {
+      case _NoticeKind.success:
+        return const Color(0xFF10B981);
+      case _NoticeKind.delete:
+        return const Color(0xFFEF4444);
+      case _NoticeKind.error:
+        return const Color(0xFFF97316);
+    }
+  }
+
+  IconData _icon() {
+    switch (notice.kind) {
+      case _NoticeKind.success:
+        return Icons.task_alt_rounded;
+      case _NoticeKind.delete:
+        return Icons.delete_forever_rounded;
+      case _NoticeKind.error:
+        return Icons.warning_amber_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = _accentColor();
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: notice.actionPath == null ? null : onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [darkGreen.withValues(alpha: 0.96), richBlack],
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: accent.withValues(alpha: 0.6),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: 0.22),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 11, 10, 11),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Icon(_icon(), color: accent, size: 18),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: _panel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Scan Breakdown', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: antiFlashWhite.withValues(alpha: 0.75))),
-                        const SizedBox(height: 10),
-                        _metricLine('Structural (S)', structural, const Color(0xFF22C55E)),
-                        _metricLine('Health (H)', health, const Color(0xFFEAB308)),
-                        _metricLine('Necrosis', necrosis, const Color(0xFFEF4444)),
-                        const SizedBox(height: 8),
-                        Text('Mode: Root-first + Optional Canopy', style: TextStyle(fontSize: 10, color: antiFlashWhite.withValues(alpha: 0.65))),
-                      ],
+                  child: Text(
+                    notice.message,
+                    style: const TextStyle(
+                      color: antiFlashWhite,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
+                if (notice.actionPath != null)
+                  Icon(
+                    Icons.folder_open_rounded,
+                    color: antiFlashWhite.withValues(alpha: 0.88),
+                    size: 18,
+                  ),
+                const SizedBox(width: 4),
+                IconButton(
+                  onPressed: onClose,
+                  icon: Icon(
+                    Icons.close_rounded,
+                    color: antiFlashWhite.withValues(alpha: 0.85),
+                    size: 18,
+                  ),
+                  splashRadius: 18,
+                  tooltip: 'Dismiss',
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            _panel(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RecentTreeScan {
+  final String treeId;
+  final DateTime scannedAt;
+  final MangroveTree tree;
+  final double metersPerPixel;
+  final String? capturedImagePath;
+
+  const RecentTreeScan({
+    required this.treeId,
+    required this.scannedAt,
+    required this.tree,
+    this.metersPerPixel = 0.003,
+    this.capturedImagePath,
+  });
+
+  int get rootCount => tree.roots.length;
+  double get trunkWidthMeters => tree.trunkWidthPixels * metersPerPixel;
+  double get rootSpreadMeters => tree.rootSpreadPixels * metersPerPixel;
+  double get trunkWidthCentimeters => trunkWidthMeters * 100;
+  double get rootSpreadCentimeters => rootSpreadMeters * 100;
+  double get stabilityIndex => tree.stabilityIndex;
+  StabilityAssessment get assessment => tree.assessment;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'treeId': treeId,
+      'scannedAt': scannedAt.toIso8601String(),
+      'metersPerPixel': metersPerPixel,
+      if (capturedImagePath != null) 'capturedImagePath': capturedImagePath,
+      'tree': {
+        'trunkWidthAtBranchPoint': tree.trunkWidthAtBranchPoint,
+        'roots': tree.roots
+            .map(
+              (root) => {
+                'dx': root.position.dx,
+                'dy': root.position.dy,
+                'length': root.length,
+                'angle': root.angle,
+                if (root.normalizedLeft != null)
+                  'normalizedLeft': root.normalizedLeft,
+                if (root.normalizedTop != null)
+                  'normalizedTop': root.normalizedTop,
+                if (root.normalizedRight != null)
+                  'normalizedRight': root.normalizedRight,
+                if (root.normalizedBottom != null)
+                  'normalizedBottom': root.normalizedBottom,
+              },
+            )
+            .toList(growable: false),
+      },
+    };
+  }
+
+  factory RecentTreeScan.fromJson(Map<String, dynamic> json) {
+    final treeMap = (json['tree'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final rootsRaw = (treeMap['roots'] as List?) ?? const [];
+    final roots = rootsRaw
+        .whereType<Map>()
+        .map((rootMap) {
+          final typed = rootMap.cast<String, dynamic>();
+          return Root(
+            position: Offset(
+              (typed['dx'] as num?)?.toDouble() ?? 0,
+              (typed['dy'] as num?)?.toDouble() ?? 0,
+            ),
+            length: (typed['length'] as num?)?.toDouble() ?? 0,
+            angle: (typed['angle'] as num?)?.toDouble() ?? 0,
+            normalizedLeft: (typed['normalizedLeft'] as num?)?.toDouble(),
+            normalizedTop: (typed['normalizedTop'] as num?)?.toDouble(),
+            normalizedRight: (typed['normalizedRight'] as num?)?.toDouble(),
+            normalizedBottom: (typed['normalizedBottom'] as num?)?.toDouble(),
+          );
+        })
+        .toList(growable: false);
+
+    final scannedAtRaw = json['scannedAt'] as String?;
+    return RecentTreeScan(
+      treeId: (json['treeId'] as String?)?.trim().isNotEmpty == true
+          ? json['treeId'] as String
+          : 'Tree',
+      scannedAt: scannedAtRaw == null
+          ? DateTime.now()
+          : (DateTime.tryParse(scannedAtRaw) ?? DateTime.now()),
+      metersPerPixel: (json['metersPerPixel'] as num?)?.toDouble() ?? 0.003,
+      capturedImagePath:
+          ((json['capturedImagePath'] as String?)?.trim().isNotEmpty ?? false)
+          ? (json['capturedImagePath'] as String).trim()
+          : null,
+      tree: MangroveTree(
+        trunkWidthAtBranchPoint:
+            (treeMap['trunkWidthAtBranchPoint'] as num?)?.toDouble() ?? 0,
+        roots: roots,
+      ),
+    );
+  }
+}
+
+class _ExpandableScanCard extends StatelessWidget {
+  final RecentTreeScan scan;
+  final bool expanded;
+  final VoidCallback onTap;
+  final VoidCallback onSave;
+  final VoidCallback onDelete;
+
+  const _ExpandableScanCard({
+    required this.scan,
+    required this.expanded,
+    required this.onTap,
+    required this.onSave,
+    required this.onDelete,
+  });
+
+  Color _statusColor() {
+    switch (scan.assessment) {
+      case StabilityAssessment.high:
+        return caribbeanGreen;
+      case StabilityAssessment.moderate:
+        return const Color(0xFFF59E0B);
+      case StabilityAssessment.low:
+        return const Color(0xFFEF4444);
+    }
+  }
+
+  String _statusLabel() {
+    switch (scan.assessment) {
+      case StabilityAssessment.high:
+        return 'High Stability';
+      case StabilityAssessment.moderate:
+        return 'Moderate Stability';
+      case StabilityAssessment.low:
+        return 'Low Stability';
+    }
+  }
+
+  String _formatTimestamp(DateTime value) {
+    final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
+    final minute = value.minute.toString().padLeft(2, '0');
+    final period = value.hour >= 12 ? 'PM' : 'AM';
+    final month = _monthName(value.month);
+    return '$month ${value.day}, ${value.year} • $hour12:$minute $period';
+  }
+
+  String _monthName(int month) {
+    const names = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return names[month - 1];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = _statusColor();
+    final ratio = scan.stabilityIndex;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: expanded
+                  ? [bangladeshGreen.withValues(alpha: 0.8), darkGreen]
+                  : [darkGreen, darkGreen.withValues(alpha: 0.94)],
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: expanded
+                  ? statusColor.withValues(alpha: 0.8)
+                  : bangladeshGreen.withValues(alpha: 0.9),
+              width: expanded ? 1.6 : 1.1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: statusColor.withValues(alpha: expanded ? 0.22 : 0.1),
+                blurRadius: expanded ? 14 : 6,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Text('Resilience Trend', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: antiFlashWhite.withValues(alpha: 0.75))),
-                  const SizedBox(height: 10),
-                  AspectRatio(
-                    aspectRatio: 2.5,
-                    child: CustomPaint(
-                      painter: _TrendPainter(
-                        values: trend,
-                        months: months,
+                  Text(
+                    scan.treeId,
+                    style: const TextStyle(
+                      color: antiFlashWhite,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Icon(
+                    expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: antiFlashWhite.withValues(alpha: 0.8),
+                    size: 18,
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(
+                        color: statusColor.withValues(alpha: 0.58),
+                      ),
+                    ),
+                    child: Text(
+                      _statusLabel(),
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Rescan started for this tree profile.')),
-                      );
-                    },
-                    icon: const Icon(Icons.center_focus_strong, size: 18),
-                    label: const Text('Rescan'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: antiFlashWhite,
-                      side: BorderSide(color: bangladeshGreen.withValues(alpha: 0.9)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                  ),
+              const SizedBox(height: 8),
+              Text(
+                _formatTimestamp(scan.scannedAt),
+                style: TextStyle(
+                  color: antiFlashWhite.withValues(alpha: 0.62),
+                  fontSize: 12,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Recent scan saved to local study records.')),
-                      );
-                    },
-                    icon: const Icon(Icons.save_alt, size: 18),
-                    label: const Text('Save Scan'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: caribbeanGreen,
-                      foregroundColor: richBlack,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MetricChip(label: 'Root Count', value: '${scan.rootCount}'),
+                  _MetricChip(
+                    label: 'Trunk Width',
+                    value:
+                        '${scan.trunkWidthCentimeters.toStringAsFixed(1)} cm',
                   ),
+                  _MetricChip(
+                    label: 'Root Spread',
+                    value:
+                        '${scan.rootSpreadCentimeters.toStringAsFixed(1)} cm',
+                  ),
+                ],
+              ),
+              ClipRect(
+                child: AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.topCenter,
+                  child: expanded
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const _SectionTitle(title: 'Stability Details'),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: richBlack.withValues(alpha: 0.4),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: bangladeshGreen.withValues(
+                                      alpha: 0.92,
+                                    ),
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    _DetailRow(
+                                      label: 'Detected Roots',
+                                      value: '${scan.rootCount}',
+                                    ),
+                                    const SizedBox(height: 6),
+                                    _DetailRow(
+                                      label: 'Trunk Width',
+                                      value:
+                                          '${scan.trunkWidthCentimeters.toStringAsFixed(1)} cm',
+                                    ),
+                                    const SizedBox(height: 6),
+                                    _DetailRow(
+                                      label: 'Root Spread',
+                                      value:
+                                          '${scan.rootSpreadCentimeters.toStringAsFixed(1)} cm',
+                                    ),
+                                    const SizedBox(height: 6),
+                                    _DetailRow(
+                                      label: 'Stability Index',
+                                      value: ratio.toStringAsFixed(2),
+                                      emphasize: true,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 9,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.22),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  'Stability Index = Root Spread / Trunk Width = '
+                                  '${scan.rootSpreadMeters.toStringAsFixed(3)} m / '
+                                  '${scan.trunkWidthMeters.toStringAsFixed(3)} m = '
+                                  '${ratio.toStringAsFixed(2)}',
+                                  style: TextStyle(
+                                    color: antiFlashWhite.withValues(
+                                      alpha: 0.88,
+                                    ),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 7,
+                                runSpacing: 7,
+                                children: [
+                                  _ThresholdChip(
+                                    label: 'High (above 3.0)',
+                                    active:
+                                        scan.assessment ==
+                                        StabilityAssessment.high,
+                                    color: caribbeanGreen,
+                                  ),
+                                  _ThresholdChip(
+                                    label: 'Moderate (1.5 to 3.0)',
+                                    active:
+                                        scan.assessment ==
+                                        StabilityAssessment.moderate,
+                                    color: const Color(0xFFF59E0B),
+                                  ),
+                                  _ThresholdChip(
+                                    label: 'Low (below 1.5)',
+                                    active:
+                                        scan.assessment ==
+                                        StabilityAssessment.low,
+                                    color: const Color(0xFFEF4444),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                scan.assessment.description,
+                                style: TextStyle(
+                                  color: antiFlashWhite.withValues(alpha: 0.76),
+                                  fontSize: 11,
+                                  height: 1.35,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Color(0xFF064E3B),
+                                            Color(0xFF10B981),
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: const Color(
+                                            0xFF86EFAC,
+                                          ).withValues(alpha: 0.34),
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(
+                                              0xFF10B981,
+                                            ).withValues(alpha: 0.24),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: FilledButton(
+                                          onPressed: onSave,
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: Colors.transparent,
+                                            shadowColor: Colors.transparent,
+                                            foregroundColor: antiFlashWhite,
+                                            alignment: Alignment.center,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 12,
+                                            ),
+                                            shape: const RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.zero,
+                                            ),
+                                            textStyle: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          child: const Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.bookmark_added_rounded,
+                                                size: 18,
+                                              ),
+                                              SizedBox(width: 8),
+                                              Text('Save'),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Color(0xFF7F1D1D),
+                                            Color(0xFFDC2626),
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: const Color(
+                                            0xFFFCA5A5,
+                                          ).withValues(alpha: 0.32),
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: const Color(
+                                              0xFFEF4444,
+                                            ).withValues(alpha: 0.26),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: FilledButton(
+                                          onPressed: onDelete,
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: Colors.transparent,
+                                            shadowColor: Colors.transparent,
+                                            foregroundColor: antiFlashWhite,
+                                            alignment: Alignment.center,
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 12,
+                                            ),
+                                            shape: const RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.zero,
+                                            ),
+                                            textStyle: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                          child: const Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.delete_forever_rounded,
+                                                size: 18,
+                                              ),
+                                              SizedBox(width: 8),
+                                              Text('Delete'),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        )
+                      : const SizedBox.shrink(),
                 ),
-              ],
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
 
-  Widget _panel({required Widget child}) {
+class _MetricChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _MetricChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: darkGreen,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: bangladeshGreen),
-      ),
-      child: child,
-    );
-  }
-
-  Widget _metricLine(String label, double value, Color color) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: TextStyle(fontSize: 10, color: antiFlashWhite.withValues(alpha: 0.8))),
-              Text('${value.toStringAsFixed(1)}%', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: color)),
-            ],
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: (value / 100).clamp(0, 1),
-              minHeight: 7,
-              backgroundColor: Colors.black.withValues(alpha: 0.3),
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _tideToggle() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(999),
+        color: richBlack.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(11),
         border: Border.all(color: bangladeshGreen.withValues(alpha: 0.9)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _tideOption(label: 'Low Tide', active: !_isHighTide, onTap: () => setState(() => _isHighTide = false)),
-          _tideOption(label: 'High Tide', active: _isHighTide, onTap: () => setState(() => _isHighTide = true)),
+          Text(
+            '$label:',
+            style: TextStyle(
+              color: antiFlashWhite.withValues(alpha: 0.72),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            value,
+            style: const TextStyle(
+              color: antiFlashWhite,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _tideOption({required String label, required bool active, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: active ? caribbeanGreen.withValues(alpha: 0.18) : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: active ? caribbeanGreen.withValues(alpha: 0.65) : Colors.transparent),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 10,
-            fontWeight: active ? FontWeight.w900 : FontWeight.w700,
-            color: active ? caribbeanGreen : antiFlashWhite.withValues(alpha: 0.7),
-          ),
-        ),
+class _SectionTitle extends StatelessWidget {
+  final String title;
+
+  const _SectionTitle({required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: TextStyle(
+        color: antiFlashWhite.withValues(alpha: 0.86),
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 0.3,
       ),
     );
   }
 }
 
-class _RingGaugePainter extends CustomPainter {
-  final double value;
-  const _RingGaugePainter({required this.value});
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool emphasize;
+
+  const _DetailRow({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+  });
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = math.min(size.width, size.height) / 2 - 8;
-    canvas.drawCircle(center, radius, Paint()..color = Colors.white.withValues(alpha: 0.08)..style = PaintingStyle.stroke..strokeWidth = 12);
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: radius),
-      -math.pi / 2,
-      2 * math.pi * value.clamp(0, 1),
-      false,
-      Paint()
-        ..shader = const LinearGradient(colors: [Color(0xFF38BDF8), Color(0xFF22C55E)]).createShader(Rect.fromCircle(center: center, radius: radius))
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 12
-        ..strokeCap = StrokeCap.round,
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: antiFlashWhite.withValues(alpha: 0.74),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: antiFlashWhite,
+            fontSize: emphasize ? 12 : 11,
+            fontWeight: emphasize ? FontWeight.w900 : FontWeight.w800,
+          ),
+        ),
+      ],
     );
   }
-
-  @override
-  bool shouldRepaint(covariant _RingGaugePainter oldDelegate) => oldDelegate.value != value;
 }
 
-class _TrendPainter extends CustomPainter {
-  final List<double> values;
-  final List<String> months;
-  const _TrendPainter({required this.values, required this.months});
+class _ThresholdChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final Color color;
+
+  const _ThresholdChip({
+    required this.label,
+    required this.active,
+    required this.color,
+  });
 
   @override
-  void paint(Canvas canvas, Size size) {
-    const leftPad = 30.0;
-    const rightPad = 12.0;
-    const topPad = 10.0;
-    const bottomPad = 24.0;
-    final w = size.width - (leftPad + rightPad);
-    final h = size.height - (topPad + bottomPad);
-    final origin = Offset(leftPad, topPad);
-
-    final grid = Paint()..color = Colors.white.withValues(alpha: 0.08)..strokeWidth = 1;
-    final minValue = values.reduce(math.min);
-    final maxValue = values.reduce(math.max);
-    final span = (maxValue - minValue).abs() < 1 ? 1.0 : (maxValue - minValue);
-    final yMin = (minValue - span * 0.25).clamp(0.0, 100.0).toDouble();
-    final yMax = (maxValue + span * 0.20).clamp(0.0, 100.0).toDouble();
-    final yRange = (yMax - yMin).abs() < 1 ? 1.0 : (yMax - yMin);
-
-    final yText = TextPainter(textDirection: TextDirection.ltr, textAlign: TextAlign.right);
-    for (int i = 0; i <= 4; i++) {
-      final y = origin.dy + (h * i / 4);
-      canvas.drawLine(Offset(origin.dx, y), Offset(origin.dx + w, y), grid);
-      final tickValue = yMax - ((yRange * i) / 4);
-      yText.text = TextSpan(
-        text: '${tickValue.toStringAsFixed(0)}%',
-        style: TextStyle(fontSize: 8, color: antiFlashWhite.withValues(alpha: 0.55)),
-      );
-      yText.layout();
-      yText.paint(canvas, Offset(origin.dx - yText.width - 6, y - yText.height / 2));
-    }
-
-    final slotWidth = w / values.length;
-    final barWidth = slotWidth * 0.58;
-    final tp = TextPainter(textDirection: TextDirection.ltr, textAlign: TextAlign.center);
-
-    for (int i = 0; i < values.length; i++) {
-      final value = values[i];
-      final normalized = ((value - yMin) / yRange).clamp(0.0, 1.0);
-      final barHeight = normalized * h;
-      final xCenter = origin.dx + (slotWidth * i) + (slotWidth / 2);
-      final barRect = RRect.fromRectAndRadius(
-        Rect.fromLTWH(xCenter - (barWidth / 2), origin.dy + h - barHeight, barWidth, barHeight),
-        const Radius.circular(6),
-      );
-      final isLatest = i == values.length - 1;
-      final barPaint = Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: isLatest
-              ? [const Color(0xFF22C55E), const Color(0xFF38BDF8)]
-              : [const Color(0xFF60A5FA).withValues(alpha: 0.85), const Color(0xFF60A5FA).withValues(alpha: 0.35)],
-        ).createShader(barRect.outerRect);
-      canvas.drawRRect(barRect, barPaint);
-
-      tp.text = TextSpan(
-        text: value.toStringAsFixed(0),
-        style: TextStyle(
-          fontSize: 8,
-          fontWeight: isLatest ? FontWeight.w900 : FontWeight.w700,
-          color: isLatest ? const Color(0xFF22C55E) : antiFlashWhite.withValues(alpha: 0.75),
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: active
+            ? color.withValues(alpha: 0.2)
+            : Colors.black.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: active
+              ? color.withValues(alpha: 0.75)
+              : antiFlashWhite.withValues(alpha: 0.2),
         ),
-      );
-      tp.layout();
-      tp.paint(canvas, Offset(xCenter - tp.width / 2, (origin.dy + h - barHeight - tp.height - 3).clamp(origin.dy, origin.dy + h)));
-
-      tp.text = TextSpan(text: months[i], style: TextStyle(fontSize: 9, color: antiFlashWhite.withValues(alpha: 0.6)));
-      tp.layout();
-      tp.paint(canvas, Offset(xCenter - tp.width / 2, origin.dy + h + 6));
-    }
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: active ? color : antiFlashWhite.withValues(alpha: 0.75),
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
   }
-
-  @override
-  bool shouldRepaint(covariant _TrendPainter oldDelegate) => oldDelegate.values != values || oldDelegate.months != months;
 }

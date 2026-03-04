@@ -21,7 +21,7 @@
 - Removed `_measureDBH()` and `_performDBHMeasurement()` methods
 - Removed "Measure DBH" button from floating action bar
 - Removed Measurement Guide overlay UI
-- Kept "Analyze Health" and "Log Data" placeholders
+- Kept "Analyze Scan" and "Log Data" placeholders
 
 ### 3. README.md
 - Removed AR-Based DBH Measurement feature description
@@ -43,4 +43,3 @@
 
 ## Notes
 All ARCore and DBH related code has been successfully removed from the project.
-

@@ -1,145 +1,193 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'app_header.dart';
 
-// Import the color constants
-const Color caribbeanGreen = Color(0xFF00DF81);
-const Color antiFlashWhite = Color(0xFFF1F7F6);
-const Color bangladeshGreen = Color(0xFF03624C);
-const Color darkGreen = Color(0xFF032221);
-const Color richBlack = Color(0xFF021B1A);
+import '../../home/models/mangrove_tree.dart';
+import 'app_header.dart';
+import 'recent_scan_page.dart';
 
 class MetricsPage extends StatelessWidget {
-  const MetricsPage({super.key});
+  final ValueListenable<List<RecentTreeScan>> scansListenable;
+
+  const MetricsPage({super.key, required this.scansListenable});
+
+  static const Color caribbeanGreen = Color(0xFF00DF81);
+  static const Color antiFlashWhite = Color(0xFFF1F7F6);
+  static const Color bangladeshGreen = Color(0xFF03624C);
+  static const Color darkGreen = Color(0xFF032221);
+  static const Color richBlack = Color(0xFF021B1A);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: buildAppHeader("Metrics"),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildMetricCard(
-              title: "Root-First Scans Completed",
-              value: "124 trees",
-              icon: Icons.hub,
-              trend: "This cycle",
-              isPositive: true,
-            ),
-            const SizedBox(height: 12),
-            _buildMetricCard(
-              title: "Average Structural Score (S)",
-              value: "79.0%",
-              icon: Icons.account_tree,
-              trend: "Tidal corrected",
-              isPositive: true,
-            ),
-            const SizedBox(height: 12),
-            _buildMetricCard(
-              title: "Average Health Score (H)",
-              value: "84.0%",
-              icon: Icons.eco,
-              trend: "Optional canopy scan",
-              isPositive: true,
-            ),
-            const SizedBox(height: 12),
-            _buildMetricCard(
-              title: "Average Necrosis",
-              value: "8.0%",
-              icon: Icons.warning_amber_rounded,
-              trend: "Leaf/canopy subset",
-              isPositive: false,
-            ),
-            const SizedBox(height: 24),
-            _buildSectionTitle("Assessment Context"),
-            const SizedBox(height: 12),
-            _buildImpactMetrics(),
-            const SizedBox(height: 24),
-            _buildSectionTitle("Recent Scan Activity"),
-            const SizedBox(height: 12),
-            _buildActivityList(),
-          ],
-        ),
+      backgroundColor: richBlack,
+      appBar: buildAppHeader('Dashboard'),
+      body: ValueListenableBuilder<List<RecentTreeScan>>(
+        valueListenable: scansListenable,
+        builder: (context, scans, _) {
+          final totalTrees = scans.length;
+
+          var highCount = 0;
+          var moderateCount = 0;
+          var lowCount = 0;
+
+          for (final scan in scans) {
+            switch (scan.assessment) {
+              case StabilityAssessment.high:
+                highCount += 1;
+              case StabilityAssessment.moderate:
+                moderateCount += 1;
+              case StabilityAssessment.low:
+                lowCount += 1;
+            }
+          }
+
+          final highRatio = totalTrees == 0 ? 0.0 : highCount / totalTrees;
+          final moderateRatio = totalTrees == 0
+              ? 0.0
+              : moderateCount / totalTrees;
+          final lowRatio = totalTrees == 0 ? 0.0 : lowCount / totalTrees;
+
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+            children: [
+              _HeroSummaryCard(totalTrees: totalTrees),
+              const SizedBox(height: 14),
+              _StabilityDistributionCard(
+                totalTrees: totalTrees,
+                highCount: highCount,
+                moderateCount: moderateCount,
+                lowCount: lowCount,
+                highRatio: highRatio,
+                moderateRatio: moderateRatio,
+                lowRatio: lowRatio,
+              ),
+              if (totalTrees == 0) ...[
+                const SizedBox(height: 14),
+                _EmptyStateHintCard(),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
+}
 
-  Widget _buildMetricCard({
-    required String title,
-    required String value,
-    required IconData icon,
-    required String trend,
-    required bool isPositive,
-  }) {
+class _HeroSummaryCard extends StatelessWidget {
+  final int totalTrees;
+
+  const _HeroSummaryCard({required this.totalTrees});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: darkGreen,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: bangladeshGreen),
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            MetricsPage.bangladeshGreen.withValues(alpha: 0.86),
+            MetricsPage.darkGreen,
+          ],
+        ),
+        border: Border.all(
+          color: MetricsPage.caribbeanGreen.withValues(alpha: 0.44),
+        ),
         boxShadow: [
           BoxShadow(
-            color: caribbeanGreen.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.24),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Mangrove Stability Dashboard',
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.92),
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Live metrics from your recent scans',
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.68),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _HeroValueBlock(
+                  label: 'Total trees scanned',
+                  value: '$totalTrees',
+                  icon: Icons.forest_rounded,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroValueBlock extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+
+  const _HeroValueBlock({
+    required this.label,
+    required this.value,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: MetricsPage.antiFlashWhite.withValues(alpha: 0.12),
+        ),
+      ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: caribbeanGreen.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: caribbeanGreen, size: 28),
-          ),
-          const SizedBox(width: 12),
+          Icon(icon, color: MetricsPage.caribbeanGreen, size: 18),
+          const SizedBox(width: 9),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: antiFlashWhite.withOpacity(0.7),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
                   value,
                   style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    color: antiFlashWhite,
+                    color: MetricsPage.antiFlashWhite,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Container(
-            constraints: const BoxConstraints(maxWidth: 118),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: isPositive ? caribbeanGreen.withOpacity(0.2) : Colors.red.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(isPositive ? Icons.trending_up : Icons.trending_down, size: 14, color: isPositive ? caribbeanGreen : Colors.red),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    trend,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: isPositive ? caribbeanGreen : Colors.red),
+                Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: MetricsPage.antiFlashWhite.withValues(alpha: 0.78),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -149,161 +197,188 @@ class MetricsPage extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _buildSectionTitle(String title) {
-    return Row(
-      children: [
-        Container(
-          width: 3,
-          height: 18,
-          decoration: BoxDecoration(
-            color: caribbeanGreen,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            color: antiFlashWhite,
-            letterSpacing: 0.6,
-          ),
-        ),
-      ],
-    );
-  }
+class _StabilityDistributionCard extends StatelessWidget {
+  final int totalTrees;
+  final int highCount;
+  final int moderateCount;
+  final int lowCount;
+  final double highRatio;
+  final double moderateRatio;
+  final double lowRatio;
 
-  Widget _buildImpactMetrics() {
+  const _StabilityDistributionCard({
+    required this.totalTrees,
+    required this.highCount,
+    required this.moderateCount,
+    required this.lowCount,
+    required this.highRatio,
+    required this.moderateRatio,
+    required this.lowRatio,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [darkGreen.withOpacity(0.8), bangladeshGreen.withOpacity(0.6)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        color: MetricsPage.darkGreen,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: caribbeanGreen.withOpacity(0.3)),
+        border: Border.all(
+          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.95),
+        ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildImpactRow(
-            icon: Icons.waves,
-            label: "High Tide Scans",
-            value: "31%",
+          Text(
+            'Stability Classification',
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
           ),
-          const Divider(color: bangladeshGreen, height: 20),
-          _buildImpactRow(
-            icon: Icons.water_drop,
-            label: "Low Tide Scans",
-            value: "69%",
+          const SizedBox(height: 2),
+          Text(
+            totalTrees == 0 ? 'No scans yet' : '$totalTrees scans classified',
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-          const Divider(color: bangladeshGreen, height: 20),
-          _buildImpactRow(
-            icon: Icons.tune,
-            label: "Tidal Correction Factor",
-            value: "x0.92 (high tide)",
+          const SizedBox(height: 12),
+          _StabilityBarRow(
+            label: 'High',
+            count: highCount,
+            percent: highRatio * 100,
+            ratio: highRatio,
+            color: MetricsPage.caribbeanGreen,
           ),
-          const Divider(color: bangladeshGreen, height: 20),
-          _buildImpactRow(
-            icon: Icons.route,
-            label: "Primary Workflow",
-            value: "Root-first",
+          const SizedBox(height: 10),
+          _StabilityBarRow(
+            label: 'Moderate',
+            count: moderateCount,
+            percent: moderateRatio * 100,
+            ratio: moderateRatio,
+            color: const Color(0xFFF59E0B),
+          ),
+          const SizedBox(height: 10),
+          _StabilityBarRow(
+            label: 'Low',
+            count: lowCount,
+            percent: lowRatio * 100,
+            ratio: lowRatio,
+            color: const Color(0xFFEF4444),
           ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildImpactRow({
-    required IconData icon,
-    required String label,
-    required String value,
-  }) {
-    return Row(
+class _StabilityBarRow extends StatelessWidget {
+  final String label;
+  final int count;
+  final double percent;
+  final double ratio;
+  final Color color;
+
+  const _StabilityBarRow({
+    required this.label,
+    required this.count,
+    required this.percent,
+    required this.ratio,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final clampedRatio = ratio.clamp(0.0, 1.0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: caribbeanGreen, size: 20),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              color: antiFlashWhite.withOpacity(0.8),
+        Row(
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
+            const Spacer(),
+            Text(
+              '$count',
+              style: const TextStyle(
+                color: MetricsPage.antiFlashWhite,
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '${percent.toStringAsFixed(0)}%',
+              style: TextStyle(
+                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.66),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: caribbeanGreen,
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: Container(
+            height: 8,
+            color: Colors.black.withValues(alpha: 0.28),
+            child: FractionallySizedBox(
+              widthFactor: clampedRatio == 0 ? 0.02 : clampedRatio,
+              alignment: Alignment.centerLeft,
+              child: DecoratedBox(decoration: BoxDecoration(color: color)),
+            ),
           ),
         ),
       ],
     );
   }
+}
 
-  Widget _buildActivityList() {
-    final activities = [
-      {"time": "45 min ago", "action": "Root scan recorded • Tree #07", "icon": Icons.hub},
-      {"time": "1 hr ago", "action": "Tidal context set to High Tide", "icon": Icons.waves},
-      {"time": "2 hrs ago", "action": "Optional necrosis analysis completed", "icon": Icons.eco},
-      {"time": "Today", "action": "Recent scan saved to local study record", "icon": Icons.save_alt},
-    ];
-
+class _EmptyStateHintCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
     return Container(
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: darkGreen,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: bangladeshGreen),
-      ),
-      child: ListView.separated(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        padding: EdgeInsets.zero,
-        itemCount: activities.length,
-        separatorBuilder: (context, index) => Divider(
-          color: bangladeshGreen.withOpacity(0.5),
-          height: 1,
+        color: MetricsPage.darkGreen.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.9),
         ),
-        itemBuilder: (context, index) {
-          final activity = activities[index];
-          return ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            minVerticalPadding: 8,
-            leading: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: caribbeanGreen.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                activity["icon"] as IconData,
-                color: caribbeanGreen,
-                size: 20,
-              ),
-            ),
-            title: Text(
-              activity["action"] as String,
-              style: const TextStyle(
-                color: antiFlashWhite,
-                fontWeight: FontWeight.w600,
-                fontSize: 13,
-              ),
-            ),
-            subtitle: Text(
-              activity["time"] as String,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.info_outline_rounded,
+            color: MetricsPage.caribbeanGreen.withValues(alpha: 0.9),
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Capture your first tree scan to populate dashboard metrics.',
               style: TextStyle(
+                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.78),
                 fontSize: 12,
-                color: antiFlashWhite.withOpacity(0.5),
+                fontWeight: FontWeight.w600,
               ),
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
