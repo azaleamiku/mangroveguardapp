@@ -1,28 +1,71 @@
-# Mangrove Guard App
+<p align="center">
+  <img src="images/MangroveGuardLogo.png" alt="Mangrove Guard Logo" width="110" />
+</p>
 
-Flutter mobile app for scanning mangrove trees, estimating root stability from on-device ML inference, tracking recent scans, and exporting PDF reports.
+<h1 align="center">Mangrove Guard App</h1>
 
-## Features
+<p align="center">
+  AI-assisted mangrove scanning with on-device ML inference, local scan intelligence, and field-ready PDF exports.
+</p>
 
-- On-device inference with a bundled TensorFlow Lite model (`assets/models/mangroveModel.tflite`).
-- Camera-based capture flow with a guided scan frame.
-- Stability assessment from root spread vs trunk width:
-  - `High`: ratio `> 3.0`
-  - `Moderate`: ratio `>= 1.5` and `<= 3.0`
-  - `Low`: ratio `< 1.5`
-- Dashboard metrics (total scans + distribution by stability class).
-- Recent scan history with persisted local storage.
-- PDF report export per scan (including highlighted root regions when available).
-- Onboarding flow shown once, then skipped via local preference.
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=500&size=18&pause=1400&color=0B8A83&center=true&vCenter=true&width=960&lines=Camera-guided+scan+workflow;TensorFlow+Lite+inference+running+on-device;Live+stability+metrics+with+history+tracking;One-tap+PDF+report+export" alt="Animated intro" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Flutter-Mobile_App-02569B?logo=flutter&logoColor=white" alt="Flutter" />
+  <img src="https://img.shields.io/badge/Dart-3.10.7-0175C2?logo=dart&logoColor=white" alt="Dart" />
+  <img src="https://img.shields.io/badge/TensorFlow_Lite-On_Device_Inference-FF6F00?logo=tensorflow&logoColor=white" alt="TFLite" />
+  <img src="https://img.shields.io/badge/Local_Storage-SharedPreferences-4CAF50" alt="SharedPreferences" />
+  <img src="https://img.shields.io/badge/PDF-Report_Export-B30B00" alt="PDF" />
+</p>
+
+## Preview
+
+<p align="center">
+  <img src="flutter_01.png" alt="Scanner screen" width="31%" />
+  <img src="flutter_02.png" alt="Metrics screen" width="31%" />
+  <img src="flutter_03.png" alt="History screen" width="31%" />
+</p>
+
+## What It Does
+
+- Captures mangrove scans using a guided camera frame.
+- Runs TensorFlow Lite inference directly on-device.
+- Calculates stability from root spread vs trunk width ratio.
+- Tracks metrics and recent scans using local persistence.
+- Exports detailed PDF reports per scan.
+- Shows onboarding once, then routes directly to home.
+
+## Scan Flow
+
+```mermaid
+flowchart LR
+  A[Open Scanner] --> B[Capture Frame]
+  B --> C[Run TFLite Inference]
+  C --> D[Compute Root/Trunk Ratio]
+  D --> E[Assign Stability Class]
+  E --> F[Save Scan Locally]
+  F --> G[Update Metrics Dashboard]
+  F --> H[Generate PDF Report]
+```
+
+## Stability Logic
+
+| Ratio (Root Spread / Trunk Width) | Classification |
+| --- | --- |
+| `> 3.0` | `High` |
+| `>= 1.5` and `<= 3.0` | `Moderate` |
+| `< 1.5` | `Low` |
 
 ## Tech Stack
 
-- Flutter / Dart (Dart SDK constraint: `^3.10.7`)
-- `camera` for capture
-- `tflite_flutter` for ML inference
-- `shared_preferences` for local state/history
+- Flutter / Dart (`sdk: ^3.10.7`)
+- `camera` for image capture
+- `tflite_flutter` for on-device inference
+- `shared_preferences` for persisted app state
+- `path_provider` for local file paths
 - `pdf` for report generation
-- `path_provider` for local file storage
 
 ## Project Structure
 
@@ -44,13 +87,7 @@ assets/
 images/
 ```
 
-## Prerequisites
-
-- Flutter SDK installed and configured
-- Android Studio and/or Xcode (for device builds)
-- Physical device recommended for camera testing
-
-## Getting Started
+## Quick Start
 
 ```bash
 flutter pub get
@@ -60,35 +97,28 @@ flutter run
 ## Useful Commands
 
 ```bash
-# Static analysis
 flutter analyze
-
-# Run tests
 flutter test
-
-# Regenerate app icons
 flutter pub run flutter_launcher_icons
-
-# Regenerate splash screens
 flutter pub run flutter_native_splash:create
 ```
 
 ## Platform Notes
 
-- Android `minSdk` is `26` (`android/app/build.gradle.kts`).
-- Camera permission is declared on Android and iOS.
-- Android includes a native method channel (`mangroveguardapp/downloads`) to:
+- Android `minSdk` is `26`.
+- Camera permission is configured for Android and iOS.
+- Android uses native method channel `mangroveguardapp/downloads` to:
   - save exported PDFs to `Downloads/MangroveGuard`
-  - open exported PDFs via chooser intent
+  - open exported PDFs with chooser intent
 
 ## Data and Storage
 
-- Onboarding completion flag: `showHome` in `SharedPreferences`
-- Recent scans key: `recent_tree_scans_v1` in `SharedPreferences`
-- Captured scan images are persisted under `scan_captures`
-- Non-Android PDF fallback path is app-local `scan_exports`
+- Onboarding completion flag: `showHome` (`SharedPreferences`)
+- Recent scans key: `recent_tree_scans_v1` (`SharedPreferences`)
+- Captured scan images directory: `scan_captures`
+- Non-Android PDF fallback directory: `scan_exports`
 
-## Notes
+## Implementation Notes
 
-- Measurement conversion currently uses a fixed `metersPerPixel` value (`0.003`) in the scan pipeline.
-- Model parsing supports both mask-style and instance-style output tensors.
+- Current measurement conversion uses fixed `metersPerPixel = 0.003` in scan pipeline.
+- Model output handling supports both mask-style and instance-style tensors.
