@@ -31,14 +31,9 @@
 
 ## Scan Flow
 
-1. Open Scanner
-2. Capture Frame
-3. Run TFLite Inference
-4. Compute Root/Trunk Ratio
-5. Assign Stability Class
-6. Save Scan Locally
-7. Update Metrics Dashboard
-8. Generate PDF Report
+<p align="center">
+  <img src="images/scan_flow.svg" alt="Mangrove scan flow diagram" width="100%" />
+</p>
 
 ## Stability Logic
 
