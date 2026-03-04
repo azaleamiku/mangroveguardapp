@@ -29,12 +29,6 @@
 - Exports detailed PDF reports per scan.
 - Shows onboarding once, then routes directly to home.
 
-## Scan Flow
-
-<p align="center">
-  <img src="images/scan_flow_diagram.svg" alt="Mangrove scan flow diagram" width="100%" />
-</p>
-
 ## Stability Logic
 
 | Ratio (Root Spread / Trunk Width) | Classification |
