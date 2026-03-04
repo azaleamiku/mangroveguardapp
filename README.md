@@ -32,7 +32,7 @@
 ## Scan Flow
 
 <p align="center">
-  <img src="ScanFlow.drawio.png" alt="Mangrove scan flow diagram" width="100%" />
+  <img src="images/scan_flow_diagram.svg" alt="Mangrove scan flow diagram" width="100%" />
 </p>
 
 ## Stability Logic
