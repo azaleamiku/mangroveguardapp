@@ -1,52 +1,70 @@
-<svg width="1400" height="420" viewBox="0 0 1400 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Mangrove Guard Scan Flow</title>
-  <desc id="desc">Simple draw.io-style scan flow diagram with monochrome boxes and arrows.</desc>
+<svg width="1002" height="310" viewBox="0 0 1002 310" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Scan Flow Diagram</title>
+  <desc id="desc">Draw.io style flow for scanner to inference, stability class, local save, and branches to export PDF and dashboard update.</desc>
 
   <defs>
     <style>
-      .title { font: 700 22px Arial, Helvetica, sans-serif; fill: #111111; }
-      .label { font: 500 18px Arial, Helvetica, sans-serif; fill: #111111; }
-      .node { fill: #ffffff; stroke: #111111; stroke-width: 2; }
-      .line { stroke: #111111; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .box {
+        fill: #dddddd;
+        stroke: #111111;
+        stroke-width: 1;
+      }
+      .txt {
+        fill: #111111;
+        font: 400 22px Arial, Helvetica, sans-serif;
+      }
+      .ln {
+        stroke: #111111;
+        stroke-width: 1.5;
+        fill: none;
+        marker-end: url(#arrow);
+      }
+      .wire {
+        stroke: #111111;
+        stroke-width: 1.5;
+        fill: none;
+      }
     </style>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#111111" />
     </marker>
   </defs>
 
-  <rect x="0" y="0" width="1400" height="420" fill="#ffffff" />
-  <text x="700" y="44" text-anchor="middle" class="title">Mangrove Scan Pipeline</text>
+  <rect x="0" y="0" width="1002" height="310" fill="#dddddd" />
 
-  <rect x="60" y="120" width="170" height="68" rx="6" class="node" />
-  <text x="145" y="160" text-anchor="middle" class="label">Open Scanner</text>
+  <rect x="0" y="120" width="120" height="60" class="box" />
+  <text x="60" y="154" text-anchor="middle" class="txt">Open Scanner</text>
 
-  <rect x="260" y="120" width="170" height="68" rx="6" class="node" />
-  <text x="345" y="160" text-anchor="middle" class="label">Capture Frame</text>
+  <rect x="160" y="120" width="120" height="60" class="box" />
+  <text x="220" y="154" text-anchor="middle" class="txt">Capture Frame</text>
 
-  <rect x="460" y="120" width="190" height="68" rx="6" class="node" />
-  <text x="555" y="160" text-anchor="middle" class="label">Run TFLite Inference</text>
+  <rect x="310" y="120" width="120" height="60" class="box" />
+  <text x="370" y="147" text-anchor="middle" class="txt">Run TFLite</text>
+  <text x="370" y="170" text-anchor="middle" class="txt">Inference</text>
 
-  <rect x="680" y="120" width="210" height="68" rx="6" class="node" />
-  <text x="785" y="160" text-anchor="middle" class="label">Compute Ratio</text>
+  <rect x="460" y="120" width="120" height="60" class="box" />
+  <text x="520" y="147" text-anchor="middle" class="txt">Compute Root/</text>
+  <text x="520" y="170" text-anchor="middle" class="txt">Trunk Ratio</text>
 
-  <rect x="920" y="120" width="200" height="68" rx="6" class="node" />
-  <text x="1020" y="160" text-anchor="middle" class="label">Assign Stability</text>
+  <rect x="610" y="120" width="120" height="60" class="box" />
+  <text x="670" y="147" text-anchor="middle" class="txt">Assign Stability</text>
+  <text x="670" y="170" text-anchor="middle" class="txt">Class</text>
 
-  <rect x="1150" y="120" width="190" height="68" rx="6" class="node" />
-  <text x="1245" y="160" text-anchor="middle" class="label">Save Scan Locally</text>
+  <rect x="760" y="120" width="120" height="60" class="box" />
+  <text x="820" y="154" text-anchor="middle" class="txt">Save Scan Locally</text>
 
-  <rect x="980" y="270" width="190" height="68" rx="6" class="node" />
-  <text x="1075" y="310" text-anchor="middle" class="label">Update Dashboard</text>
+  <rect x="880" y="0" width="122" height="60" class="box" />
+  <text x="941" y="33" text-anchor="middle" class="txt">Export PDF</text>
 
-  <rect x="1200" y="270" width="140" height="68" rx="6" class="node" />
-  <text x="1270" y="310" text-anchor="middle" class="label">Export PDF</text>
+  <rect x="880" y="250" width="122" height="60" class="box" />
+  <text x="941" y="283" text-anchor="middle" class="txt">Update Dashboard</text>
 
-  <line x1="230" y1="154" x2="258" y2="154" class="line" />
-  <line x1="430" y1="154" x2="458" y2="154" class="line" />
-  <line x1="650" y1="154" x2="678" y2="154" class="line" />
-  <line x1="890" y1="154" x2="918" y2="154" class="line" />
-  <line x1="1120" y1="154" x2="1148" y2="154" class="line" />
+  <line x1="120" y1="150" x2="158" y2="150" class="ln" />
+  <line x1="280" y1="150" x2="308" y2="150" class="ln" />
+  <line x1="430" y1="150" x2="458" y2="150" class="ln" />
+  <line x1="580" y1="150" x2="608" y2="150" class="ln" />
+  <line x1="730" y1="150" x2="758" y2="150" class="ln" />
 
-  <path d="M 1245 188 L 1245 248 L 1075 248 L 1075 268" class="line" />
-  <path d="M 1245 188 L 1245 268" class="line" />
+  <path d="M 820 120 L 820 90 L 940 90 L 940 62" class="ln" />
+  <path d="M 820 180 L 820 215 L 940 215 L 940 248" class="ln" />
 </svg>
