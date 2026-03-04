@@ -20,14 +20,6 @@
   <img src="https://img.shields.io/badge/PDF-Report_Export-B30B00" alt="PDF" />
 </p>
 
-## Preview
-
-<p align="center">
-  <img src="flutter_01.png" alt="Scanner screen" width="31%" />
-  <img src="flutter_02.png" alt="Metrics screen" width="31%" />
-  <img src="flutter_03.png" alt="History screen" width="31%" />
-</p>
-
 ## What It Does
 
 - Captures mangrove scans using a guided camera frame.
