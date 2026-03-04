@@ -88,12 +88,6 @@ flutter pub run flutter_native_splash:create
 - Captured scan images are persisted under `scan_captures`
 - Non-Android PDF fallback path is app-local `scan_exports`
 
-## Screenshots
-
-![Dashboard](flutter_01.png)
-![Scanner](flutter_02.png)
-![Recent Scans](flutter_03.png)
-
 ## Notes
 
 - Measurement conversion currently uses a fixed `metersPerPixel` value (`0.003`) in the scan pipeline.
