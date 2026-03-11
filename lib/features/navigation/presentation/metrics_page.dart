@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -245,8 +246,10 @@ class _MetricsPageState extends State<MetricsPage> {
           var highCount = 0;
           var moderateCount = 0;
           var lowCount = 0;
+          var stabilitySum = 0.0;
 
           for (final scan in scans) {
+            stabilitySum += scan.stabilityIndex;
             switch (scan.assessment) {
               case StabilityAssessment.high:
                 highCount += 1;
@@ -262,6 +265,8 @@ class _MetricsPageState extends State<MetricsPage> {
               ? 0.0
               : moderateCount / totalTrees;
           final lowRatio = totalTrees == 0 ? 0.0 : lowCount / totalTrees;
+          final averageStability =
+              totalTrees == 0 ? 0.0 : stabilitySum / totalTrees;
 
           return NotificationListener<ScrollNotification>(
             onNotification: (notification) =>
@@ -283,6 +288,11 @@ class _MetricsPageState extends State<MetricsPage> {
                     children: [
                       _HeroSummaryCard(totalTrees: totalTrees),
                       const SizedBox(height: 14),
+                      _AverageStabilityGaugeCard(
+                        totalTrees: totalTrees,
+                        averageStability: averageStability,
+                      ),
+                      const SizedBox(height: 14),
                       _StabilityDistributionCard(
                         totalTrees: totalTrees,
                         highCount: highCount,
@@ -297,7 +307,6 @@ class _MetricsPageState extends State<MetricsPage> {
                         _EmptyStateHintCard(),
                       ],
                       const SizedBox(height: 12),
-                      const _AboutGestureHintCard(),
                     ],
                   ),
                 ),
@@ -493,42 +502,47 @@ class _AboutAppSheet extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  'Guided camera scans run TensorFlow Lite on-device, compute stability from root spread vs trunk width, save results locally, and support PDF export per scan.',
-                  style: TextStyle(
-                    color: MetricsPage.antiFlashWhite.withValues(alpha: 0.82),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    height: 1.35,
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
                   ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: const [
-                    Expanded(
-                      child: _AboutPillMetric(
-                        icon: Icons.memory_rounded,
-                        label: 'Inference',
-                        value: 'On-device',
-                      ),
+                  decoration: BoxDecoration(
+                    color: MetricsPage.darkGreen.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: MetricsPage.bangladeshGreen.withValues(alpha: 0.9),
                     ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: _AboutPillMetric(
-                        icon: Icons.history_rounded,
-                        label: 'History',
-                        value: 'Local',
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Mangroves (Rhizophora mangle)',
+                        style: TextStyle(
+                          color: MetricsPage.antiFlashWhite.withValues(
+                            alpha: 0.9,
+                          ),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                        ),
                       ),
-                    ),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: _AboutPillMetric(
-                        icon: Icons.picture_as_pdf_rounded,
-                        label: 'Reports',
-                        value: 'PDF',
+                      const SizedBox(height: 6),
+                      Text(
+                        'Rhizophora mangle, the red mangrove, anchors shorelines with stilt roots, filters sediments, shelters juvenile marine life, and thrives in salty tidal water.',
+                        style: TextStyle(
+                          color: MetricsPage.antiFlashWhite.withValues(
+                            alpha: 0.8,
+                          ),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 Container(
@@ -544,16 +558,77 @@ class _AboutAppSheet extends StatelessWidget {
                       color: MetricsPage.bangladeshGreen.withValues(alpha: 0.9),
                     ),
                   ),
-                  child: Text(
-                    'Stability scale: High > 3.0x, Moderate 1.5-3.0x, Low < 1.5x.',
-                    style: TextStyle(
-                      color: MetricsPage.antiFlashWhite.withValues(alpha: 0.84),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      height: 1.3,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'The App',
+                        style: TextStyle(
+                          color: MetricsPage.antiFlashWhite.withValues(
+                            alpha: 0.9,
+                          ),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Our platform utilizes YOLOv8-Nano and TensorFlow Lite to deliver high-speed, on-device instance segmentation for real-time tree analysis. By calculating the ratio of root spread to trunk width, the system instantly evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
+                        style: TextStyle(
+                          color: MetricsPage.antiFlashWhite.withValues(
+                            alpha: 0.82,
+                          ),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: const [
+                          Expanded(
+                            child: _AboutPillMetric(
+                              icon: Icons.memory_rounded,
+                              label: 'Inference',
+                              value: 'On-device',
+                            ),
+                          ),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: _AboutPillMetric(
+                              icon: Icons.history_rounded,
+                              label: 'History',
+                              value: 'Local',
+                            ),
+                          ),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: _AboutPillMetric(
+                              icon: Icons.picture_as_pdf_rounded,
+                              label: 'Reports',
+                              value: 'PDF',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(height: 12),
+                
+                
+                const SizedBox(height: 6),
+                Text(
+                  'Built and maintained by the Mangrove Guard team.',
+                  style: TextStyle(
+                    color: MetricsPage.antiFlashWhite.withValues(alpha: 0.82),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 14),
                 const SizedBox(height: 18),
                 SizedBox(
                   width: double.infinity,
@@ -664,16 +739,6 @@ class _HeroSummaryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Mangrove Stability Dashboard',
-            style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.92),
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
             'Live metrics from your recent scans',
             style: TextStyle(
               color: MetricsPage.antiFlashWhite.withValues(alpha: 0.68),
@@ -686,12 +751,349 @@ class _HeroSummaryCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _HeroValueBlock(
-                  label: 'Total trees scanned',
+                  label: 'Total Mangrove scanned',
                   value: '$totalTrees',
                   icon: Icons.forest_rounded,
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AverageStabilityGaugeCard extends StatelessWidget {
+  final int totalTrees;
+  final double averageStability;
+
+  const _AverageStabilityGaugeCard({
+    required this.totalTrees,
+    required this.averageStability,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final hasData = totalTrees > 0;
+    final averageLabel =
+        hasData ? averageStability.toStringAsFixed(2) : '--';
+    final statusLabel =
+        hasData ? _statusLabel(averageStability) : 'No data yet';
+    final statusColor = hasData
+        ? _statusColor(averageStability)
+        : MetricsPage.antiFlashWhite.withValues(alpha: 0.6);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: MetricsPage.darkGreen,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.95),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Average of the Mangroves',
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            hasData ? 'Based on $totalTrees scans' : 'Scan a mangrove to begin',
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 20),
+          _AverageStabilityGauge(
+            value: hasData ? averageStability : 0,
+            valueLabel: averageLabel,
+            caption: '',
+            statusLabel: statusLabel,
+            statusColor: statusColor,
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _statusLabel(double value) {
+    if (value > 3) return 'High stability';
+    if (value >= 1.5) return 'Moderate stability';
+    return 'Low stability';
+  }
+
+  Color _statusColor(double value) {
+    if (value > 3) return MetricsPage.caribbeanGreen;
+    if (value >= 1.5) return const Color(0xFFF59E0B);
+    return const Color(0xFFEF4444);
+  }
+}
+
+class _AverageStabilityGauge extends StatelessWidget {
+  static const double maxValue = 4.5;
+
+  final double value;
+  final String valueLabel;
+  final String caption;
+  final String statusLabel;
+  final Color statusColor;
+
+  const _AverageStabilityGauge({
+    required this.value,
+    required this.valueLabel,
+    required this.caption,
+    required this.statusLabel,
+    required this.statusColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SizedBox(
+          height: 140,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _AverageStabilityGaugePainter(
+                    value: value,
+                    maxValue: maxValue,
+                    progressColor: statusColor,
+                  ),
+                ),
+              ),
+              Align(
+                alignment: const Alignment(0, 0.42),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      valueLabel,
+                      style: const TextStyle(
+                        color: MetricsPage.antiFlashWhite,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    if (caption.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                    Text(
+                      caption,
+                      style: TextStyle(
+                        color: MetricsPage.antiFlashWhite.withValues(
+                          alpha: 0.68,
+                        ),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          statusLabel,
+          style: TextStyle(
+            color: statusColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Column(
+          children: [
+            _GaugeLegendItem(
+              label: 'Low Stability (below 1.5)',
+              color: Color(0xFFEF4444),
+              alignment: Alignment.centerLeft,
+            ),
+            SizedBox(height: 6),
+            _GaugeLegendItem(
+              label: 'Moderate Stability (1.5–3.0)',
+              color: Color(0xFFF59E0B),
+              alignment: Alignment.centerLeft,
+            ),
+            SizedBox(height: 6),
+            _GaugeLegendItem(
+              label: 'High Stability (above 3.0)',
+              color: MetricsPage.caribbeanGreen,
+              alignment: Alignment.centerLeft,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _AverageStabilityGaugePainter extends CustomPainter {
+  final double value;
+  final double maxValue;
+  final Color progressColor;
+
+  const _AverageStabilityGaugePainter({
+    required this.value,
+    required this.maxValue,
+    required this.progressColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+
+    const trackThickness = 18.0;
+    const scaleThickness = 8.0;
+    const progressThickness = 18.0;
+
+    final center = Offset(size.width / 2, size.height - trackThickness - 6);
+    final radius = math.min(size.width / 2, center.dy) - trackThickness;
+    if (radius <= 0) return;
+
+    const startAngle = math.pi;
+    const sweepAngle = math.pi;
+
+    final trackPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = trackThickness
+      ..strokeCap = StrokeCap.round
+      ..color = MetricsPage.antiFlashWhite.withValues(alpha: 0.22);
+
+    final arcRect = Rect.fromCircle(center: center, radius: radius);
+    canvas.drawArc(arcRect, startAngle, sweepAngle, false, trackPaint);
+
+    final lowLimit = 1.5;
+    final moderateLimit = 3.0;
+    final lowPortion = (lowLimit / maxValue).clamp(0.0, 1.0);
+    final moderatePortion =
+        ((moderateLimit - lowLimit) / maxValue).clamp(0.0, 1.0 - lowPortion);
+    final highPortion =
+        (1.0 - lowPortion - moderatePortion).clamp(0.0, 1.0);
+
+    final scaleRadius = radius + (trackThickness / 2) + 8;
+    final scaleRect = Rect.fromCircle(center: center, radius: scaleRadius);
+    final scalePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = scaleThickness
+      ..strokeCap = StrokeCap.round;
+    var currentAngle = startAngle;
+    const scaleGap = 0.08;
+    final scaleSegments = [
+      (lowPortion, const Color(0xFFEF4444)),
+      (moderatePortion, const Color(0xFFF59E0B)),
+      (highPortion, MetricsPage.caribbeanGreen),
+    ];
+    for (final segment in scaleSegments) {
+      final portion = segment.$1;
+      if (portion <= 0) {
+        continue;
+      }
+      final fullSweep = sweepAngle * portion;
+      final gap = fullSweep.abs() > scaleGap ? scaleGap : 0.0;
+      final segmentSweep = fullSweep - gap;
+      currentAngle += gap / 2;
+      scalePaint.color = segment.$2;
+      canvas.drawArc(scaleRect, currentAngle, segmentSweep, false, scalePaint);
+      currentAngle += segmentSweep + (gap / 2);
+    }
+
+    final clampedValue = value.clamp(0.0, maxValue);
+    final progressRatio = (clampedValue / maxValue).clamp(0.0, 1.0);
+    final progressSweep = sweepAngle * progressRatio;
+    final progressPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = progressThickness
+      ..strokeCap = StrokeCap.round
+      ..color = progressColor;
+    canvas.drawArc(arcRect, startAngle, progressSweep, false, progressPaint);
+
+    final labelStyle = TextStyle(
+      color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
+      fontSize: 10,
+      fontWeight: FontWeight.w700,
+    );
+    final labelRadius = scaleRadius + 12;
+    final labelValues = <double>[0, lowLimit, moderateLimit, maxValue];
+    for (final labelValue in labelValues) {
+      final ratio = (labelValue / maxValue).clamp(0.0, 1.0);
+      final angle = startAngle + sweepAngle * ratio;
+      final label = labelValue % 1 == 0
+          ? labelValue.toStringAsFixed(0)
+          : labelValue.toStringAsFixed(1);
+      final textPainter = TextPainter(
+        text: TextSpan(text: label, style: labelStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final textOffset = Offset(
+        center.dx + labelRadius * math.cos(angle) - textPainter.width / 2,
+        center.dy + labelRadius * math.sin(angle) - textPainter.height / 2,
+      );
+      textPainter.paint(canvas, textOffset);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _AverageStabilityGaugePainter oldDelegate) {
+    return oldDelegate.value != value ||
+        oldDelegate.maxValue != maxValue ||
+        oldDelegate.progressColor != progressColor;
+  }
+}
+
+class _GaugeLegendItem extends StatelessWidget {
+  final String label;
+  final Color color;
+  final Alignment alignment;
+
+  const _GaugeLegendItem({
+    required this.label,
+    required this.color,
+    required this.alignment,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: alignment,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -901,60 +1303,6 @@ class _StabilityBarRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _AboutGestureHintCard extends StatelessWidget {
-  const _AboutGestureHintCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            MetricsPage.bangladeshGreen.withValues(alpha: 0.84),
-            MetricsPage.darkGreen.withValues(alpha: 0.96),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: MetricsPage.caribbeanGreen.withValues(alpha: 0.72),
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(
-              Icons.swipe_up_alt_rounded,
-              size: 18,
-              color: MetricsPage.caribbeanGreen,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'At the bottom, pull up and release for App Info.',
-              style: TextStyle(
-                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.93),
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                height: 1.3,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

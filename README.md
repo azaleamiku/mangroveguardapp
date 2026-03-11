@@ -23,7 +23,7 @@
 ## What It Does
 
 - Captures mangrove scans using a guided camera frame.
-- Runs TensorFlow Lite inference directly on-device.
+- Runs YOLOv8 Nano instance segmentation via TensorFlow Lite on-device.
 - Calculates stability from root spread vs trunk width ratio.
 - Tracks metrics and recent scans using local persistence.
 - Exports detailed PDF reports per scan.
