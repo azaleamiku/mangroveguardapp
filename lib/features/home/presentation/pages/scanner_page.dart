@@ -147,7 +147,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
       final controller = CameraController(
         selectedCamera,
-        ResolutionPreset.medium,
+        ResolutionPreset.max,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
