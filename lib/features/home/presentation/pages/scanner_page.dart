@@ -249,7 +249,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     try {
       final measuredTree = await _inferTreeFromImagePath(imagePath);
       if (measuredTree == null) {
-        _showTopNotification('No mangrove_tree or mangrove_root detected.');
+        _showTopNotification(
+          'No mangrove tree and roots detected. Try recapturing with roots visible.',
+        );
         return;
       }
 
