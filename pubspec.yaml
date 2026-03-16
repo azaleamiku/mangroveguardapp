@@ -69,7 +69,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/models/mangroveModel.tflite
+    - assets/models/
     - assets/fonts/
     - images/
 

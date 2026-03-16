@@ -22,6 +22,7 @@ class MainNavPage extends StatefulWidget {
 
 class _MainNavPageState extends State<MainNavPage> {
   static const String _recentScansStorageKey = 'recent_tree_scans_v1';
+  static const int _maxRecentScans = 10000;
   static const MethodChannel _downloadsChannel = MethodChannel(
     'mangroveguardapp/downloads',
   );
@@ -46,6 +47,7 @@ class _MainNavPageState extends State<MainNavPage> {
       onSaveScan: _saveRecentScan,
       onDeleteScan: _deleteRecentScan,
       onOpenExportPath: _openExportPath,
+      onRescan: _handleRescanRequested,
     ),
   ];
 
@@ -63,6 +65,11 @@ class _MainNavPageState extends State<MainNavPage> {
     setState(() => _selectedIndex = 1);
   }
 
+  void _handleRescanRequested() {
+    if (!mounted) return;
+    setState(() => _selectedIndex = 1);
+  }
+
   void _handleScanCompleted() {
     unawaited(_storeLatestMeasuredTree());
     if (!mounted) return;
@@ -74,16 +81,14 @@ class _MainNavPageState extends State<MainNavPage> {
     if (measuredResult == null) return;
 
     final timestamp = DateTime.now();
-    final updated = List<RecentTreeScan>.from(_recentScans.value);
-    final treeId = 'Tree #${updated.length + 1}';
+    const treeId = 'Tree #1';
     final capturedImagePath = await _persistCapturedImage(
       sourcePath: measuredResult.capturedImagePath,
       treeId: treeId,
       scannedAt: timestamp,
     );
 
-    updated.insert(
-      0,
+    final updated = [
       RecentTreeScan(
         treeId: treeId,
         scannedAt: timestamp,
@@ -91,11 +96,22 @@ class _MainNavPageState extends State<MainNavPage> {
         metersPerPixel: measuredResult.metersPerPixel,
         capturedImagePath: capturedImagePath,
       ),
-    );
+      ..._recentScans.value,
+    ];
+
+    final trimmed = updated.length <= _maxRecentScans
+        ? updated
+        : updated.sublist(0, _maxRecentScans);
+    final removed = updated.length <= _maxRecentScans
+        ? const <RecentTreeScan>[]
+        : updated.sublist(_maxRecentScans);
 
     if (!mounted) return;
-    _recentScans.value = updated;
-    await _persistRecentScans(updated);
+    _recentScans.value = trimmed;
+    await _persistRecentScans(trimmed);
+    for (final scan in removed) {
+      await _deleteManagedCaptureFile(scan.capturedImagePath);
+    }
   }
 
   Future<void> _loadRecentScans() async {
@@ -112,8 +128,21 @@ class _MainNavPageState extends State<MainNavPage> {
           // Skip malformed entries and continue loading valid scans.
         }
       }
+      loaded.sort((a, b) => b.scannedAt.compareTo(a.scannedAt));
+      final limited = loaded.length <= _maxRecentScans
+          ? loaded
+          : loaded.sublist(0, _maxRecentScans);
+      final removed = loaded.length <= _maxRecentScans
+          ? const <RecentTreeScan>[]
+          : loaded.sublist(_maxRecentScans);
       if (!mounted) return;
-      _recentScans.value = loaded;
+      _recentScans.value = limited;
+      if (removed.isNotEmpty) {
+        await _persistRecentScans(limited);
+        for (final scan in removed) {
+          await _deleteManagedCaptureFile(scan.capturedImagePath);
+        }
+      }
     } catch (_) {
       // Ignore storage errors to keep app usable.
     }
@@ -705,9 +734,17 @@ class _ScannerFab extends StatefulWidget {
 class _ScannerFabState extends State<_ScannerFab> {
   Timer? _pressTimer;
   bool _isShutterPressed = false;
+  bool _didTriggerOnTapDown = false;
 
-  void _handleTap() {
+  void _handleTap({required bool immediate}) {
     if (widget.isScannerActive) {
+      if (!immediate && _didTriggerOnTapDown) {
+        _didTriggerOnTapDown = false;
+        return;
+      }
+      if (immediate) {
+        _didTriggerOnTapDown = true;
+      }
       _pressTimer?.cancel();
       setState(() => _isShutterPressed = true);
       _pressTimer = Timer(const Duration(milliseconds: 120), () {
@@ -718,12 +755,18 @@ class _ScannerFabState extends State<_ScannerFab> {
     widget.onTap();
   }
 
+  void _handleTapDown(TapDownDetails details) {
+    if (!widget.isScannerActive) return;
+    _handleTap(immediate: true);
+  }
+
   @override
   void didUpdateWidget(covariant _ScannerFab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!widget.isScannerActive && _isShutterPressed) {
       _pressTimer?.cancel();
       _isShutterPressed = false;
+      _didTriggerOnTapDown = false;
     }
   }
 
@@ -739,7 +782,8 @@ class _ScannerFabState extends State<_ScannerFab> {
       button: true,
       label: widget.isScannerActive ? 'Capture shutter' : 'Open scanner',
       child: GestureDetector(
-        onTap: _handleTap,
+        onTapDown: _handleTapDown,
+        onTap: () => _handleTap(immediate: false),
         behavior: HitTestBehavior.opaque,
         child: AnimatedScale(
           duration: const Duration(milliseconds: 110),

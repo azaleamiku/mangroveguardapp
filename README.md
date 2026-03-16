@@ -61,7 +61,9 @@ lib/
       presentation/pages/scanner_page.dart
       models/mangrove_tree.dart
 assets/
-  models/mangroveModel.tflite
+  models/
+    mangroveModel.tflite
+    mangroveMode.tflite.png
   fonts/
 images/
 ```

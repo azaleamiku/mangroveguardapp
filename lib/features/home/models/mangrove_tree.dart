@@ -24,6 +24,34 @@ class Root {
   double get endpointX => position.dx + (length * math.cos(angle));
 }
 
+class TrunkMeasurement {
+  final double startX;
+  final double endX;
+  final double y;
+  final bool isEstimated;
+
+  const TrunkMeasurement({
+    required this.startX,
+    required this.endX,
+    required this.y,
+    this.isEstimated = false,
+  });
+}
+
+class TreeBounds {
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+
+  const TreeBounds({
+    required this.left,
+    required this.top,
+    required this.right,
+    required this.bottom,
+  });
+}
+
 enum StabilityAssessment { high, moderate, low }
 
 extension StabilityAssessmentExtension on StabilityAssessment {
@@ -42,10 +70,14 @@ extension StabilityAssessmentExtension on StabilityAssessment {
 class MangroveTree {
   final double trunkWidthAtBranchPoint;
   final List<Root> roots;
+  final TrunkMeasurement? trunkMeasurement;
+  final TreeBounds? treeBounds;
 
   const MangroveTree({
     required this.trunkWidthAtBranchPoint,
     required this.roots,
+    this.trunkMeasurement,
+    this.treeBounds,
   });
 
   double get trunkWidthPixels => trunkWidthAtBranchPoint;

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -55,6 +57,16 @@ class MeasuredTreeResult {
   });
 }
 
+class _InferenceResult {
+  final MangroveTree tree;
+  final double metersPerPixel;
+
+  const _InferenceResult({
+    required this.tree,
+    required this.metersPerPixel,
+  });
+}
+
 class ScannerPage extends StatefulWidget {
   final ScannerPageController? controller;
   final VoidCallback? onScanCompleted;
@@ -68,9 +80,24 @@ class ScannerPage extends StatefulWidget {
 class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   static const String _modelAssetPath = 'assets/models/mangroveModel.tflite';
   static const double _defaultMetersPerPixel = 0.003;
+  static const double _trunkConfidenceThreshold = 0.85;
+  static const double _rootConfidenceThreshold = 0.65;
+  static const double _trunkGuideYFraction = 0.6;
+  static const List<String> _instanceClassLabels = [
+    'mangrove_root',
+    'mangrove_tree',
+  ];
+  static const int _treeClassIndex = 1;
+  static const int _rootClassIndex = 0;
+  static const List<String> _maskClassLabels = [
+    'background',
+    'mangrove_root',
+    'mangrove_tree',
+  ];
 
   CameraController? _cameraController;
   Interpreter? _interpreter;
+  IsolateInterpreter? _isolateInterpreter;
   List<int> _inputShape = const [];
   List<Tensor> _outputTensors = const [];
   TensorType? _inputType;
@@ -82,6 +109,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   String? _modelInitError;
   int _lastShutterSignal = 0;
   final GlobalKey _frameGuideInnerKey = GlobalKey();
+  Rect? _lastFrameRectInViewport;
+  Size? _lastViewportSize;
 
   @override
   void initState() {
@@ -107,6 +136,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   void dispose() {
     widget.controller?.removeListener(_handleExternalShutter);
     WidgetsBinding.instance.removeObserver(this);
+    if (_isolateInterpreter != null) {
+      unawaited(_isolateInterpreter!.close());
+      _isolateInterpreter = null;
+    }
     _interpreter?.close();
     _cameraController?.dispose();
     super.dispose();
@@ -147,12 +180,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
       final controller = CameraController(
         selectedCamera,
-        ResolutionPreset.max,
+        ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
 
       await controller.initialize();
+      await _configureCameraForFastCapture(controller);
 
       if (!mounted) {
         await controller.dispose();
@@ -185,6 +219,26 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     _captureShutter();
   }
 
+  Future<void> _configureCameraForFastCapture(
+    CameraController controller,
+  ) async {
+    try {
+      await controller.setFlashMode(FlashMode.off);
+    } catch (_) {
+      // Ignore if flash control is unavailable on this device.
+    }
+    try {
+      await controller.setFocusMode(FocusMode.auto);
+    } catch (_) {
+      // Ignore if focus lock is unavailable on this device.
+    }
+    try {
+      await controller.setExposureMode(ExposureMode.auto);
+    } catch (_) {
+      // Ignore if exposure control is unavailable on this device.
+    }
+  }
+
   Future<void> _initSegmentationInterpreter() async {
     setState(() {
       _isModelReady = false;
@@ -193,11 +247,23 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
     try {
       final options = InterpreterOptions()..threads = 2;
+      if (_isolateInterpreter != null) {
+        await _isolateInterpreter!.close();
+        _isolateInterpreter = null;
+      }
       _interpreter?.close();
       final interpreter = await Interpreter.fromAsset(
         _modelAssetPath,
         options: options,
       );
+      IsolateInterpreter? isolateInterpreter;
+      try {
+        isolateInterpreter = await IsolateInterpreter.create(
+          address: interpreter.address,
+        );
+      } catch (e) {
+        debugPrint('Isolate interpreter init failed: $e');
+      }
       final inputTensor = interpreter.getInputTensor(0);
       final outputTensors = interpreter.getOutputTensors();
       if (inputTensor.shape.length != 4) {
@@ -205,6 +271,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       }
 
       _interpreter = interpreter;
+      _isolateInterpreter = isolateInterpreter;
       _inputShape = inputTensor.shape;
       _inputType = inputTensor.type;
       _outputTensors = outputTensors;
@@ -247,8 +314,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
 
     try {
-      final measuredTree = await _inferTreeFromImagePath(imagePath);
-      if (measuredTree == null) {
+      final result = await _inferTreeFromImagePath(imagePath);
+      if (result == null) {
         _showTopNotification(
           'No mangrove tree and roots detected. Try recapturing with roots visible.',
         );
@@ -256,8 +323,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       }
 
       widget.controller?.setLatestMeasuredTree(
-        tree: measuredTree,
-        metersPerPixel: _defaultMetersPerPixel,
+        tree: result.tree,
+        metersPerPixel: result.metersPerPixel,
         capturedImagePath: imagePath,
       );
     } on PlatformException catch (e) {
@@ -283,6 +350,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     debugPrint(
       'Model signature: input name=${inputTensor.name} shape=${inputTensor.shape} type=${inputTensor.type}',
     );
+    debugPrint(
+      'Model labels (instance): ${_instanceClassLabels.join(', ')}',
+    );
+    debugPrint(
+      'Model labels (mask): ${_maskClassLabels.join(', ')}',
+    );
     for (var i = 0; i < outputTensors.length; i++) {
       final tensor = outputTensors[i];
       debugPrint(
@@ -291,15 +364,20 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<MangroveTree?> _inferTreeFromImagePath(String imagePath) async {
+  Future<_InferenceResult?> _inferTreeFromImagePath(String imagePath) async {
     final interpreter = _interpreter;
     if (interpreter == null) return null;
+    final isolateInterpreter = _isolateInterpreter;
 
     final bytes = await File(imagePath).readAsBytes();
     final image = img.decodeImage(bytes);
     if (image == null) {
       throw StateError('Unable to decode captured image.');
     }
+    final metersPerPixel = _estimateMetersPerPixelFromExif(
+      bytes,
+      sourceWidth: image.width,
+    );
 
     final input = _createModelInput(image);
     final outputs = <int, Object>{};
@@ -308,8 +386,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       outputs[i] = _createTensorBuffer(tensor.shape, tensor.type);
     }
 
-    interpreter.runForMultipleInputs([input], outputs);
-    return _extractTreeFromOutputs(outputs);
+    if (isolateInterpreter != null) {
+      await isolateInterpreter.runForMultipleInputs([input], outputs);
+    } else {
+      interpreter.runForMultipleInputs([input], outputs);
+    }
+    final tree = _extractTreeFromOutputs(outputs);
+    if (tree == null) return null;
+    return _InferenceResult(tree: tree, metersPerPixel: metersPerPixel);
   }
 
   Object _createModelInput(img.Image image) {
@@ -359,6 +443,51 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     ];
   }
 
+  double _estimateMetersPerPixelFromExif(
+    Uint8List bytes, {
+    required int sourceWidth,
+  }) {
+    try {
+      final exif = img.decodeJpgExif(bytes);
+      if (exif == null) return _defaultMetersPerPixel;
+
+      final focalLength = exif.getTag(0x920A)?.toDouble();
+      final subjectDistance = exif.getTag(0x9206)?.toDouble();
+      final focalPlaneXResolution = exif.getTag(0xA20E)?.toDouble();
+      final focalPlaneResolutionUnit = exif.getTag(0xA210)?.toInt();
+
+      if (focalLength == null ||
+          focalPlaneXResolution == null ||
+          focalPlaneResolutionUnit == null ||
+          subjectDistance == null ||
+          focalLength <= 0 ||
+          focalPlaneXResolution <= 0 ||
+          subjectDistance <= 0) {
+        return _defaultMetersPerPixel;
+      }
+
+      final unitMm = switch (focalPlaneResolutionUnit) {
+        2 => 25.4, // inch
+        3 => 10.0, // cm
+        _ => null,
+      };
+      if (unitMm == null) return _defaultMetersPerPixel;
+
+      final pixelPitchMm = unitMm / focalPlaneXResolution;
+      final isNhwc = _inputShape[3] == 3;
+      final modelWidth = isNhwc ? _inputShape[2] : _inputShape[3];
+      if (modelWidth <= 0 || sourceWidth <= 0) return _defaultMetersPerPixel;
+      final scale = sourceWidth / modelWidth;
+
+      final metersPerPixel = subjectDistance * (pixelPitchMm / focalLength);
+      final adjusted = metersPerPixel * scale;
+      if (!adjusted.isFinite || adjusted <= 0) return _defaultMetersPerPixel;
+      return adjusted.clamp(0.00005, 0.05);
+    } catch (_) {
+      return _defaultMetersPerPixel;
+    }
+  }
+
   Object _createTensorBuffer(List<int> shape, TensorType type) {
     if (shape.isEmpty) {
       if (type == TensorType.float32 || type == TensorType.float16) return 0.0;
@@ -405,18 +534,26 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
     if (best == null) return null;
 
-    const classes = 2; // mangrove_tree, mangrove_root
+    final classes = _instanceClassLabels.length;
     final channels = best.channels;
     if (channels < 4 + classes) return null;
 
-    final hasObjectness = channels > (4 + classes + 32);
-    final classStart = hasObjectness ? 5 : 4;
-    final treeScoreIndex = classStart;
-    final rootScoreIndex = classStart + 1;
+    final layout = _inferInstanceLayout(channels, classes);
+    if (layout == null) {
+      debugPrint(
+        'Unsupported instance layout: channels=$channels classes=$classes (labels=${_instanceClassLabels.join(', ')})',
+      );
+      return null;
+    }
+    final hasObjectness = layout.hasObjectness;
+    final classStart = layout.classStart;
+    final treeScoreIndex = classStart + _treeClassIndex;
+    final rootScoreIndex = classStart + _rootClassIndex;
     if (rootScoreIndex >= channels) return null;
 
     final modelHeight = _inputShape[3] == 3 ? _inputShape[1] : _inputShape[2];
     final modelWidth = _inputShape[3] == 3 ? _inputShape[2] : _inputShape[3];
+    final guideLineY = modelHeight * _trunkGuideYFraction;
 
     final treeCandidates = <_Detection>[];
     final rootCandidates = <_Detection>[];
@@ -439,7 +576,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
           : 1.0;
       final treeConfidence = objectness * treeScore;
       final rootConfidence = objectness * rootScore;
-      if (treeConfidence < 0.14 && rootConfidence < 0.03) continue;
+      if (treeConfidence < _trunkConfidenceThreshold &&
+          rootConfidence < _rootConfidenceThreshold) {
+        continue;
+      }
 
       final left = cx - (w / 2);
       final top = cy - (h / 2);
@@ -447,7 +587,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       final bottom = cy + (h / 2);
 
       maxBoxValue = math.max(maxBoxValue, math.max(right.abs(), bottom.abs()));
-      if (treeConfidence >= 0.14) {
+      if (treeConfidence >= _trunkConfidenceThreshold) {
         treeCandidates.add(
           _Detection(
             classId: 0,
@@ -459,7 +599,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
           ),
         );
       }
-      if (rootConfidence >= 0.03) {
+      if (rootConfidence >= _rootConfidenceThreshold) {
         rootCandidates.add(
           _Detection(
             classId: 1,
@@ -503,13 +643,23 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         .toList(growable: false);
 
     final treeDetections = _nms(scaledTrees, 0.45);
-    final rootDetections = _nms(scaledRoots, 0.85);
+    final rootDetections = _nms(scaledRoots, 0.55);
     if (treeDetections.isEmpty || rootDetections.isEmpty) return null;
 
     final trunk = treeDetections.first;
     final treeWidth = trunk.width.clamp(1.0, 4000.0).toDouble();
     final trunkCenterX = trunk.centerX;
-    final roots = rootDetections
+    final associatedRoots =
+        _rootsForSelectedTree(rootDetections, treeDetections, trunk);
+    final measuredTrunkWidth =
+        (treeWidth * 0.22).clamp(1.0, 4000.0).toDouble();
+    final filteredRoots = _filterRootsByTreeBounds(
+      associatedRoots,
+      trunk,
+      measuredTrunkWidth,
+      guideLineY,
+    );
+    final roots = filteredRoots
         .take(96)
         .map((root) {
           final dx = root.centerX - trunkCenterX;
@@ -528,9 +678,34 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         .toList(growable: false);
     if (roots.isEmpty) return null;
 
+    var branchY = trunk.bottom;
+    for (final root in filteredRoots) {
+      if (root.top < branchY) branchY = root.top;
+    }
+    branchY = branchY.clamp(trunk.top, trunk.bottom);
+
+    final halfWidth = measuredTrunkWidth / 2.0;
+    final startX =
+        ((trunkCenterX - halfWidth) / modelWidth).clamp(0.0, 1.0);
+    final endX = ((trunkCenterX + halfWidth) / modelWidth).clamp(0.0, 1.0);
+    final trunkMeasurement = TrunkMeasurement(
+      startX: startX,
+      endX: endX,
+      y: (branchY / modelHeight).clamp(0.0, 1.0),
+      isEstimated: true,
+    );
+    final treeBounds = TreeBounds(
+      left: (trunk.left / modelWidth).clamp(0.0, 1.0),
+      top: (trunk.top / modelHeight).clamp(0.0, 1.0),
+      right: (trunk.right / modelWidth).clamp(0.0, 1.0),
+      bottom: (trunk.bottom / modelHeight).clamp(0.0, 1.0),
+    );
+
     return MangroveTree(
-      trunkWidthAtBranchPoint: (treeWidth * 0.22).clamp(1.0, 4000.0).toDouble(),
+      trunkWidthAtBranchPoint: measuredTrunkWidth,
       roots: roots,
+      trunkMeasurement: trunkMeasurement,
+      treeBounds: treeBounds,
     );
   }
 
@@ -552,6 +727,34 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       predictions: predictions,
       channelFirst: channelFirst,
     );
+  }
+
+  _InstanceLayout? _inferInstanceLayout(int channels, int classes) {
+    final noMaskNoObj = 4 + classes;
+    final objNoMask = 5 + classes;
+    final noObjMask = 4 + classes + 32;
+    final objMask = 5 + classes + 32;
+
+    if (channels == noMaskNoObj) {
+      return const _InstanceLayout(hasObjectness: false, classStart: 4);
+    }
+    if (channels == objNoMask) {
+      return const _InstanceLayout(hasObjectness: true, classStart: 5);
+    }
+    if (channels == noObjMask) {
+      return const _InstanceLayout(hasObjectness: false, classStart: 4);
+    }
+    if (channels == objMask) {
+      return const _InstanceLayout(hasObjectness: true, classStart: 5);
+    }
+
+    final hasObjectness = channels > (4 + classes + 32);
+    final classStart = hasObjectness ? 5 : 4;
+    debugPrint(
+      'Falling back to heuristic instance layout: channels=$channels classes=$classes '
+      'hasObjectness=$hasObjectness classStart=$classStart',
+    );
+    return _InstanceLayout(hasObjectness: hasObjectness, classStart: classStart);
   }
 
   List<_Detection> _nms(List<_Detection> detections, double iouThreshold) {
@@ -603,10 +806,16 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final width = channelLast ? shape[2] : shape[3];
     final classes = channelLast ? shape[3] : shape[1];
     if (classes < 2) return null;
+    if (classes != 2 && classes != 3) {
+      debugPrint(
+        'Unsupported mask classes: $classes. Expected 2 (tree, root) or 3 (background, tree, root).',
+      );
+      return null;
+    }
 
-    // Default mapping: [background, mangrove_tree, mangrove_root] or [tree, root].
-    final treeClass = classes >= 3 ? 1 : 0;
-    final rootClass = classes >= 3 ? 2 : 1;
+    // Swapped mapping: [background, mangrove_root, mangrove_tree] or [root, tree].
+    final treeClass = classes >= 3 ? 2 : 1;
+    final rootClass = classes >= 3 ? 1 : 0;
     if (rootClass >= classes) return null;
 
     final treeMask = List.generate(
@@ -640,40 +849,76 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       }
     }
 
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        if (treeMask[y][x]) rootMask[y][x] = false;
+      }
+    }
+
     return _ParsedMasks(treeMask: treeMask, rootMask: rootMask);
   }
 
+
   MangroveTree? _buildTreeFromMasks(_ParsedMasks masks) {
     final treeBounds = _findMaskBounds(masks.treeMask);
-    final rootBounds = _findMaskBounds(masks.rootMask);
-    if (treeBounds == null || rootBounds == null) return null;
-
-    final branchY = rootBounds.minY.clamp(treeBounds.minY, treeBounds.maxY);
-    int rowMinX = -1;
-    int rowMaxX = -1;
-    for (var x = 0; x < masks.treeMask[branchY].length; x++) {
-      if (!masks.treeMask[branchY][x]) continue;
-      rowMinX = rowMinX < 0 ? x : math.min(rowMinX, x);
-      rowMaxX = math.max(rowMaxX, x);
-    }
-
-    final trunkWidth = (rowMinX >= 0 && rowMaxX >= rowMinX)
-        ? (rowMaxX - rowMinX + 1).toDouble()
-        : treeBounds.width.toDouble();
-    final trunkCenterX = (rowMinX >= 0 && rowMaxX >= rowMinX)
-        ? (rowMinX + rowMaxX) / 2.0
-        : treeBounds.centerX;
+    if (treeBounds == null) return null;
 
     final components = _extractRootComponents(masks.rootMask);
     if (components.isEmpty) return null;
-
+    final activeComponents = _filterRootComponentsByTreeBounds(
+      components,
+      treeBounds,
+    );
     final maskHeight = masks.rootMask.length;
     final maskWidth = masks.rootMask.first.length;
+    final guideLineY = maskHeight * _trunkGuideYFraction;
+    var branchY = activeComponents.first.minY
+        .toInt()
+        .clamp(treeBounds.minY, treeBounds.maxY);
+    for (final component in activeComponents) {
+      final minY = component.minY.toInt();
+      if (minY < branchY) branchY = minY;
+    }
+    branchY = math.max(branchY, guideLineY.toInt());
+    final rowSpan = _findNearestRowSpan(
+      masks.treeMask,
+      branchY,
+      treeBounds.minY,
+      treeBounds.maxY,
+      6,
+    );
 
-    final roots = components
+    final trunkWidth =
+        rowSpan?.width.toDouble() ?? treeBounds.width.toDouble();
+    final trunkCenterX = rowSpan?.centerX ?? treeBounds.centerX;
+    final spanMinX = rowSpan?.minX ?? treeBounds.minX;
+    final spanMaxX = rowSpan?.maxX ?? treeBounds.maxX;
+
+    final corridorHalfWidth =
+        math.min(treeBounds.width * 0.35, trunkWidth * 3.5);
+    final corridorMinX = trunkCenterX - corridorHalfWidth;
+    final corridorMaxX = trunkCenterX + corridorHalfWidth;
+    final corridorComponents = activeComponents
+        .where((component) {
+          final cx = component.centerX;
+          return cx >= corridorMinX &&
+              cx <= corridorMaxX &&
+              component.minY >= math.max(branchY, guideLineY);
+        })
+        .toList(growable: false);
+    final usableComponents =
+        corridorComponents.isEmpty ? activeComponents : corridorComponents;
+    var adjustedBranchY =
+        usableComponents.first.minY.toInt().clamp(treeBounds.minY, treeBounds.maxY);
+    for (final component in usableComponents) {
+      final minY = component.minY.toInt();
+      if (minY < adjustedBranchY) adjustedBranchY = minY;
+    }
+
+    final roots = usableComponents
         .map((component) {
           final dx = component.centerX - trunkCenterX;
-          final dy = component.centerY - branchY;
+          final dy = component.centerY - adjustedBranchY;
           final length = (component.width * 0.7).clamp(4.0, 4000.0).toDouble();
           return Root(
             position: Offset(dx, dy),
@@ -687,9 +932,24 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         })
         .toList(growable: false);
 
+    final trunkMeasurement = TrunkMeasurement(
+      startX: (spanMinX / maskWidth).clamp(0.0, 1.0),
+      endX: (spanMaxX / maskWidth).clamp(0.0, 1.0),
+      y: (adjustedBranchY / maskHeight).clamp(0.0, 1.0),
+      isEstimated: false,
+    );
+    final treeBoundsNormalized = TreeBounds(
+      left: (treeBounds.minX / maskWidth).clamp(0.0, 1.0),
+      top: (treeBounds.minY / maskHeight).clamp(0.0, 1.0),
+      right: (treeBounds.maxX / maskWidth).clamp(0.0, 1.0),
+      bottom: (treeBounds.maxY / maskHeight).clamp(0.0, 1.0),
+    );
+
     return MangroveTree(
       trunkWidthAtBranchPoint: trunkWidth.clamp(1.0, 4000.0).toDouble(),
       roots: roots,
+      trunkMeasurement: trunkMeasurement,
+      treeBounds: treeBoundsNormalized,
     );
   }
 
@@ -711,6 +971,125 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
     if (maxX < 0 || maxY < 0) return null;
     return _MaskBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY);
+  }
+
+  _RowSpan? _findRowSpanAt(List<List<bool>> mask, int y) {
+    if (y < 0 || y >= mask.length) return null;
+    int rowMinX = -1;
+    int rowMaxX = -1;
+    for (var x = 0; x < mask[y].length; x++) {
+      if (!mask[y][x]) continue;
+      rowMinX = rowMinX < 0 ? x : math.min(rowMinX, x);
+      rowMaxX = math.max(rowMaxX, x);
+    }
+    if (rowMinX < 0 || rowMaxX < rowMinX) return null;
+    return _RowSpan(
+      minX: rowMinX,
+      maxX: rowMaxX,
+      centerX: (rowMinX + rowMaxX) / 2.0,
+    );
+  }
+
+  _RowSpan? _findNearestRowSpan(
+    List<List<bool>> mask,
+    int startY,
+    int minY,
+    int maxY,
+    int maxOffset,
+  ) {
+    for (var offset = 0; offset <= maxOffset; offset++) {
+      final upY = startY - offset;
+      if (upY >= minY) {
+        final span = _findRowSpanAt(mask, upY);
+        if (span != null) return span;
+      }
+      final downY = startY + offset;
+      if (downY <= maxY) {
+        final span = _findRowSpanAt(mask, downY);
+        if (span != null) return span;
+      }
+    }
+    return null;
+  }
+
+  List<_Detection> _filterRootsByTreeBounds(
+    List<_Detection> roots,
+    _Detection tree,
+    double measuredTrunkWidth,
+    double guideLineY,
+  ) {
+    if (roots.isEmpty) return roots;
+    final corridorHalfWidth =
+        math.min(tree.width * 0.35, measuredTrunkWidth * 3.5);
+    final minX = tree.centerX - corridorHalfWidth;
+    final maxX = tree.centerX + corridorHalfWidth;
+    final minY = math.max(tree.bottom + (tree.height * 0.02), guideLineY);
+    final filtered = roots
+        .where((root) {
+          if (_overlapRatio(root, tree) > 0.25) return false;
+          final cx = root.centerX;
+          final cy = root.centerY;
+          return cx >= minX && cx <= maxX && cy >= minY;
+        })
+        .toList(growable: false);
+    return filtered.isEmpty ? roots : filtered;
+  }
+
+  List<_RootComponent> _filterRootComponentsByTreeBounds(
+    List<_RootComponent> components,
+    _MaskBounds treeBounds,
+  ) {
+    if (components.isEmpty) return components;
+    final marginX = treeBounds.width * 0.18;
+    final minX = treeBounds.minX - marginX;
+    final maxX = treeBounds.maxX + marginX;
+    final marginY = treeBounds.height * 0.12;
+    final minY = treeBounds.maxY - marginY;
+    final filtered = components
+        .where((component) {
+          final cx = component.centerX;
+          final cy = component.centerY;
+          return cx >= minX && cx <= maxX && cy >= minY;
+        })
+        .toList(growable: false);
+    return filtered.isEmpty ? components : filtered;
+  }
+
+  double _overlapRatio(_Detection a, _Detection b) {
+    final interLeft = math.max(a.left, b.left);
+    final interTop = math.max(a.top, b.top);
+    final interRight = math.min(a.right, b.right);
+    final interBottom = math.min(a.bottom, b.bottom);
+    final interW = math.max(0.0, interRight - interLeft);
+    final interH = math.max(0.0, interBottom - interTop);
+    final interArea = interW * interH;
+    if (interArea <= 0) return 0;
+    if (a.area <= 0) return 0;
+    return interArea / a.area;
+  }
+
+  List<_Detection> _rootsForSelectedTree(
+    List<_Detection> roots,
+    List<_Detection> trees,
+    _Detection selectedTree,
+  ) {
+    if (roots.isEmpty || trees.length <= 1) return roots;
+    final assigned = <_Detection>[];
+    for (final root in roots) {
+      _Detection nearest = trees.first;
+      var nearestDistance = (root.centerX - nearest.centerX).abs();
+      for (final tree in trees.skip(1)) {
+        final distance = (root.centerX - tree.centerX).abs();
+        if (distance < nearestDistance) {
+          nearest = tree;
+          nearestDistance = distance;
+        }
+      }
+      if (identical(nearest, selectedTree)) {
+        assigned.add(root);
+      }
+    }
+    return assigned.isEmpty ? roots : assigned;
   }
 
   List<_RootComponent> _extractRootComponents(List<List<bool>> rootMask) {
@@ -785,6 +1164,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _cacheFrameRectIfPossible();
+    });
+
     if (_isInitializing) {
       return const Scaffold(
         backgroundColor: richBlack,
@@ -899,8 +1283,19 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                 const Spacer(),
                 _buildStatusChip(
                   icon: _isCapturing ? Icons.camera : Icons.check_circle,
-                  label: _isCapturing ? 'Capturing' : 'Ready',
+                  label: _isCapturing ? 'Analyzing' : 'Ready',
                   glow: _isCapturing ? const Color(0xFFFFA34D) : caribbeanGreen,
+                  trailing: _isCapturing
+                      ? const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(antiFlashWhite),
+                          ),
+                        )
+                      : null,
                 ),
               ],
             ),
@@ -918,6 +1313,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     required IconData icon,
     required String label,
     required Color glow,
+    Widget? trailing,
   }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -947,6 +1343,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               letterSpacing: 0.8,
             ),
           ),
+          if (trailing != null) ...[
+            const SizedBox(width: 6),
+            trailing,
+          ],
         ],
       ),
     );
@@ -958,6 +1358,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final frameHeight = (size.height * 0.5).clamp(320.0, 420.0).toDouble();
     final innerWidth = (frameWidth - 30).clamp(250.0, 305.0).toDouble();
     final innerHeight = (frameHeight - 28).clamp(290.0, 385.0).toDouble();
+    final guideAlignment = Alignment(0, (_trunkGuideYFraction * 2) - 1);
 
     return SizedBox(
       width: frameWidth,
@@ -995,12 +1396,19 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
             child: _frameCorner(top: false, left: false),
           ),
           Align(
-            child: Text(
-              'Align trunk base inside frame',
-              style: TextStyle(
-                color: antiFlashWhite.withValues(alpha: 0.8),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+            alignment: guideAlignment,
+            child: Container(
+              width: innerWidth * 0.8,
+              height: 2,
+              decoration: BoxDecoration(
+                color: caribbeanGreen.withValues(alpha: 0.75),
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [
+                  BoxShadow(
+                    color: caribbeanGreen.withValues(alpha: 0.3),
+                    blurRadius: 10,
+                  ),
+                ],
               ),
             ),
           ),
@@ -1076,6 +1484,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     );
   }
 
+  void _cacheFrameRectIfPossible() {
+    final frameContext = _frameGuideInnerKey.currentContext;
+    final rootRenderObject = context.findRenderObject();
+    final frameRenderObject = frameContext?.findRenderObject();
+    if (rootRenderObject is! RenderBox || frameRenderObject is! RenderBox) {
+      return;
+    }
+
+    final frameGlobalTopLeft = frameRenderObject.localToGlobal(Offset.zero);
+    final rootGlobalTopLeft = rootRenderObject.localToGlobal(Offset.zero);
+    _lastFrameRectInViewport =
+        (frameGlobalTopLeft - rootGlobalTopLeft) & frameRenderObject.size;
+    _lastViewportSize = rootRenderObject.size;
+  }
+
   Widget _buildCameraPreview() {
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) {
@@ -1127,21 +1550,31 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final controller = _cameraController;
     if (controller == null || !mounted) return imagePath;
 
-    final frameContext = _frameGuideInnerKey.currentContext;
-    final rootRenderObject = context.findRenderObject();
-    final frameRenderObject = frameContext?.findRenderObject();
-    if (rootRenderObject is! RenderBox || frameRenderObject is! RenderBox) {
-      return imagePath;
-    }
-
     final previewSize = controller.value.previewSize;
     if (previewSize == null) return imagePath;
 
-    final frameGlobalTopLeft = frameRenderObject.localToGlobal(Offset.zero);
-    final rootGlobalTopLeft = rootRenderObject.localToGlobal(Offset.zero);
-    final frameRectInViewport = (frameGlobalTopLeft - rootGlobalTopLeft) &
-        frameRenderObject.size;
-    final viewportSize = rootRenderObject.size;
+    final frameContext = _frameGuideInnerKey.currentContext;
+    final rootRenderObject = context.findRenderObject();
+    final frameRenderObject = frameContext?.findRenderObject();
+
+    Rect? frameRectInViewport;
+    Size? viewportSize;
+    if (rootRenderObject is RenderBox && frameRenderObject is RenderBox) {
+      final frameGlobalTopLeft = frameRenderObject.localToGlobal(Offset.zero);
+      final rootGlobalTopLeft = rootRenderObject.localToGlobal(Offset.zero);
+      frameRectInViewport =
+          (frameGlobalTopLeft - rootGlobalTopLeft) & frameRenderObject.size;
+      viewportSize = rootRenderObject.size;
+      _lastFrameRectInViewport = frameRectInViewport;
+      _lastViewportSize = viewportSize;
+    } else {
+      frameRectInViewport = _lastFrameRectInViewport;
+      viewportSize = _lastViewportSize;
+    }
+
+    if (frameRectInViewport == null || viewportSize == null) {
+      return imagePath;
+    }
     if (viewportSize.width <= 0 || viewportSize.height <= 0) return imagePath;
 
     final previewWidth = previewSize.height;
@@ -1335,6 +1768,7 @@ class _MaskBounds {
   });
 
   int get width => maxX - minX + 1;
+  int get height => maxY - minY + 1;
 
   double get centerX => (minX + maxX) / 2.0;
 }
@@ -1368,6 +1802,20 @@ class _Point {
   const _Point(this.x, this.y);
 }
 
+class _RowSpan {
+  final int minX;
+  final int maxX;
+  final double centerX;
+
+  const _RowSpan({
+    required this.minX,
+    required this.maxX,
+    required this.centerX,
+  });
+
+  int get width => maxX - minX + 1;
+}
+
 class _InstanceOutput {
   final List<dynamic> data;
   final int channels;
@@ -1387,6 +1835,16 @@ class _InstanceOutput {
     }
     return ((data[predictionIndex] as List)[channelIndex] as num);
   }
+}
+
+class _InstanceLayout {
+  final bool hasObjectness;
+  final int classStart;
+
+  const _InstanceLayout({
+    required this.hasObjectness,
+    required this.classStart,
+  });
 }
 
 class _Detection {

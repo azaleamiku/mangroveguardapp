@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../home/models/mangrove_tree.dart';
-import 'app_header.dart';
 import 'recent_scan_page.dart';
 
 class MetricsPage extends StatefulWidget {
@@ -30,6 +29,7 @@ class _MetricsPageState extends State<MetricsPage> {
   static const double _aboutMinIntentDrag = 96;
   static const double _aboutIndicatorBottom = 114;
   static const double _metricsListBottomPadding = 172;
+  static const int _weeklyTrendWeeks = 8;
 
   double _aboutPullExtent = 0;
   double _aboutDragDistance = 0;
@@ -188,6 +188,41 @@ class _MetricsPageState extends State<MetricsPage> {
     return false;
   }
 
+  List<_WeeklyScanBucket> _buildWeeklyScanBuckets(
+    List<RecentTreeScan> scans,
+  ) {
+    final today = DateTime.now();
+    final currentWeekStart = _startOfWeek(today);
+    final buckets = List<_WeeklyScanBucket>.generate(_weeklyTrendWeeks, (i) {
+      final offsetWeeks = _weeklyTrendWeeks - 1 - i;
+      final weekStart =
+          currentWeekStart.subtract(Duration(days: 7 * offsetWeeks));
+      return _WeeklyScanBucket(weekStart: weekStart, count: 0);
+    });
+
+    for (final scan in scans) {
+      final scanWeekStart = _startOfWeek(scan.scannedAt);
+      final diffDays = currentWeekStart.difference(scanWeekStart).inDays;
+      if (diffDays < 0) continue;
+      final diffWeeks = diffDays ~/ 7;
+      if (diffWeeks >= _weeklyTrendWeeks) continue;
+      final index = _weeklyTrendWeeks - 1 - diffWeeks;
+      final current = buckets[index];
+      buckets[index] = _WeeklyScanBucket(
+        weekStart: current.weekStart,
+        count: current.count + 1,
+      );
+    }
+
+    return buckets;
+  }
+
+  DateTime _startOfWeek(DateTime value) {
+    final local = DateTime(value.year, value.month, value.day);
+    final weekday = local.weekday;
+    return local.subtract(Duration(days: weekday - DateTime.monday));
+  }
+
   Future<void> _showAboutSheet(BuildContext context) async {
     if (_aboutSheetOpen || _aboutSheetPending) {
       return;
@@ -237,93 +272,77 @@ class _MetricsPageState extends State<MetricsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: MetricsPage.richBlack,
-      appBar: buildAppHeader('Dashboard'),
-      body: ValueListenableBuilder<List<RecentTreeScan>>(
-        valueListenable: widget.scansListenable,
-        builder: (context, scans, _) {
-          final totalTrees = scans.length;
+      body: MediaQuery.removePadding(
+        context: context,
+        removeTop: true,
+        child: ValueListenableBuilder<List<RecentTreeScan>>(
+          valueListenable: widget.scansListenable,
+          builder: (context, scans, _) {
+            final recentScanCount = scans.length;
+            final topInset = MediaQuery.paddingOf(context).top;
+            const extraTopPadding = 30.0;
+            final contentTopPadding = topInset + extraTopPadding;
 
-          var highCount = 0;
-          var moderateCount = 0;
-          var lowCount = 0;
-          var stabilitySum = 0.0;
+            var stabilitySum = 0.0;
 
-          for (final scan in scans) {
-            stabilitySum += scan.stabilityIndex;
-            switch (scan.assessment) {
-              case StabilityAssessment.high:
-                highCount += 1;
-              case StabilityAssessment.moderate:
-                moderateCount += 1;
-              case StabilityAssessment.low:
-                lowCount += 1;
+            for (final scan in scans) {
+              stabilitySum += scan.stabilityIndex;
             }
-          }
 
-          final highRatio = totalTrees == 0 ? 0.0 : highCount / totalTrees;
-          final moderateRatio = totalTrees == 0
-              ? 0.0
-              : moderateCount / totalTrees;
-          final lowRatio = totalTrees == 0 ? 0.0 : lowCount / totalTrees;
-          final averageStability =
-              totalTrees == 0 ? 0.0 : stabilitySum / totalTrees;
+            final averageStability = recentScanCount == 0
+                ? 0.0
+                : (stabilitySum / recentScanCount).clamp(0.0, 4.5);
+            final weeklyBuckets = _buildWeeklyScanBuckets(scans);
 
-          return NotificationListener<ScrollNotification>(
-            onNotification: (notification) =>
-                _handleScrollNotification(notification, context),
-            child: Stack(
-              children: [
-                StretchingOverscrollIndicator(
-                  axisDirection: AxisDirection.down,
-                  child: ListView(
-                    physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics(),
-                    ),
-                    padding: const EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      _metricsListBottomPadding,
-                    ),
-                    children: [
-                      _HeroSummaryCard(totalTrees: totalTrees),
-                      const SizedBox(height: 14),
-                      _AverageStabilityGaugeCard(
-                        totalTrees: totalTrees,
-                        averageStability: averageStability,
+            return NotificationListener<ScrollNotification>(
+              onNotification: (notification) =>
+                  _handleScrollNotification(notification, context),
+              child: Stack(
+                children: [
+                  StretchingOverscrollIndicator(
+                    axisDirection: AxisDirection.down,
+                    child: ListView(
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
                       ),
-                      const SizedBox(height: 14),
-                      _StabilityDistributionCard(
-                        totalTrees: totalTrees,
-                        highCount: highCount,
-                        moderateCount: moderateCount,
-                        lowCount: lowCount,
-                        highRatio: highRatio,
-                        moderateRatio: moderateRatio,
-                        lowRatio: lowRatio,
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        contentTopPadding + 8,
+                        16,
+                        _metricsListBottomPadding,
                       ),
-                      if (totalTrees == 0) ...[
+                      children: [
+                        _HeroSummaryCard(recentScanCount: recentScanCount),
                         const SizedBox(height: 14),
-                        _EmptyStateHintCard(),
+                        _AverageStabilityGaugeCard(
+                          recentScanCount: recentScanCount,
+                          averageStability: averageStability,
+                        ),
+                        const SizedBox(height: 14),
+                        _WeeklyScanVolumeTrendCard(buckets: weeklyBuckets),
+                        if (recentScanCount == 0) ...[
+                          const SizedBox(height: 14),
+                          _EmptyStateHintCard(),
+                        ],
+                        const SizedBox(height: 12),
                       ],
-                      const SizedBox(height: 12),
-                    ],
+                    ),
                   ),
-                ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: _aboutIndicatorBottom,
-                  child: _AboutOverscrollNotice(
-                    showHint: _showAboutHint,
-                    pullExtent: _aboutPullExtent,
-                    isArmed: _aboutTriggerArmed,
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: _aboutIndicatorBottom,
+                    child: _AboutOverscrollNotice(
+                      showHint: _showAboutHint,
+                      pullExtent: _aboutPullExtent,
+                      isArmed: _aboutTriggerArmed,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -437,219 +456,350 @@ class _AboutAppSheet extends StatelessWidget {
         ),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: MetricsPage.antiFlashWhite.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final maxHeight = math.min(
+                520.0,
+                MediaQuery.sizeOf(context).height * 0.72,
+              );
+              return SizedBox(
+                height: maxHeight,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: MetricsPage.bangladeshGreen.withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: MetricsPage.caribbeanGreen.withValues(alpha: 0.7),
+                    Center(
+                      child: Container(
+                        width: 44,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: MetricsPage.antiFlashWhite.withValues(
+                            alpha: 0.3,
+                          ),
+                          borderRadius: BorderRadius.circular(999),
                         ),
                       ),
-                      child: const Icon(
-                        Icons.forest_rounded,
-                        color: MetricsPage.caribbeanGreen,
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: MetricsPage.bangladeshGreen.withValues(
+                              alpha: 0.9,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: MetricsPage.caribbeanGreen.withValues(
+                                alpha: 0.7,
+                              ),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.forest_rounded,
+                            color: MetricsPage.caribbeanGreen,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'About Mangrove Guard',
+                                style: TextStyle(
+                                  color: MetricsPage.antiFlashWhite.withValues(
+                                    alpha: 0.94,
+                                  ),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                              Text(
+                                'AI-assisted mangrove scanning in the field.',
+                                style: TextStyle(
+                                  color: MetricsPage.antiFlashWhite.withValues(
+                                    alpha: 0.66,
+                                  ),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    MetricsPage.darkGreen.withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: MetricsPage.bangladeshGreen
+                                      .withValues(alpha: 0.9),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Mangroves (Rhizophora mangle)',
+                                    style: TextStyle(
+                                      color:
+                                          MetricsPage.antiFlashWhite.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Rhizophora mangle, the red mangrove, anchors shorelines with stilt roots, filters sediments, shelters juvenile marine life, and thrives in salty tidal water.',
+                                    style: TextStyle(
+                                      color:
+                                          MetricsPage.antiFlashWhite.withValues(
+                                        alpha: 0.8,
+                                      ),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    MetricsPage.darkGreen.withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: MetricsPage.bangladeshGreen
+                                      .withValues(alpha: 0.9),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'The App',
+                                    style: TextStyle(
+                                      color:
+                                          MetricsPage.antiFlashWhite.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite to deliver high-speed, on-device instance segmentation for real-time tree analysis. By calculating the ratio of root spread to trunk width, the system instantly evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
+                                    style: TextStyle(
+                                      color:
+                                          MetricsPage.antiFlashWhite.withValues(
+                                        alpha: 0.82,
+                                      ),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: const [
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.memory_rounded,
+                                          label: 'Inference',
+                                          value: 'On-device',
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.history_rounded,
+                                          label: 'History',
+                                          value: 'Local',
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.picture_as_pdf_rounded,
+                                          label: 'Reports',
+                                          value: 'PDF',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    MetricsPage.darkGreen.withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: MetricsPage.bangladeshGreen
+                                      .withValues(alpha: 0.9),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Stability Index (SI)',
+                                    style: TextStyle(
+                                      color:
+                                          MetricsPage.antiFlashWhite.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'SI is the ratio of root spread width to trunk width. Higher values indicate broader root support relative to the trunk.',
+                                    style: TextStyle(
+                                      color:
+                                          MetricsPage.antiFlashWhite.withValues(
+                                        alpha: 0.82,
+                                      ),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors.black.withValues(alpha: 0.28),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: MetricsPage.bangladeshGreen
+                                            .withValues(alpha: 0.6),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'SI = Root Spread Width ÷ Trunk Width',
+                                      style: TextStyle(
+                                        color: MetricsPage.antiFlashWhite,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.2,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: const [
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.trending_down_rounded,
+                                          label: 'Low',
+                                          value: '< 1.5',
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.trending_flat_rounded,
+                                          label: 'Moderate',
+                                          value: '1.5–3.0',
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.trending_up_rounded,
+                                          label: 'High',
+                                          value: '> 3.0',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Built and maintained by the Mangrove Guard team.',
+                              style: TextStyle(
+                                color: MetricsPage.antiFlashWhite.withValues(
+                                  alpha: 0.82,
+                                ),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'About Mangrove Guard',
-                            style: TextStyle(
-                              color: MetricsPage.antiFlashWhite.withValues(
-                                alpha: 0.94,
-                              ),
-                              fontSize: 16,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.2,
-                            ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: MetricsPage.caribbeanGreen,
+                          foregroundColor: MetricsPage.richBlack,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          Text(
-                            'AI-assisted mangrove scanning in the field.',
-                            style: TextStyle(
-                              color: MetricsPage.antiFlashWhite.withValues(
-                                alpha: 0.66,
-                              ),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: MetricsPage.darkGreen.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: MetricsPage.bangladeshGreen.withValues(alpha: 0.9),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Mangroves (Rhizophora mangle)',
-                        style: TextStyle(
-                          color: MetricsPage.antiFlashWhite.withValues(
-                            alpha: 0.9,
-                          ),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Rhizophora mangle, the red mangrove, anchors shorelines with stilt roots, filters sediments, shelters juvenile marine life, and thrives in salty tidal water.',
-                        style: TextStyle(
-                          color: MetricsPage.antiFlashWhite.withValues(
-                            alpha: 0.8,
-                          ),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          height: 1.35,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: MetricsPage.darkGreen.withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: MetricsPage.bangladeshGreen.withValues(alpha: 0.9),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'The App',
-                        style: TextStyle(
-                          color: MetricsPage.antiFlashWhite.withValues(
-                            alpha: 0.9,
-                          ),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Our platform utilizes YOLOv8-Nano and TensorFlow Lite to deliver high-speed, on-device instance segmentation for real-time tree analysis. By calculating the ratio of root spread to trunk width, the system instantly evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
-                        style: TextStyle(
-                          color: MetricsPage.antiFlashWhite.withValues(
-                            alpha: 0.82,
-                          ),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          height: 1.35,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: const [
-                          Expanded(
-                            child: _AboutPillMetric(
-                              icon: Icons.memory_rounded,
-                              label: 'Inference',
-                              value: 'On-device',
-                            ),
-                          ),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: _AboutPillMetric(
-                              icon: Icons.history_rounded,
-                              label: 'History',
-                              value: 'Local',
-                            ),
-                          ),
-                          SizedBox(width: 10),
-                          Expanded(
-                            child: _AboutPillMetric(
-                              icon: Icons.picture_as_pdf_rounded,
-                              label: 'Reports',
-                              value: 'PDF',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                
-                
-                const SizedBox(height: 6),
-                Text(
-                  'Built and maintained by the Mangrove Guard team.',
-                  style: TextStyle(
-                    color: MetricsPage.antiFlashWhite.withValues(alpha: 0.82),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: MetricsPage.caribbeanGreen,
-                      foregroundColor: MetricsPage.richBlack,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text(
-                      'Close',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),
@@ -706,9 +856,9 @@ class _AboutPillMetric extends StatelessWidget {
 }
 
 class _HeroSummaryCard extends StatelessWidget {
-  final int totalTrees;
+  final int recentScanCount;
 
-  const _HeroSummaryCard({required this.totalTrees});
+  const _HeroSummaryCard({required this.recentScanCount});
 
   @override
   Widget build(BuildContext context) {
@@ -751,8 +901,8 @@ class _HeroSummaryCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _HeroValueBlock(
-                  label: 'Total Mangrove scanned',
-                  value: '$totalTrees',
+                  label: 'Recent Scans Count',
+                  value: '$recentScanCount',
                   icon: Icons.forest_rounded,
                 ),
               ),
@@ -765,17 +915,17 @@ class _HeroSummaryCard extends StatelessWidget {
 }
 
 class _AverageStabilityGaugeCard extends StatelessWidget {
-  final int totalTrees;
+  final int recentScanCount;
   final double averageStability;
 
   const _AverageStabilityGaugeCard({
-    required this.totalTrees,
+    required this.recentScanCount,
     required this.averageStability,
   });
 
   @override
   Widget build(BuildContext context) {
-    final hasData = totalTrees > 0;
+    final hasData = recentScanCount > 0;
     final averageLabel =
         hasData ? averageStability.toStringAsFixed(2) : '--';
     final statusLabel =
@@ -796,7 +946,7 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Average of the Mangroves',
+            'Average Stability of the Mangroves',
             style: TextStyle(
               color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
               fontSize: 13,
@@ -805,7 +955,9 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            hasData ? 'Based on $totalTrees scans' : 'Scan a mangrove to begin',
+            hasData
+                ? 'Based on $recentScanCount recent scans'
+                : 'Scan a mangrove to begin',
             style: TextStyle(
               color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
               fontSize: 11,
@@ -1158,27 +1310,18 @@ class _HeroValueBlock extends StatelessWidget {
   }
 }
 
-class _StabilityDistributionCard extends StatelessWidget {
-  final int totalTrees;
-  final int highCount;
-  final int moderateCount;
-  final int lowCount;
-  final double highRatio;
-  final double moderateRatio;
-  final double lowRatio;
+class _WeeklyScanVolumeTrendCard extends StatelessWidget {
+  final List<_WeeklyScanBucket> buckets;
 
-  const _StabilityDistributionCard({
-    required this.totalTrees,
-    required this.highCount,
-    required this.moderateCount,
-    required this.lowCount,
-    required this.highRatio,
-    required this.moderateRatio,
-    required this.lowRatio,
-  });
+  const _WeeklyScanVolumeTrendCard({required this.buckets});
 
   @override
   Widget build(BuildContext context) {
+    final maxCount = buckets.fold<int>(0, (value, bucket) {
+      return math.max(value, bucket.count);
+    });
+    final hasData = maxCount > 0;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1192,7 +1335,7 @@ class _StabilityDistributionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Stability Classification',
+            'Weekly Scan Volume Trend',
             style: TextStyle(
               color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
               fontSize: 13,
@@ -1201,7 +1344,7 @@ class _StabilityDistributionCard extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            totalTrees == 0 ? 'No scans yet' : '$totalTrees scans classified',
+            hasData ? 'Last ${buckets.length} weeks' : 'No scans yet',
             style: TextStyle(
               color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
               fontSize: 11,
@@ -1209,28 +1352,10 @@ class _StabilityDistributionCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _StabilityBarRow(
-            label: 'High',
-            count: highCount,
-            percent: highRatio * 100,
-            ratio: highRatio,
-            color: MetricsPage.caribbeanGreen,
-          ),
-          const SizedBox(height: 10),
-          _StabilityBarRow(
-            label: 'Moderate',
-            count: moderateCount,
-            percent: moderateRatio * 100,
-            ratio: moderateRatio,
-            color: const Color(0xFFF59E0B),
-          ),
-          const SizedBox(height: 10),
-          _StabilityBarRow(
-            label: 'Low',
-            count: lowCount,
-            percent: lowRatio * 100,
-            ratio: lowRatio,
-            color: const Color(0xFFEF4444),
+          _WeeklyScanSparkline(
+            buckets: buckets,
+            maxCount: maxCount,
+            hasData: hasData,
           ),
         ],
       ),
@@ -1238,73 +1363,461 @@ class _StabilityDistributionCard extends StatelessWidget {
   }
 }
 
-class _StabilityBarRow extends StatelessWidget {
-  final String label;
-  final int count;
-  final double percent;
-  final double ratio;
-  final Color color;
+class _WeeklyScanSparkline extends StatefulWidget {
+  final List<_WeeklyScanBucket> buckets;
+  final int maxCount;
+  final bool hasData;
 
-  const _StabilityBarRow({
-    required this.label,
-    required this.count,
-    required this.percent,
-    required this.ratio,
-    required this.color,
+  const _WeeklyScanSparkline({
+    required this.buckets,
+    required this.maxCount,
+    required this.hasData,
   });
 
   @override
+  State<_WeeklyScanSparkline> createState() => _WeeklyScanSparklineState();
+}
+
+class _WeeklyScanSparklineState extends State<_WeeklyScanSparkline> {
+  int? _selectedIndex;
+
+  String _formatWeekLabel(DateTime weekStart) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${months[weekStart.month - 1]} ${weekStart.day}';
+  }
+
+  String _formatWeekRange(DateTime weekStart) {
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    final startLabel = _formatWeekLabel(weekStart);
+    final endLabel = weekStart.month == weekEnd.month
+        ? '${weekEnd.day}'
+        : _formatWeekLabel(weekEnd);
+    return '$startLabel - $endLabel';
+  }
+
+  void _selectIndex(double dx, double width) {
+    if (widget.buckets.isEmpty) return;
+    final clampedX = dx.clamp(0.0, width);
+    final stepX = widget.buckets.length == 1
+        ? width
+        : width / (widget.buckets.length - 1);
+    final rawIndex = stepX == 0 ? 0 : (clampedX / stepX).round();
+    final index = rawIndex.clamp(0, widget.buckets.length - 1);
+    if (index == _selectedIndex) return;
+    setState(() => _selectedIndex = index);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final clampedRatio = ratio.clamp(0.0, 1.0);
+    final lineColor = widget.hasData
+        ? MetricsPage.caribbeanGreen.withValues(alpha: 0.9)
+        : MetricsPage.antiFlashWhite.withValues(alpha: 0.3);
+    final labelColor = MetricsPage.antiFlashWhite.withValues(alpha: 0.7);
+    final firstLabel = widget.buckets.isEmpty
+        ? ''
+        : _formatWeekLabel(widget.buckets.first.weekStart);
+    final lastLabel = widget.buckets.isEmpty
+        ? ''
+        : _formatWeekLabel(widget.buckets.last.weekStart);
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const SizedBox(height: 2),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const Spacer(),
-            Text(
-              '$count',
-              style: const TextStyle(
-                color: MetricsPage.antiFlashWhite,
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
+            SizedBox(
+              width: 26,
+              height: 72,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${widget.maxCount}',
+                    style: TextStyle(
+                      color: labelColor.withValues(alpha: 0.75),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    '${(widget.maxCount / 2).round()}',
+                    style: TextStyle(
+                      color: labelColor.withValues(alpha: 0.6),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    '0',
+                    style: TextStyle(
+                      color: labelColor.withValues(alpha: 0.6),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              '${percent.toStringAsFixed(0)}%',
-              style: TextStyle(
-                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.66),
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  const chartHeight = 72.0;
+                  final width = constraints.maxWidth;
+                  final selectedIndex = _selectedIndex;
+                  final selectedBucket = (selectedIndex != null &&
+                          selectedIndex >= 0 &&
+                          selectedIndex < widget.buckets.length)
+                      ? widget.buckets[selectedIndex]
+                      : null;
+                  final maxValue = widget.maxCount == 0 ? 1 : widget.maxCount;
+                  final stepX = widget.buckets.length == 1
+                      ? 0.0
+                      : width / (widget.buckets.length - 1);
+
+                  double? selectedX;
+                  double? selectedY;
+                  if (selectedBucket != null) {
+                    final ratio = selectedBucket.count / maxValue;
+                    selectedX = stepX * selectedIndex!;
+                    selectedY = chartHeight - (chartHeight * ratio);
+                  }
+
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: (details) =>
+                        _selectIndex(details.localPosition.dx, width),
+                    onHorizontalDragUpdate: (details) =>
+                        _selectIndex(details.localPosition.dx, width),
+                    child: SizedBox(
+                      height: chartHeight,
+                      width: double.infinity,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          CustomPaint(
+                            size: Size(width, chartHeight),
+                            painter: _WeeklyScanSparklinePainter(
+                              buckets: widget.buckets,
+                              maxCount: widget.maxCount,
+                              lineColor: lineColor,
+                              selectedIndex: selectedIndex,
+                            ),
+                          ),
+                          if (selectedBucket != null &&
+                              selectedX != null &&
+                              selectedY != null)
+                            _SparklineTooltip(
+                              x: selectedX,
+                              y: selectedY,
+                              chartWidth: width,
+                              chartHeight: chartHeight,
+                              label:
+                                  '${selectedBucket.count} scans • ${_formatWeekRange(selectedBucket.weekStart)}',
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ],
         ),
         const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: Container(
-            height: 8,
-            color: Colors.black.withValues(alpha: 0.28),
-            child: FractionallySizedBox(
-              widthFactor: clampedRatio == 0 ? 0.02 : clampedRatio,
-              alignment: Alignment.centerLeft,
-              child: DecoratedBox(decoration: BoxDecoration(color: color)),
+        Row(
+          children: [
+            Text(
+              firstLabel,
+              style: TextStyle(
+                color: labelColor,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
+            const Spacer(),
+            Text(
+              widget.buckets.isEmpty
+                  ? ''
+                  : _formatWeekLabel(
+                      widget.buckets[widget.buckets.length ~/ 2].weekStart,
+                    ),
+              style: TextStyle(
+                color: labelColor.withValues(alpha: 0.8),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              lastLabel,
+              style: TextStyle(
+                color: labelColor,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
       ],
     );
   }
+}
+
+class _SparklineTooltip extends StatelessWidget {
+  final double x;
+  final double y;
+  final double chartWidth;
+  final double chartHeight;
+  final String label;
+
+  const _SparklineTooltip({
+    required this.x,
+    required this.y,
+    required this.chartWidth,
+    required this.chartHeight,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const tooltipWidth = 160.0;
+    const tooltipHeight = 32.0;
+    const verticalGap = 10.0;
+
+    final placeAbove = y - tooltipHeight - verticalGap >= 0;
+    final top = placeAbove
+        ? y - tooltipHeight - verticalGap
+        : (y + verticalGap).clamp(0.0, chartHeight - tooltipHeight);
+    final left = (x - (tooltipWidth / 2))
+        .clamp(0.0, chartWidth - tooltipWidth);
+
+    return Positioned(
+      left: left,
+      top: top,
+      child: Container(
+        width: tooltipWidth,
+        height: tooltipHeight,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: MetricsPage.richBlack.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: MetricsPage.caribbeanGreen.withValues(alpha: 0.6),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WeeklyScanSparklinePainter extends CustomPainter {
+  final List<_WeeklyScanBucket> buckets;
+  final int maxCount;
+  final Color lineColor;
+  final int? selectedIndex;
+
+  _WeeklyScanSparklinePainter({
+    required this.buckets,
+    required this.maxCount,
+    required this.lineColor,
+    required this.selectedIndex,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (buckets.isEmpty) return;
+
+    final maxValue = maxCount == 0 ? 1 : maxCount;
+    final stepX = buckets.length == 1
+        ? 0.0
+        : size.width / (buckets.length - 1);
+
+    final points = <Offset>[];
+    for (var i = 0; i < buckets.length; i++) {
+      final ratio = buckets[i].count / maxValue;
+      final x = stepX * i;
+      final y = size.height - (size.height * ratio);
+      points.add(Offset(x, y));
+    }
+
+    final gridPaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.12)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    for (var i = 1; i <= 3; i++) {
+      final y = size.height * (i / 4);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    final dashPaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.16)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    const dashHeight = 4.0;
+    const dashGap = 4.0;
+    for (var i = 0; i < points.length; i++) {
+      final x = points[i].dx;
+      var y = 0.0;
+      while (y < size.height) {
+        final yEnd = (y + dashHeight).clamp(0.0, size.height);
+        canvas.drawLine(Offset(x, y), Offset(x, yEnd), dashPaint);
+        y += dashHeight + dashGap;
+      }
+    }
+
+    final smoothPath = Path();
+    if (points.length == 1) {
+      smoothPath.moveTo(points.first.dx, points.first.dy);
+    } else {
+      smoothPath.moveTo(points.first.dx, points.first.dy);
+      for (var i = 0; i < points.length - 1; i++) {
+        final p0 = i == 0 ? points[i] : points[i - 1];
+        final p1 = points[i];
+        final p2 = points[i + 1];
+        final p3 = i + 2 < points.length ? points[i + 2] : points[i + 1];
+
+        final cp1 = Offset(
+          p1.dx + (p2.dx - p0.dx) / 6,
+          p1.dy + (p2.dy - p0.dy) / 6,
+        );
+        final cp2 = Offset(
+          p2.dx - (p3.dx - p1.dx) / 6,
+          p2.dy - (p3.dy - p1.dy) / 6,
+        );
+
+        smoothPath.cubicTo(cp1.dx, cp1.dy, cp2.dx, cp2.dy, p2.dx, p2.dy);
+      }
+    }
+
+    final areaPath = Path.from(smoothPath)
+      ..lineTo(points.last.dx, size.height)
+      ..lineTo(points.first.dx, size.height)
+      ..close();
+
+    final gradient = LinearGradient(
+      colors: [
+        lineColor.withValues(alpha: 0.0),
+        lineColor.withValues(alpha: 0.25),
+      ],
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+    );
+
+    final areaPaint = Paint()
+      ..shader = gradient.createShader(
+        Rect.fromLTWH(0, 0, size.width, size.height),
+      )
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(areaPath, areaPaint);
+
+    final glowPaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.45)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 6
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+
+    canvas.drawPath(smoothPath, glowPaint);
+
+    final lineGradient = LinearGradient(
+      colors: [
+        lineColor.withValues(alpha: 0.4),
+        lineColor,
+        lineColor.withValues(alpha: 0.7),
+      ],
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+    );
+
+    final linePaint = Paint()
+      ..shader = lineGradient.createShader(
+        Rect.fromLTWH(0, 0, size.width, size.height),
+      )
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.6
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawPath(smoothPath, linePaint);
+
+    final pointPaint = Paint()
+      ..color = lineColor.withValues(alpha: 0.9)
+      ..style = PaintingStyle.fill;
+    final pointInnerPaint = Paint()
+      ..color = MetricsPage.antiFlashWhite.withValues(alpha: 0.9)
+      ..style = PaintingStyle.fill;
+    for (final point in points) {
+      canvas.drawCircle(point, 3.6, pointPaint);
+      canvas.drawCircle(point, 1.6, pointInnerPaint);
+    }
+
+    final selected = selectedIndex;
+    if (selected != null && selected >= 0 && selected < points.length) {
+      final highlightPaint = Paint()
+        ..color = lineColor.withValues(alpha: 0.9)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2;
+      final glowPaint = Paint()
+        ..color = lineColor.withValues(alpha: 0.25)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 8
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+      final highlightPoint = points[selected];
+      canvas.drawCircle(highlightPoint, 8, glowPaint);
+      canvas.drawCircle(highlightPoint, 6, highlightPaint);
+      canvas.drawCircle(highlightPoint, 3.6, pointPaint);
+      canvas.drawCircle(highlightPoint, 1.6, pointInnerPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WeeklyScanSparklinePainter oldDelegate) {
+    return oldDelegate.buckets != buckets ||
+        oldDelegate.maxCount != maxCount ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.selectedIndex != selectedIndex;
+  }
+}
+
+class _WeeklyScanBucket {
+  final DateTime weekStart;
+  final int count;
+
+  const _WeeklyScanBucket({required this.weekStart, required this.count});
 }
 
 class _EmptyStateHintCard extends StatelessWidget {
