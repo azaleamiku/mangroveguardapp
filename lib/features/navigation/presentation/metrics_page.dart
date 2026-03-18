@@ -284,9 +284,23 @@ class _MetricsPageState extends State<MetricsPage> {
             final contentTopPadding = topInset + extraTopPadding;
 
             var stabilitySum = 0.0;
+            var highCount = 0;
+            var moderateCount = 0;
+            var lowCount = 0;
 
             for (final scan in scans) {
               stabilitySum += scan.stabilityIndex;
+              switch (scan.assessment) {
+                case StabilityAssessment.high:
+                  highCount++;
+                  break;
+                case StabilityAssessment.moderate:
+                  moderateCount++;
+                  break;
+                case StabilityAssessment.low:
+                  lowCount++;
+                  break;
+              }
             }
 
             final averageStability = recentScanCount == 0
@@ -317,6 +331,12 @@ class _MetricsPageState extends State<MetricsPage> {
                         _AverageStabilityGaugeCard(
                           recentScanCount: recentScanCount,
                           averageStability: averageStability,
+                        ),
+                        const SizedBox(height: 14),
+                        _StabilityBreakdownCard(
+                          highCount: highCount,
+                          moderateCount: moderateCount,
+                          lowCount: lowCount,
                         ),
                         const SizedBox(height: 14),
                         _WeeklyScanVolumeTrendCard(buckets: weeklyBuckets),
@@ -987,6 +1007,145 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
     if (value > 3) return MetricsPage.caribbeanGreen;
     if (value >= 1.5) return const Color(0xFFF59E0B);
     return const Color(0xFFEF4444);
+  }
+}
+
+class _StabilityBreakdownCard extends StatelessWidget {
+  final int highCount;
+  final int moderateCount;
+  final int lowCount;
+
+  const _StabilityBreakdownCard({
+    required this.highCount,
+    required this.moderateCount,
+    required this.lowCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final total = highCount + moderateCount + lowCount;
+    final subtitle =
+        total == 0 ? 'No scans yet' : 'From $total recent scans';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: MetricsPage.darkGreen,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.95),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.26),
+            blurRadius: 16,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Stability Breakdown',
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _BreakdownMetric(
+                  label: 'High',
+                  value: '$highCount',
+                  color: MetricsPage.caribbeanGreen,
+                  icon: Icons.trending_up_rounded,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _BreakdownMetric(
+                  label: 'Moderate',
+                  value: '$moderateCount',
+                  color: const Color(0xFFF59E0B),
+                  icon: Icons.trending_flat_rounded,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _BreakdownMetric(
+                  label: 'Low',
+                  value: '$lowCount',
+                  color: const Color(0xFFEF4444),
+                  icon: Icons.trending_down_rounded,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BreakdownMetric extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final IconData icon;
+
+  const _BreakdownMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.24),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.6)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 6),
+          Text(
+            value,
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

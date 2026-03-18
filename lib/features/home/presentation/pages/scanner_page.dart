@@ -1358,8 +1358,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final frameHeight = (size.height * 0.5).clamp(320.0, 420.0).toDouble();
     final innerWidth = (frameWidth - 30).clamp(250.0, 305.0).toDouble();
     final innerHeight = (frameHeight - 28).clamp(290.0, 385.0).toDouble();
-    final guideAlignment = Alignment(0, (_trunkGuideYFraction * 2) - 1);
-
     return SizedBox(
       width: frameWidth,
       height: frameHeight,
@@ -1394,23 +1392,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
           Align(
             alignment: Alignment.bottomRight,
             child: _frameCorner(top: false, left: false),
-          ),
-          Align(
-            alignment: guideAlignment,
-            child: Container(
-              width: innerWidth * 0.8,
-              height: 2,
-              decoration: BoxDecoration(
-                color: caribbeanGreen.withValues(alpha: 0.75),
-                borderRadius: BorderRadius.circular(999),
-                boxShadow: [
-                  BoxShadow(
-                    color: caribbeanGreen.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                  ),
-                ],
-              ),
-            ),
           ),
         ],
       ),
