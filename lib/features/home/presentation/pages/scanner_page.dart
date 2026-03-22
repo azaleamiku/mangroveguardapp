@@ -30,11 +30,17 @@ class ScannerPageController extends ChangeNotifier {
     required MangroveTree tree,
     double metersPerPixel = 0.003,
     String? capturedImagePath,
+    Uint8List? rootMaskBytes,
+    int? rootMaskWidth,
+    int? rootMaskHeight,
   }) {
     _latestMeasuredTreeResult = MeasuredTreeResult(
       tree: tree,
       metersPerPixel: metersPerPixel,
       capturedImagePath: capturedImagePath,
+      rootMaskBytes: rootMaskBytes,
+      rootMaskWidth: rootMaskWidth,
+      rootMaskHeight: rootMaskHeight,
     );
   }
 
@@ -49,21 +55,47 @@ class MeasuredTreeResult {
   final MangroveTree tree;
   final double metersPerPixel;
   final String? capturedImagePath;
+  final Uint8List? rootMaskBytes;
+  final int? rootMaskWidth;
+  final int? rootMaskHeight;
 
   const MeasuredTreeResult({
     required this.tree,
     required this.metersPerPixel,
     this.capturedImagePath,
+    this.rootMaskBytes,
+    this.rootMaskWidth,
+    this.rootMaskHeight,
   });
 }
 
 class _InferenceResult {
   final MangroveTree tree;
   final double metersPerPixel;
+  final Uint8List? rootMaskBytes;
+  final int? rootMaskWidth;
+  final int? rootMaskHeight;
 
   const _InferenceResult({
     required this.tree,
     required this.metersPerPixel,
+    this.rootMaskBytes,
+    this.rootMaskWidth,
+    this.rootMaskHeight,
+  });
+}
+
+class _ExtractedTree {
+  final MangroveTree tree;
+  final Uint8List? rootMaskBytes;
+  final int? rootMaskWidth;
+  final int? rootMaskHeight;
+
+  const _ExtractedTree({
+    required this.tree,
+    this.rootMaskBytes,
+    this.rootMaskWidth,
+    this.rootMaskHeight,
   });
 }
 
@@ -80,8 +112,8 @@ class ScannerPage extends StatefulWidget {
 class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   static const String _modelAssetPath = 'assets/models/mangroveModel.tflite';
   static const double _defaultMetersPerPixel = 0.003;
-  static const double _trunkConfidenceThreshold = 0.85;
-  static const double _rootConfidenceThreshold = 0.65;
+  static const double _trunkConfidenceThreshold = 0.55;
+  static const double _rootConfidenceThreshold = 0.55;
   static const double _trunkGuideYFraction = 0.6;
   static const List<String> _instanceClassLabels = [
     'mangrove_root',
@@ -326,6 +358,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         tree: result.tree,
         metersPerPixel: result.metersPerPixel,
         capturedImagePath: imagePath,
+        rootMaskBytes: result.rootMaskBytes,
+        rootMaskWidth: result.rootMaskWidth,
+        rootMaskHeight: result.rootMaskHeight,
       );
     } on PlatformException catch (e) {
       debugPrint('Model inference failed: ${e.code} ${e.message}');
@@ -391,9 +426,15 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     } else {
       interpreter.runForMultipleInputs([input], outputs);
     }
-    final tree = _extractTreeFromOutputs(outputs);
-    if (tree == null) return null;
-    return _InferenceResult(tree: tree, metersPerPixel: metersPerPixel);
+    final extracted = _extractTreeFromOutputs(outputs);
+    if (extracted == null) return null;
+    return _InferenceResult(
+      tree: extracted.tree,
+      metersPerPixel: metersPerPixel,
+      rootMaskBytes: extracted.rootMaskBytes,
+      rootMaskWidth: extracted.rootMaskWidth,
+      rootMaskHeight: extracted.rootMaskHeight,
+    );
   }
 
   Object _createModelInput(img.Image image) {
@@ -501,7 +542,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     );
   }
 
-  MangroveTree? _extractTreeFromOutputs(Map<int, Object> outputs) {
+  _ExtractedTree? _extractTreeFromOutputs(Map<int, Object> outputs) {
     for (var i = 0; i < _outputTensors.length; i++) {
       final tensor = _outputTensors[i];
       final shape = tensor.shape;
@@ -510,15 +551,61 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       final parsed = _parseMasksFromTensor(outputs[i], shape);
       if (parsed == null) continue;
       final tree = _buildTreeFromMasks(parsed);
-      if (tree != null) return tree;
+      if (tree != null) {
+        final maskHeight = parsed.rootMask.length;
+        final maskWidth =
+            maskHeight == 0 ? 0 : parsed.rootMask.first.length;
+        final maskBytes = maskWidth > 0 && maskHeight > 0
+            ? _packMaskToBytes(parsed.rootMask)
+            : null;
+        return _ExtractedTree(
+          tree: tree,
+          rootMaskBytes: maskBytes,
+          rootMaskWidth: maskWidth > 0 ? maskWidth : null,
+          rootMaskHeight: maskHeight > 0 ? maskHeight : null,
+        );
+      }
     }
 
     final fromInstances = _extractTreeFromInstanceOutputs(outputs);
-    if (fromInstances != null) return fromInstances;
+    if (fromInstances != null) {
+      return _ExtractedTree(tree: fromInstances);
+    }
 
     final shapes = _outputTensors.map((t) => t.shape).join(', ');
     debugPrint('Unsupported output tensors for parser: $shapes');
     return null;
+  }
+
+  Uint8List _packMaskToBytes(List<List<bool>> mask) {
+    final height = mask.length;
+    if (height == 0) return Uint8List(0);
+    final width = mask.first.length;
+    if (width == 0) return Uint8List(0);
+    final total = width * height;
+    final bytes = Uint8List((total + 7) >> 3);
+    var byteIndex = 0;
+    var bitIndex = 0;
+    var current = 0;
+    for (var y = 0; y < height; y++) {
+      final row = mask[y];
+      for (var x = 0; x < width; x++) {
+        if (row[x]) {
+          current |= 1 << (7 - bitIndex);
+        }
+        bitIndex++;
+        if (bitIndex == 8) {
+          bytes[byteIndex] = current;
+          byteIndex++;
+          bitIndex = 0;
+          current = 0;
+        }
+      }
+    }
+    if (bitIndex != 0 && byteIndex < bytes.length) {
+      bytes[byteIndex] = current;
+    }
+    return bytes;
   }
 
   MangroveTree? _extractTreeFromInstanceOutputs(Map<int, Object> outputs) {

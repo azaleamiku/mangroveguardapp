@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -49,6 +52,9 @@ class _RecentScanPageState extends State<RecentScanPage> {
   _RecentScanNotice? _notice;
   bool _showNoticeCard = false;
   bool _detailsExpanded = false;
+  final Map<String, Size> _imageSizeCache = {};
+  final Map<String, ui.Image> _rootMaskImageCache = {};
+  final Map<String, Future<ui.Image?>> _rootMaskImageFutureCache = {};
 
   Future<void> _handleSaveScan(int index) async {
     final saveCallback = widget.onSaveScan;
@@ -88,6 +94,109 @@ class _RecentScanPageState extends State<RecentScanPage> {
     callback();
   }
 
+  Future<Size?> _loadImageSize(String path) async {
+    final cached = _imageSizeCache[path];
+    if (cached != null) return cached;
+    try {
+      final bytes = await File(path).readAsBytes();
+      final decoded = await _decodeImage(bytes);
+      final size = Size(decoded.width.toDouble(), decoded.height.toDouble());
+      decoded.dispose();
+      _imageSizeCache[path] = size;
+      return size;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _maskCacheKey(RecentTreeScan scan) {
+    final stamp = scan.scannedAt.millisecondsSinceEpoch;
+    final path = scan.capturedImagePath ?? '';
+    return '${scan.treeId}::$stamp::$path';
+  }
+
+  Future<ui.Image?> _loadRootMaskImage(RecentTreeScan scan) {
+    final bytes = scan.rootMaskBytes;
+    final width = scan.rootMaskWidth;
+    final height = scan.rootMaskHeight;
+    if (bytes == null || width == null || height == null) {
+      return Future.value(null);
+    }
+    if (width <= 0 || height <= 0) {
+      return Future.value(null);
+    }
+    final key = _maskCacheKey(scan);
+    final cached = _rootMaskImageCache[key];
+    if (cached != null) return Future.value(cached);
+    final existing = _rootMaskImageFutureCache[key];
+    if (existing != null) return existing;
+
+    final future = _decodeRootMaskImage(bytes, width, height).then((image) {
+      if (image != null) {
+        _rootMaskImageCache[key] = image;
+      }
+      return image;
+    });
+    _rootMaskImageFutureCache[key] = future;
+    return future;
+  }
+
+  Future<ui.Image?> _decodeRootMaskImage(
+    Uint8List bytes,
+    int width,
+    int height,
+  ) {
+    try {
+      final pixelCount = width * height;
+      if (pixelCount <= 0) return Future.value(null);
+      final rgba = Uint8List(pixelCount * 4);
+      final color = caribbeanGreen;
+      final alpha = (0.55 * 255).round();
+      final totalBits = math.min(pixelCount, bytes.length * 8);
+      var rgbaIndex = 0;
+
+      for (var i = 0; i < totalBits; i++) {
+        final byte = bytes[i >> 3];
+        final bit = 7 - (i & 7);
+        if ((byte & (1 << bit)) != 0) {
+          rgba[rgbaIndex] = color.red;
+          rgba[rgbaIndex + 1] = color.green;
+          rgba[rgbaIndex + 2] = color.blue;
+          rgba[rgbaIndex + 3] = alpha;
+        } else {
+          rgba[rgbaIndex + 3] = 0;
+        }
+        rgbaIndex += 4;
+      }
+
+      final completer = Completer<ui.Image>();
+      ui.decodeImageFromPixels(
+        rgba,
+        width,
+        height,
+        ui.PixelFormat.rgba8888,
+        (image) {
+          if (!completer.isCompleted) {
+            completer.complete(image);
+          }
+        },
+      );
+      return completer.future;
+    } catch (_) {
+      return Future.value(null);
+    }
+  }
+
+  Future<ui.Image> _decodeImage(Uint8List bytes) {
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromList(bytes, (image) {
+      if (!completer.isCompleted) {
+        completer.complete(image);
+      }
+    });
+    return completer.future;
+  }
+
   Future<void> _handleClearScans(int count) async {
     final deleteCallback = widget.onDeleteScan;
     if (deleteCallback == null || count == 0) return;
@@ -100,6 +209,32 @@ class _RecentScanPageState extends State<RecentScanPage> {
     if (!mounted) return;
     setState(() => _expandedIndex = null);
     _showNotice(message: 'Recent scans cleared.', kind: _NoticeKind.delete);
+  }
+
+  List<Rect> _normalizedRootRects(MangroveTree tree) {
+    final rects = <Rect>[];
+    for (final root in tree.roots) {
+      final left = root.normalizedLeft;
+      final top = root.normalizedTop;
+      final right = root.normalizedRight;
+      final bottom = root.normalizedBottom;
+      if (left == null || top == null || right == null || bottom == null) {
+        continue;
+      }
+      final clampedLeft = left.clamp(0.0, 1.0);
+      final clampedTop = top.clamp(0.0, 1.0);
+      final clampedRight = right.clamp(0.0, 1.0);
+      final clampedBottom = bottom.clamp(0.0, 1.0);
+      rects.add(
+        Rect.fromLTRB(
+          math.min(clampedLeft, clampedRight),
+          math.min(clampedTop, clampedBottom),
+          math.max(clampedLeft, clampedRight),
+          math.max(clampedTop, clampedBottom),
+        ),
+      );
+    }
+    return rects;
   }
 
   void _showNotice({
@@ -150,6 +285,9 @@ class _RecentScanPageState extends State<RecentScanPage> {
   @override
   void dispose() {
     _noticeTimer?.cancel();
+    for (final image in _rootMaskImageCache.values) {
+      image.dispose();
+    }
     super.dispose();
   }
 
@@ -239,6 +377,10 @@ class _RecentScanPageState extends State<RecentScanPage> {
             final contentBottomPadding =
                 bottomInset + bottomNavHeight + extraBottomPadding;
             final frameAspect = _scannerFrameAspect(MediaQuery.sizeOf(context));
+            final rootRects = _normalizedRootRects(scan.tree);
+            final hasRootMask = scan.rootMaskBytes != null &&
+                (scan.rootMaskWidth ?? 0) > 0 &&
+                (scan.rootMaskHeight ?? 0) > 0;
 
             return SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(
@@ -265,21 +407,111 @@ class _RecentScanPageState extends State<RecentScanPage> {
                         child: ClipRRect(
                             borderRadius: BorderRadius.circular(18),
                             child: hasImage
-                                ? Image.file(
-                                    File(imagePath!),
-                                    fit: BoxFit.cover,
-                                    width: double.infinity,
-                                    height: double.infinity,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return Container(
-                                        color: darkGreen.withValues(
-                                          alpha: 0.55,
-                                        ),
-                                        child: const Center(
-                                          child: Icon(
-                                            Icons.broken_image_rounded,
-                                            color: antiFlashWhite,
-                                            size: 36,
+                                ? FutureBuilder<Size?>(
+                                    future: _loadImageSize(imagePath!),
+                                    builder: (context, snapshot) {
+                                      final imageSize = snapshot.data;
+                                      if (imageSize == null) {
+                                        return Image.file(
+                                          File(imagePath),
+                                          fit: BoxFit.cover,
+                                          width: double.infinity,
+                                          height: double.infinity,
+                                          errorBuilder:
+                                              (context, error, stackTrace) {
+                                            return Container(
+                                              color: darkGreen.withValues(
+                                                alpha: 0.55,
+                                              ),
+                                              child: const Center(
+                                                child: Icon(
+                                                  Icons.broken_image_rounded,
+                                                  color: antiFlashWhite,
+                                                  size: 36,
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        );
+                                      }
+
+                                      return FittedBox(
+                                        fit: BoxFit.cover,
+                                        alignment: Alignment.center,
+                                        child: SizedBox(
+                                          width: imageSize.width,
+                                          height: imageSize.height,
+                                          child: Stack(
+                                            fit: StackFit.expand,
+                                            children: [
+                                              Image.file(
+                                                File(imagePath),
+                                                fit: BoxFit.fill,
+                                                width: imageSize.width,
+                                                height: imageSize.height,
+                                                errorBuilder:
+                                                    (context, error, stackTrace) {
+                                                  return Container(
+                                                    color: darkGreen.withValues(
+                                                      alpha: 0.55,
+                                                    ),
+                                                    child: const Center(
+                                                      child: Icon(
+                                                        Icons.broken_image_rounded,
+                                                        color: antiFlashWhite,
+                                                        size: 36,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                              if (hasRootMask)
+                                                FutureBuilder<ui.Image?>(
+                                                  future:
+                                                      _loadRootMaskImage(scan),
+                                                  builder: (context, snapshot) {
+                                                    final maskImage =
+                                                        snapshot.data;
+                                                    if (maskImage == null) {
+                                                      if (rootRects
+                                                          .isNotEmpty) {
+                                                        return CustomPaint(
+                                                          painter:
+                                                              _RootHighlightPainter(
+                                                            rects: rootRects,
+                                                            color:
+                                                                caribbeanGreen,
+                                                          ),
+                                                        );
+                                                      }
+                                                      return const SizedBox
+                                                          .shrink();
+                                                    }
+                                                    return CustomPaint(
+                                                      painter:
+                                                          _RootMaskPainter(
+                                                        maskImage: maskImage,
+                                                        maskSize: Size(
+                                                          scan
+                                                              .rootMaskWidth!
+                                                              .toDouble(),
+                                                          scan
+                                                              .rootMaskHeight!
+                                                              .toDouble(),
+                                                        ),
+                                                      ),
+                                                    );
+                                                  },
+                                                )
+                                              else if (rootRects.isNotEmpty)
+                                                CustomPaint(
+                                                  painter:
+                                                      _RootHighlightPainter(
+                                                    rects: rootRects,
+                                                    color: caribbeanGreen,
+                                                  ),
+                                                ),
+                                            ],
                                           ),
                                         ),
                                       );
@@ -388,6 +620,34 @@ class _RecentScanPageState extends State<RecentScanPage> {
                           height: 1,
                         ),
                         const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Text(
+                              'Highlights',
+                              style: TextStyle(
+                                color: antiFlashWhite.withValues(alpha: 0.8),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Container(
+                                height: 1,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      bangladeshGreen.withValues(alpha: 0.6),
+                                      Colors.transparent,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
                         LayoutBuilder(
                           builder: (context, constraints) {
                             final tileWidth =
@@ -401,6 +661,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                   child: _MetricTile(
                                     label: 'Root Count',
                                     value: '${scan.rootCount}',
+                                    icon: Icons.nature_rounded,
                                     accent: statusColor,
                                   ),
                                 ),
@@ -410,6 +671,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     label: 'Trunk Width',
                                     value:
                                         '${scan.trunkWidthCentimeters.toStringAsFixed(1)} cm',
+                                    icon: Icons.straighten_rounded,
                                     accent: statusColor,
                                   ),
                                 ),
@@ -419,6 +681,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     label: 'Root Spread',
                                     value:
                                         '${scan.rootSpreadCentimeters.toStringAsFixed(1)} cm',
+                                    icon: Icons.open_in_full_rounded,
                                     accent: statusColor,
                                   ),
                                 ),
@@ -428,6 +691,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     label: 'Stability Index',
                                     value: scan.stabilityIndex
                                         .toStringAsFixed(2),
+                                    icon: Icons.speed_rounded,
                                     accent: statusColor,
                                   ),
                                 ),
@@ -685,6 +949,148 @@ class _RecentScanPageState extends State<RecentScanPage> {
   }
 }
 
+class _RootHighlightPainter extends CustomPainter {
+  final List<Rect> rects;
+  final Color color;
+
+  const _RootHighlightPainter({required this.rects, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (rects.isEmpty) return;
+
+    final stroke = math.max(1.4, size.shortestSide * 0.0035);
+    final glowBlur = stroke * 3.2;
+    final fillPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color.withValues(alpha: 0.12);
+
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke * 2.1
+      ..color = color.withValues(alpha: 0.32)
+      ..maskFilter = ui.MaskFilter.blur(
+        ui.BlurStyle.normal,
+        glowBlur,
+      );
+
+    final outlinePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = color.withValues(alpha: 0.92);
+
+    final tickPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke * 1.15
+      ..strokeCap = StrokeCap.round
+      ..color = color.withValues(alpha: 0.85);
+
+    for (final rect in rects) {
+      final scaled = Rect.fromLTRB(
+        rect.left * size.width,
+        rect.top * size.height,
+        rect.right * size.width,
+        rect.bottom * size.height,
+      );
+
+      final radius = math.max(6.0, stroke * 2.6);
+      final rrect = RRect.fromRectAndRadius(
+        scaled,
+        Radius.circular(radius),
+      );
+      canvas.drawRRect(rrect, fillPaint);
+      canvas.drawRRect(rrect, glowPaint);
+      canvas.drawRRect(rrect, outlinePaint);
+
+      final maxTick = math.min(scaled.width, scaled.height) * 0.28;
+      final tick = math.max(8.0, math.min(16.0, maxTick));
+      final left = scaled.left;
+      final top = scaled.top;
+      final right = scaled.right;
+      final bottom = scaled.bottom;
+
+      canvas.drawLine(
+        Offset(left + radius * 0.6, top),
+        Offset(left + radius * 0.6 + tick, top),
+        tickPaint,
+      );
+      canvas.drawLine(
+        Offset(left, top + radius * 0.6),
+        Offset(left, top + radius * 0.6 + tick),
+        tickPaint,
+      );
+
+      canvas.drawLine(
+        Offset(right - radius * 0.6 - tick, top),
+        Offset(right - radius * 0.6, top),
+        tickPaint,
+      );
+      canvas.drawLine(
+        Offset(right, top + radius * 0.6),
+        Offset(right, top + radius * 0.6 + tick),
+        tickPaint,
+      );
+
+      canvas.drawLine(
+        Offset(left + radius * 0.6, bottom),
+        Offset(left + radius * 0.6 + tick, bottom),
+        tickPaint,
+      );
+      canvas.drawLine(
+        Offset(left, bottom - radius * 0.6 - tick),
+        Offset(left, bottom - radius * 0.6),
+        tickPaint,
+      );
+
+      canvas.drawLine(
+        Offset(right - radius * 0.6 - tick, bottom),
+        Offset(right - radius * 0.6, bottom),
+        tickPaint,
+      );
+      canvas.drawLine(
+        Offset(right, bottom - radius * 0.6 - tick),
+        Offset(right, bottom - radius * 0.6),
+        tickPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RootHighlightPainter oldDelegate) {
+    return oldDelegate.color != color ||
+        !listEquals(oldDelegate.rects, rects);
+  }
+}
+
+class _RootMaskPainter extends CustomPainter {
+  final ui.Image maskImage;
+  final Size maskSize;
+
+  const _RootMaskPainter({
+    required this.maskImage,
+    required this.maskSize,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (maskSize.width <= 0 || maskSize.height <= 0) return;
+    final src = Rect.fromLTWH(0, 0, maskSize.width, maskSize.height);
+    final dst = Offset.zero & size;
+    final paint = Paint()
+      ..filterQuality = FilterQuality.low
+      ..blendMode = BlendMode.srcOver;
+    canvas.drawImageRect(maskImage, src, dst, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RootMaskPainter oldDelegate) {
+    return oldDelegate.maskImage != maskImage ||
+        oldDelegate.maskSize != maskSize;
+  }
+}
+
 enum _NoticeKind { success, delete, error }
 
 class _RecentScanNotice {
@@ -816,6 +1222,9 @@ class RecentTreeScan {
   final MangroveTree tree;
   final double metersPerPixel;
   final String? capturedImagePath;
+  final Uint8List? rootMaskBytes;
+  final int? rootMaskWidth;
+  final int? rootMaskHeight;
 
   const RecentTreeScan({
     required this.treeId,
@@ -823,6 +1232,9 @@ class RecentTreeScan {
     required this.tree,
     this.metersPerPixel = 0.003,
     this.capturedImagePath,
+    this.rootMaskBytes,
+    this.rootMaskWidth,
+    this.rootMaskHeight,
   });
 
   int get rootCount => tree.roots.length;
@@ -834,11 +1246,20 @@ class RecentTreeScan {
   StabilityAssessment get assessment => tree.assessment;
 
   Map<String, dynamic> toJson() {
+    final maskBytes = rootMaskBytes;
+    final maskWidth = rootMaskWidth;
+    final maskHeight = rootMaskHeight;
     return {
       'treeId': treeId,
       'scannedAt': scannedAt.toIso8601String(),
       'metersPerPixel': metersPerPixel,
       if (capturedImagePath != null) 'capturedImagePath': capturedImagePath,
+      if (maskBytes != null && maskWidth != null && maskHeight != null)
+        'rootMask': {
+          'width': maskWidth,
+          'height': maskHeight,
+          'data': base64Encode(maskBytes),
+        },
       'tree': {
         'trunkWidthAtBranchPoint': tree.trunkWidthAtBranchPoint,
         if (tree.trunkMeasurement != null)
@@ -936,6 +1357,31 @@ class RecentTreeScan {
       }
     }
 
+    final rootMaskRaw =
+        (json['rootMask'] as Map?)?.cast<String, dynamic>();
+    Uint8List? rootMaskBytes;
+    int? rootMaskWidth;
+    int? rootMaskHeight;
+    if (rootMaskRaw != null) {
+      final width = (rootMaskRaw['width'] as num?)?.toInt();
+      final height = (rootMaskRaw['height'] as num?)?.toInt();
+      final data = rootMaskRaw['data'] as String?;
+      if (width != null &&
+          height != null &&
+          data != null &&
+          data.trim().isNotEmpty) {
+        try {
+          rootMaskBytes = base64Decode(data);
+          rootMaskWidth = width;
+          rootMaskHeight = height;
+        } catch (_) {
+          rootMaskBytes = null;
+          rootMaskWidth = null;
+          rootMaskHeight = null;
+        }
+      }
+    }
+
     final scannedAtRaw = json['scannedAt'] as String?;
     return RecentTreeScan(
       treeId: (json['treeId'] as String?)?.trim().isNotEmpty == true
@@ -949,6 +1395,9 @@ class RecentTreeScan {
           ((json['capturedImagePath'] as String?)?.trim().isNotEmpty ?? false)
           ? (json['capturedImagePath'] as String).trim()
           : null,
+      rootMaskBytes: rootMaskBytes,
+      rootMaskWidth: rootMaskWidth,
+      rootMaskHeight: rootMaskHeight,
       tree: MangroveTree(
         trunkWidthAtBranchPoint:
             (treeMap['trunkWidthAtBranchPoint'] as num?)?.toDouble() ?? 0,
@@ -1470,45 +1919,97 @@ class _MetricChip extends StatelessWidget {
 class _MetricTile extends StatelessWidget {
   final String label;
   final String value;
+  final IconData icon;
   final Color accent;
 
   const _MetricTile({
     required this.label,
     required this.value,
+    required this.icon,
     required this.accent,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       decoration: BoxDecoration(
-        color: richBlack.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: accent.withValues(alpha: 0.45),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            richBlack.withValues(alpha: 0.7),
+            darkGreen.withValues(alpha: 0.92),
+          ],
         ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: accent.withValues(alpha: 0.55),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.16),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: antiFlashWhite.withValues(alpha: 0.6),
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.3,
-            ),
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(
+                    color: accent.withValues(alpha: 0.6),
+                  ),
+                ),
+                child: Icon(
+                  icon,
+                  size: 14,
+                  color: accent,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: antiFlashWhite.withValues(alpha: 0.7),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 10),
           Text(
             value,
             style: const TextStyle(
               color: antiFlashWhite,
-              fontSize: 14,
+              fontSize: 16,
               fontWeight: FontWeight.w900,
               letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            height: 3,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              gradient: LinearGradient(
+                colors: [
+                  accent.withValues(alpha: 0.1),
+                  accent.withValues(alpha: 0.9),
+                ],
+              ),
             ),
           ),
         ],

@@ -95,6 +95,9 @@ class _MainNavPageState extends State<MainNavPage> {
         tree: measuredResult.tree,
         metersPerPixel: measuredResult.metersPerPixel,
         capturedImagePath: capturedImagePath,
+        rootMaskBytes: measuredResult.rootMaskBytes,
+        rootMaskWidth: measuredResult.rootMaskWidth,
+        rootMaskHeight: measuredResult.rootMaskHeight,
       ),
       ..._recentScans.value,
     ];
