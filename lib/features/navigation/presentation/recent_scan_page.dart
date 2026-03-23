@@ -44,6 +44,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
   _RecentScanNotice? _notice;
   bool _showNoticeCard = false;
   bool _detailsExpanded = false;
+  bool _peekRawPhoto = false;
   final Map<String, Size> _imageSizeCache = {};
   final Map<String, ui.Image> _rootMaskImageCache = {};
   final Map<String, Future<ui.Image?>> _rootMaskImageFutureCache = {};
@@ -446,6 +447,12 @@ class _RecentScanPageState extends State<RecentScanPage> {
                 scan.trunkMaskBytes != null &&
                 (scan.trunkMaskWidth ?? 0) > 0 &&
                 (scan.trunkMaskHeight ?? 0) > 0;
+            final hasAnyHighlight =
+                hasRootMask ||
+                hasTrunkMask ||
+                rootRects.isNotEmpty ||
+                trunkRects.isNotEmpty;
+            final showHighlights = !_peekRawPhoto;
 
             return SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(
@@ -459,22 +466,24 @@ class _RecentScanPageState extends State<RecentScanPage> {
                 children: [
                   AspectRatio(
                     aspectRatio: frameAspect,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(
-                          color: photoBorderColor,
-                          width: photoBorderWidth,
-                        ),
-                      ),
-                      child: Padding(
-                        padding: EdgeInsets.all(photoBorderWidth),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: hasImage
+                    child: Stack(
+                      children: [
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: photoBorderColor,
+                              width: photoBorderWidth,
+                            ),
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.all(photoBorderWidth),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: hasImage
                                   ? FutureBuilder<Size?>(
-                                  future: _loadImageSize(imagePath),
-                                  builder: (context, snapshot) {
+                                      future: _loadImageSize(imagePath),
+                                      builder: (context, snapshot) {
                                     final imageSize = snapshot.data;
                                     if (imageSize == null) {
                                       return Image.file(
@@ -532,7 +541,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                     );
                                                   },
                                             ),
-                                            if (hasTrunkMask)
+                                            if (showHighlights && hasTrunkMask)
                                               FutureBuilder<ui.Image?>(
                                                 future: _loadTrunkMaskImage(
                                                   scan,
@@ -567,7 +576,8 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                   );
                                                 },
                                               )
-                                            else if (trunkRects.isNotEmpty)
+                                            else if (showHighlights &&
+                                                trunkRects.isNotEmpty)
                                               CustomPaint(
                                                 painter: _RootHighlightPainter(
                                                   rects: trunkRects,
@@ -576,7 +586,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                   ),
                                                 ),
                                               ),
-                                            if (hasRootMask)
+                                            if (showHighlights && hasRootMask)
                                               FutureBuilder<ui.Image?>(
                                                 future: _loadRootMaskImage(
                                                   scan,
@@ -610,7 +620,8 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                   );
                                                 },
                                               )
-                                            else if (rootRects.isNotEmpty)
+                                            else if (showHighlights &&
+                                                rootRects.isNotEmpty)
                                               CustomPaint(
                                                 painter: _RootHighlightPainter(
                                                   rects: rootRects,
@@ -633,8 +644,22 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     ),
                                   ),
                                 ),
+                            ),
+                          ),
                         ),
-                      ),
+                        if (hasImage && hasAnyHighlight)
+                          Positioned(
+                            bottom: 10,
+                            right: 10,
+                            child: _PeekHighlightButton(
+                              pressed: _peekRawPhoto,
+                              onPressedChanged: (pressed) {
+                                if (!mounted) return;
+                                setState(() => _peekRawPhoto = pressed);
+                              },
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1208,6 +1233,73 @@ class _RootMaskPainter extends CustomPainter {
   bool shouldRepaint(covariant _RootMaskPainter oldDelegate) {
     return oldDelegate.maskImage != maskImage ||
         oldDelegate.maskSize != maskSize;
+  }
+}
+
+class _PeekHighlightButton extends StatelessWidget {
+  final bool pressed;
+  final ValueChanged<bool> onPressedChanged;
+
+  const _PeekHighlightButton({
+    required this.pressed,
+    required this.onPressedChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = pressed ? antiFlashWhite : caribbeanGreen;
+    return Semantics(
+      label: 'Hide highlights',
+      button: true,
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 90),
+        scale: pressed ? 0.97 : 1.0,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                darkGreen.withValues(alpha: 0.84),
+                richBlack.withValues(alpha: 0.9),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: accent.withValues(alpha: 0.55)),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: pressed ? 0.22 : 0.16),
+                blurRadius: 14,
+                spreadRadius: 0.4,
+              ),
+            ],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onHighlightChanged: onPressedChanged,
+              onTap: () {},
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
+                child: Icon(
+                  pressed
+                      ? Icons.visibility_off_rounded
+                      : Icons.visibility_rounded,
+                  size: 18,
+                  color: antiFlashWhite.withValues(
+                    alpha: pressed ? 0.96 : 0.86,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
