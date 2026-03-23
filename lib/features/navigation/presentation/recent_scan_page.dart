@@ -390,11 +390,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
   }
 
   double _scannerFrameAspect(Size size) {
-    final frameWidth = (size.width * 0.82).clamp(280.0, 340.0);
-    final frameHeight = (size.height * 0.5).clamp(320.0, 420.0);
-    final innerWidth = (frameWidth - 30).clamp(250.0, 305.0);
-    final innerHeight = (frameHeight - 28).clamp(290.0, 385.0);
-    return innerWidth / innerHeight;
+    return _scannerFrameAspectForSize(size);
   }
 
   @override
@@ -408,18 +404,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
           valueListenable: widget.scansListenable,
           builder: (context, scans, child) {
             if (scans.isEmpty) {
-              final size = MediaQuery.sizeOf(context);
-              final topInset = MediaQuery.paddingOf(context).top;
-              final bottomInset = MediaQuery.paddingOf(context).bottom;
-              const bottomNavHeight = 112.0;
-              final availableHeight =
-                  size.height - topInset - bottomInset - bottomNavHeight;
-              final topOffset = topInset + (availableHeight * 0.32);
-
-              return Padding(
-                padding: EdgeInsets.fromLTRB(16, topOffset, 16, 0),
-                child: const _EmptyRecentScanCard(),
-              );
+              return const _EmptyRecentScanCard();
             }
 
             final scan = scans.first;
@@ -1132,6 +1117,14 @@ class _RecentScanPageState extends State<RecentScanPage> {
   }
 }
 
+double _scannerFrameAspectForSize(Size size) {
+  final frameWidth = (size.width * 0.82).clamp(280.0, 340.0);
+  final frameHeight = (size.height * 0.5).clamp(320.0, 420.0);
+  final innerWidth = (frameWidth - 30).clamp(250.0, 305.0);
+  final innerHeight = (frameHeight - 28).clamp(290.0, 385.0);
+  return innerWidth / innerHeight;
+}
+
 class _RootHighlightPainter extends CustomPainter {
   final List<Rect> rects;
   final Color color;
@@ -1836,49 +1829,80 @@ class _EmptyRecentScanCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: darkGreen.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: bangladeshGreen.withValues(alpha: 0.9)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
+    final padding = MediaQuery.paddingOf(context);
+    const bottomNavHeight = 112.0;
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: DecoratedBox(
             decoration: BoxDecoration(
-              color: caribbeanGreen.withValues(alpha: 0.18),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.tips_and_updates_rounded,
-              color: caribbeanGreen.withValues(alpha: 0.9),
-            ),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Text(
-              'No recent scans yet. Capture a mangrove scan to see results here.',
-              style: TextStyle(
-                color: antiFlashWhite,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                height: 1.35,
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  richBlack,
+                  darkGreen.withValues(alpha: 0.9),
+                  richBlack,
+                ],
+                stops: const [0.0, 0.55, 1.0],
               ),
             ),
           ),
-        ],
-      ),
+        ),
+        Positioned.fill(
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(24, padding.top + 12, 24, 0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 68,
+                    height: 68,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: bangladeshGreen.withValues(alpha: 0.2),
+                      border: Border.all(
+                        color: bangladeshGreen.withValues(alpha: 0.5),
+                        width: 1.2,
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.search_off_rounded,
+                      size: 34,
+                      color: caribbeanGreen.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No scans yet',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: antiFlashWhite,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Capture a mangrove scan to see results here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: antiFlashWhite.withValues(alpha: 0.7),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                  SizedBox(height: bottomNavHeight + 12),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

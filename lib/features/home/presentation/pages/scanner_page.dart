@@ -5,7 +5,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import '../../models/mangrove_tree.dart';
 
@@ -149,7 +148,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   static const double _trunkConfidenceThreshold = 0.85;
   static const double _rootConfidenceThreshold = 0.85;
   static const double _trunkGuideYFraction = 0.6;
-  static const String _fieldSafetyPrefsKey = 'field_safety_reminder_seen_v1';
   static const List<String> _instanceClassLabels = [
     'mangrove_root',
     'mangrove_trunk',
@@ -187,7 +185,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
     _initSegmentationInterpreter();
     _initCamera();
-    unawaited(_maybeShowFieldSafetyReminder());
   }
 
   @override
@@ -993,45 +990,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       rootMask: rootMask,
       predictionConfidence: predictionConfidence,
     );
-  }
-
-  Future<void> _maybeShowFieldSafetyReminder() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final seen = prefs.getBool(_fieldSafetyPrefsKey) ?? false;
-      if (seen) return;
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        showDialog<void>(
-          context: context,
-          builder: (context) {
-            return AlertDialog(
-              title: const Text('Field Safety Reminder'),
-              content: const Text(
-                'Mangrove areas can be slippery and tide-affected.\n\n'
-                '• Watch your footing and surroundings\n'
-                '• Be mindful of tides and weather\n'
-                '• Wear proper protection (boots/gloves)\n\n'
-                'AI results are assistive and not a substitute for expert ecological judgement.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
-            );
-          },
-        ).then((_) async {
-          try {
-            await prefs.setBool(_fieldSafetyPrefsKey, true);
-          } catch (_) {}
-        });
-      });
-    } catch (_) {
-      // Ignore preference failures to avoid blocking the scanner.
-    }
   }
 
   Future<void> _verifyModelIntegrity() async {
