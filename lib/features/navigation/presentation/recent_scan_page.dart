@@ -40,10 +40,6 @@ class RecentScanPage extends StatefulWidget {
 }
 
 class _RecentScanPageState extends State<RecentScanPage> {
-  int? _expandedIndex;
-  Timer? _noticeTimer;
-  _RecentScanNotice? _notice;
-  bool _showNoticeCard = false;
   bool _detailsExpanded = false;
   bool _peekRawPhoto = false;
   final Map<String, Size> _imageSizeCache = {};
@@ -64,24 +60,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
           ? 'PDF export failed. Try a full app restart.'
           : 'PDF exported to Downloads/MangroveGuard: $filename',
       kind: filename == null ? _NoticeKind.error : _NoticeKind.success,
-      actionPath: exportedPdfPath,
     );
-  }
-
-  Future<void> _handleDeleteScan(int index, String treeId) async {
-    final deleteCallback = widget.onDeleteScan;
-    if (deleteCallback == null) return;
-
-    await deleteCallback(index);
-    if (!mounted) return;
-    setState(() {
-      if (_expandedIndex == index) {
-        _expandedIndex = null;
-      } else if (_expandedIndex != null && _expandedIndex! > index) {
-        _expandedIndex = _expandedIndex! - 1;
-      }
-    });
-    _showNotice(message: '$treeId deleted.', kind: _NoticeKind.delete);
   }
 
   void _handleRescan() {
@@ -195,6 +174,9 @@ class _RecentScanPageState extends State<RecentScanPage> {
       if (pixelCount <= 0) return Future.value(null);
       final rgba = Uint8List(pixelCount * 4);
       final alpha = (alphaFraction.clamp(0.0, 1.0) * 255).round();
+      final red = (color.r * 255.0).round().clamp(0, 255).toInt();
+      final green = (color.g * 255.0).round().clamp(0, 255).toInt();
+      final blue = (color.b * 255.0).round().clamp(0, 255).toInt();
       final totalBits = math.min(pixelCount, bytes.length * 8);
       var rgbaIndex = 0;
 
@@ -202,9 +184,9 @@ class _RecentScanPageState extends State<RecentScanPage> {
         final byte = bytes[i >> 3];
         final bit = 7 - (i & 7);
         if ((byte & (1 << bit)) != 0) {
-          rgba[rgbaIndex] = color.red;
-          rgba[rgbaIndex + 1] = color.green;
-          rgba[rgbaIndex + 2] = color.blue;
+          rgba[rgbaIndex] = red;
+          rgba[rgbaIndex + 1] = green;
+          rgba[rgbaIndex + 2] = blue;
           rgba[rgbaIndex + 3] = alpha;
         } else {
           rgba[rgbaIndex + 3] = 0;
@@ -234,20 +216,6 @@ class _RecentScanPageState extends State<RecentScanPage> {
       }
     });
     return completer.future;
-  }
-
-  Future<void> _handleClearScans(int count) async {
-    final deleteCallback = widget.onDeleteScan;
-    if (deleteCallback == null || count == 0) return;
-
-    for (var index = count - 1; index >= 0; index--) {
-      await deleteCallback(index);
-      if (!mounted) return;
-    }
-
-    if (!mounted) return;
-    setState(() => _expandedIndex = null);
-    _showNotice(message: 'Recent scans cleared.', kind: _NoticeKind.delete);
   }
 
   List<Rect> _normalizedRootRects(MangroveTree tree) {
@@ -296,51 +264,22 @@ class _RecentScanPageState extends State<RecentScanPage> {
   void _showNotice({
     required String message,
     required _NoticeKind kind,
-    String? actionPath,
   }) {
-    _noticeTimer?.cancel();
     if (!mounted) return;
-
-    setState(() {
-      _notice = _RecentScanNotice(
-        message: message,
-        kind: kind,
-        actionPath: actionPath,
-      );
-      _showNoticeCard = true;
-    });
-
-    _noticeTimer = Timer(const Duration(seconds: 3), () {
-      if (!mounted) return;
-      setState(() => _showNoticeCard = false);
-    });
-  }
-
-  void _dismissNotice() {
-    _noticeTimer?.cancel();
-    if (!mounted) return;
-    setState(() => _showNoticeCard = false);
-  }
-
-  Future<void> _handleNoticeTap() async {
-    final notice = _notice;
-    final openExportPath = widget.onOpenExportPath;
-    if (notice == null || notice.actionPath == null || openExportPath == null) {
-      return;
-    }
-
-    final opened = await openExportPath(notice.actionPath!);
-    if (!mounted || opened) return;
-
-    _showNotice(
-      message: 'Unable to open Files app for this export.',
-      kind: _NoticeKind.error,
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: _noticeColor(kind),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
     );
   }
 
   @override
   void dispose() {
-    _noticeTimer?.cancel();
     for (final image in _rootMaskImageCache.values) {
       image.dispose();
     }
@@ -386,6 +325,17 @@ class _RecentScanPageState extends State<RecentScanPage> {
         return const Color(0xFFEF4444);
       case StabilityAssessment.veryUnstable:
         return const Color(0xFFB91C1C);
+    }
+  }
+
+  Color _noticeColor(_NoticeKind kind) {
+    switch (kind) {
+      case _NoticeKind.success:
+        return const Color(0xFF10B981);
+      case _NoticeKind.delete:
+        return const Color(0xFFEF4444);
+      case _NoticeKind.error:
+        return const Color(0xFFF97316);
     }
   }
 
@@ -1459,129 +1409,6 @@ class _HighlightLegendChip extends StatelessWidget {
 
 enum _NoticeKind { success, delete, error }
 
-class _RecentScanNotice {
-  final String message;
-  final _NoticeKind kind;
-  final String? actionPath;
-
-  const _RecentScanNotice({
-    required this.message,
-    required this.kind,
-    this.actionPath,
-  });
-}
-
-class _RecentScanNoticeCard extends StatelessWidget {
-  final _RecentScanNotice notice;
-  final VoidCallback onClose;
-  final VoidCallback onTap;
-
-  const _RecentScanNoticeCard({
-    required this.notice,
-    required this.onClose,
-    required this.onTap,
-  });
-
-  Color _accentColor() {
-    switch (notice.kind) {
-      case _NoticeKind.success:
-        return const Color(0xFF10B981);
-      case _NoticeKind.delete:
-        return const Color(0xFFEF4444);
-      case _NoticeKind.error:
-        return const Color(0xFFF97316);
-    }
-  }
-
-  IconData _icon() {
-    switch (notice.kind) {
-      case _NoticeKind.success:
-        return Icons.task_alt_rounded;
-      case _NoticeKind.delete:
-        return Icons.delete_forever_rounded;
-      case _NoticeKind.error:
-        return Icons.warning_amber_rounded;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = _accentColor();
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: notice.actionPath == null ? null : onTap,
-        borderRadius: BorderRadius.circular(14),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [darkGreen.withValues(alpha: 0.96), richBlack],
-            ),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: accent.withValues(alpha: 0.6),
-              width: 1.2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: accent.withValues(alpha: 0.22),
-                blurRadius: 14,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 11, 10, 11),
-            child: Row(
-              children: [
-                Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: 0.18),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Icon(_icon(), color: accent, size: 18),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    notice.message,
-                    style: const TextStyle(
-                      color: antiFlashWhite,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                if (notice.actionPath != null)
-                  Icon(
-                    Icons.folder_open_rounded,
-                    color: antiFlashWhite.withValues(alpha: 0.88),
-                    size: 18,
-                  ),
-                const SizedBox(width: 4),
-                IconButton(
-                  onPressed: onClose,
-                  icon: Icon(
-                    Icons.close_rounded,
-                    color: antiFlashWhite.withValues(alpha: 0.85),
-                    size: 18,
-                  ),
-                  splashRadius: 18,
-                  tooltip: 'Dismiss',
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class RecentTreeScan {
   final String treeId;
   final DateTime scannedAt;
@@ -1907,456 +1734,6 @@ class _EmptyRecentScanCard extends StatelessWidget {
   }
 }
 
-class _ExpandableScanCard extends StatelessWidget {
-  final RecentTreeScan scan;
-  final bool expanded;
-  final VoidCallback onTap;
-  final VoidCallback onSave;
-  final VoidCallback onDelete;
-
-  const _ExpandableScanCard({
-    required this.scan,
-    required this.expanded,
-    required this.onTap,
-    required this.onSave,
-    required this.onDelete,
-  });
-
-  Color _statusColor() {
-    switch (scan.assessment) {
-      case StabilityAssessment.high:
-        return caribbeanGreen;
-      case StabilityAssessment.moderate:
-        return const Color(0xFFF59E0B);
-      case StabilityAssessment.low:
-        return const Color(0xFFEF4444);
-      case StabilityAssessment.veryUnstable:
-        return const Color(0xFFB91C1C);
-    }
-  }
-
-  String _formatTimestamp(DateTime value) {
-    final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final minute = value.minute.toString().padLeft(2, '0');
-    final period = value.hour >= 12 ? 'PM' : 'AM';
-    final month = _monthName(value.month);
-    return '$month ${value.day}, ${value.year} • $hour12:$minute $period';
-  }
-
-  String _monthName(int month) {
-    const names = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return names[month - 1];
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final statusColor = _statusColor();
-    final score = scan.stabilityScore;
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: expanded
-                  ? [bangladeshGreen.withValues(alpha: 0.8), darkGreen]
-                  : [darkGreen, darkGreen.withValues(alpha: 0.94)],
-            ),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: expanded
-                  ? statusColor.withValues(alpha: 0.8)
-                  : bangladeshGreen.withValues(alpha: 0.9),
-              width: expanded ? 1.6 : 1.1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: statusColor.withValues(alpha: expanded ? 0.22 : 0.1),
-                blurRadius: expanded ? 14 : 6,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Mangrove Stability:',
-                    style: TextStyle(
-                      color: antiFlashWhite,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.16),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.58),
-                      ),
-                    ),
-                    child: Text(
-                      _stabilityLabel(scan.assessment),
-                      style: TextStyle(
-                        color: statusColor,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _formatTimestamp(scan.scannedAt),
-                style: TextStyle(
-                  color: antiFlashWhite.withValues(alpha: 0.62),
-                  fontSize: 12,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _MetricChip(label: 'Root Count', value: '${scan.rootCount}'),
-                  _MetricChip(
-                    label: 'Root Spread',
-                    value:
-                        '${scan.rootSpreadCentimeters.toStringAsFixed(1)} cm',
-                  ),
-                ],
-              ),
-              ClipRect(
-                child: AnimatedSize(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  alignment: Alignment.topCenter,
-                  child: expanded
-                      ? Padding(
-                          padding: const EdgeInsets.only(top: 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const _SectionTitle(title: 'Stability Details'),
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: richBlack.withValues(alpha: 0.4),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: bangladeshGreen.withValues(
-                                      alpha: 0.92,
-                                    ),
-                                  ),
-                                ),
-                                child: Column(
-                                  children: [
-                                    _DetailRow(
-                                      label: 'Detected Roots',
-                                      value: '${scan.rootCount}',
-                                    ),
-                                    const SizedBox(height: 6),
-                                    _DetailRow(
-                                      label: 'Root Spread',
-                                      value:
-                                          '${scan.rootSpreadCentimeters.toStringAsFixed(1)} cm',
-                                    ),
-                                    const SizedBox(height: 6),
-                                    _DetailRow(
-                                      label: 'Stability Score',
-                                      value: score.toStringAsFixed(2),
-                                      emphasize: true,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 9,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.22),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  'Stability Score (0–1): ${score.toStringAsFixed(2)}'
-                                  ' • Symmetry: ${scan.symmetryScore.toStringAsFixed(2)}'
-                                  ' • Coverage: ${scan.rootCoverageRatio.toStringAsFixed(2)}',
-                                  style: TextStyle(
-                                    color: antiFlashWhite.withValues(
-                                      alpha: 0.88,
-                                    ),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 7,
-                                runSpacing: 7,
-                                children: [
-                                  _ThresholdChip(
-                                    label: 'High (0.75–1.00)',
-                                    active:
-                                        scan.assessment ==
-                                        StabilityAssessment.high,
-                                    color: caribbeanGreen,
-                                  ),
-                                  _ThresholdChip(
-                                    label: 'Moderate (0.50–0.74)',
-                                    active:
-                                        scan.assessment ==
-                                        StabilityAssessment.moderate,
-                                    color: const Color(0xFFF59E0B),
-                                  ),
-                                  _ThresholdChip(
-                                    label: 'Low (0.25–0.49)',
-                                    active:
-                                        scan.assessment ==
-                                        StabilityAssessment.low,
-                                    color: const Color(0xFFEF4444),
-                                  ),
-                                  _ThresholdChip(
-                                    label: 'Very Unstable (0.00–0.24)',
-                                    active:
-                                        scan.assessment ==
-                                        StabilityAssessment.veryUnstable,
-                                    color: const Color(0xFFB91C1C),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                scan.assessment.description,
-                                style: TextStyle(
-                                  color: antiFlashWhite.withValues(alpha: 0.76),
-                                  fontSize: 11,
-                                  height: 1.35,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        gradient: const LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            Color(0xFF064E3B),
-                                            Color(0xFF10B981),
-                                          ],
-                                        ),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: const Color(
-                                            0xFF86EFAC,
-                                          ).withValues(alpha: 0.34),
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(
-                                              0xFF10B981,
-                                            ).withValues(alpha: 0.24),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: FilledButton(
-                                          onPressed: onSave,
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor: Colors.transparent,
-                                            shadowColor: Colors.transparent,
-                                            foregroundColor: antiFlashWhite,
-                                            alignment: Alignment.center,
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 12,
-                                            ),
-                                            shape: const RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.zero,
-                                            ),
-                                            textStyle: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                          child: const Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.picture_as_pdf_rounded,
-                                                size: 18,
-                                              ),
-                                              SizedBox(width: 8),
-                                              Text('Export'),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        gradient: const LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            Color(0xFF7F1D1D),
-                                            Color(0xFFDC2626),
-                                          ],
-                                        ),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: const Color(
-                                            0xFFFCA5A5,
-                                          ).withValues(alpha: 0.32),
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: const Color(
-                                              0xFFEF4444,
-                                            ).withValues(alpha: 0.26),
-                                            blurRadius: 10,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: FilledButton(
-                                          onPressed: onDelete,
-                                          style: FilledButton.styleFrom(
-                                            backgroundColor: Colors.transparent,
-                                            shadowColor: Colors.transparent,
-                                            foregroundColor: antiFlashWhite,
-                                            alignment: Alignment.center,
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 12,
-                                            ),
-                                            shape: const RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.zero,
-                                            ),
-                                            textStyle: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                          child: const Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.delete_forever_rounded,
-                                                size: 18,
-                                              ),
-                                              SizedBox(width: 8),
-                                              Text('Delete'),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        )
-                      : const SizedBox.shrink(),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MetricChip extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _MetricChip({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: richBlack.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: bangladeshGreen.withValues(alpha: 0.9)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '$label:',
-            style: TextStyle(
-              color: antiFlashWhite.withValues(alpha: 0.72),
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(width: 5),
-          Text(
-            value,
-            style: const TextStyle(
-              color: antiFlashWhite,
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _MetricTile extends StatelessWidget {
   final String label;
   final String value;
@@ -2447,63 +1824,6 @@ class _MetricTile extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  final String title;
-
-  const _SectionTitle({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: TextStyle(
-        color: antiFlashWhite.withValues(alpha: 0.86),
-        fontSize: 12,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 0.3,
-      ),
-    );
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool emphasize;
-
-  const _DetailRow({
-    required this.label,
-    required this.value,
-    this.emphasize = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: antiFlashWhite.withValues(alpha: 0.74),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            color: antiFlashWhite,
-            fontSize: emphasize ? 12 : 11,
-            fontWeight: emphasize ? FontWeight.w900 : FontWeight.w800,
-          ),
-        ),
-      ],
     );
   }
 }

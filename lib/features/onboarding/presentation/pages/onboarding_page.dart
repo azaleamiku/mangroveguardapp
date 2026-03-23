@@ -1,12 +1,10 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import '../../../navigation/presentation/main_nav_page.dart';
 
-// Import the color constants
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
-const Color bangladeshGreen = Color(0xFF03624C);
 const Color darkGreen = Color(0xFF032221);
 const Color richBlack = Color(0xFF021B1A);
 
@@ -17,185 +15,982 @@ class OnboardingPage extends StatefulWidget {
   State<OnboardingPage> createState() => _OnboardingPageState();
 }
 
-class _OnboardingPageState extends State<OnboardingPage> {
-  final controller = PageController();
-  bool isLastPage = false;
+class _OnboardingPageState extends State<OnboardingPage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _heroAnimation;
+  late final Animation<double> _featuresAnimation;
+  late final Animation<double> _ctaAnimation;
 
   @override
-  Widget build(BuildContext buildContext) {
-    return Scaffold(
-      backgroundColor: richBlack,
-      body: Container(
-        padding: const EdgeInsets.only(bottom: 80),
-        child: PageView(
-          controller: controller,
-          onPageChanged: (index) => setState(() => isLastPage = index == 2),
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+    _heroAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.0, 0.45, curve: Curves.easeOutCubic),
+    );
+    _featuresAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.2, 0.75, curve: Curves.easeOutCubic),
+    );
+    _ctaAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.6, 1.0, curve: Curves.easeOutCubic),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleGetStarted() async {
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const FeatureWalkthroughPage()),
+    );
+  }
+
+  Future<void> _handleSkip() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('showHome', true);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MainNavPage()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme.apply(fontFamily: 'DejaVuSans');
+
+    return Theme(
+      data: theme.copyWith(textTheme: textTheme),
+      child: Scaffold(
+        body: Stack(
           children: [
-            // Page 1: Terms & Privacy
-            _buildOnboardingScreen(
-              title: "Data Privacy & Terms",
-              desc:
-                  "By using MangroveGuard, you consent to our data collection for ecological research. We do not share your personal location with third parties.",
-              icon: Icons.security,
-            ),
-            // Page 2: About Mangroves
-            _buildOnboardingScreen(
-              title: "Why Mangroves?",
-              desc:
-                  "Mangroves are vital coastal guardians. They protect against storm surges and sequester 4x more carbon than tropical rainforests.",
-              icon: Icons.eco,
-            ),
-            // Page 3: About the App
-            _buildOnboardingScreen(
-              title: "MangroveGuard AI",
-              desc:
-                  "MangroveGuard uses a quantized YOLOv8-Nano model (TensorFlow Lite/LiteRT) to segment mangrove roots and trunks fully on-device, even without internet. Results are assistive and should be validated by qualified environmental experts.",
-              icon: Icons.auto_awesome,
+            const _OnboardingBackdrop(),
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final maxWidth = constraints.maxWidth;
+                  final isWide = maxWidth >= 840;
+                  final horizontalPadding = isWide ? 56.0 : 24.0;
+                  return SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      horizontalPadding,
+                      24,
+                      horizontalPadding,
+                      32,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _FadeSlide(
+                          animation: _heroAnimation,
+                          yOffset: 22,
+                          child: _HeaderRow(isWide: isWide),
+                        ),
+                        const SizedBox(height: 28),
+                        if (isWide)
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                flex: 6,
+                                child: _FadeSlide(
+                                  animation: _heroAnimation,
+                                  yOffset: 36,
+                                  child: _HeroCopy(textTheme: textTheme),
+                                ),
+                              ),
+                              const SizedBox(width: 24),
+                              Expanded(
+                                flex: 5,
+                                child: _FadeSlide(
+                                  animation: _heroAnimation,
+                                  yOffset: 36,
+                                  child: const _HeroVisual(),
+                                ),
+                              ),
+                            ],
+                          )
+                        else
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _FadeSlide(
+                                animation: _heroAnimation,
+                                yOffset: 36,
+                                child: const _HeroVisual(),
+                              ),
+                              const SizedBox(height: 24),
+                              _FadeSlide(
+                                animation: _heroAnimation,
+                                yOffset: 36,
+                                child: _HeroCopy(textTheme: textTheme),
+                              ),
+                            ],
+                          ),
+                        const SizedBox(height: 32),
+                        _FadeSlide(
+                          animation: _featuresAnimation,
+                          yOffset: 28,
+                          child: _FeatureGrid(isWide: isWide),
+                        ),
+                        const SizedBox(height: 28),
+                        _FadeSlide(
+                          animation: _ctaAnimation,
+                          yOffset: 24,
+                          child: _CallToAction(
+                            onGetStarted: _handleGetStarted,
+                            onSkip: _handleSkip,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
           ],
         ),
       ),
-      bottomSheet: isLastPage
-          ? Container(
-              height: 80,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [darkGreen, bangladeshGreen],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: caribbeanGreen.withValues(alpha: 0.3),
-                    blurRadius: 10,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: TextButton(
-                style: TextButton.styleFrom(
-                  foregroundColor: antiFlashWhite,
-                  minimumSize: const Size.fromHeight(80),
-                ),
-                child: const Text(
-                  'I ACCEPT & GET STARTED',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
-                ),
-                onPressed: () async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool('showHome', true);
-                  if (mounted) {
-                    Navigator.of(context).pushReplacement(
-                      MaterialPageRoute(
-                        builder: (context) => const MainNavPage(),
-                      ),
-                    );
-                  }
-                },
-              ),
-            )
-          : Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              height: 80,
-              color: darkGreen.withValues(alpha: 0.9),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  TextButton(
-                    onPressed: () => controller.jumpToPage(2),
-                    child: Text(
-                      'SKIP',
-                      style: TextStyle(
-                        color: antiFlashWhite.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ),
-                  Center(
-                    child: SmoothPageIndicator(
-                      controller: controller,
-                      count: 3,
-                      effect: WormEffect(
-                        activeDotColor: caribbeanGreen,
-                        dotColor: antiFlashWhite.withValues(alpha: 0.3),
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => controller.nextPage(
-                      duration: const Duration(milliseconds: 500),
-                      curve: Curves.easeInOut,
-                    ),
-                    child: Text(
-                      'NEXT',
-                      style: TextStyle(color: caribbeanGreen),
-                    ),
-                  ),
-                ],
-              ),
-            ),
     );
   }
+}
 
-  Widget _buildOnboardingScreen({
-    required String title,
-    required String desc,
-    required IconData icon,
-  }) {
-    return Container(
-      color: richBlack,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
+class _OnboardingBackdrop extends StatelessWidget {
+  const _OnboardingBackdrop();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF031B1B),
+            Color(0xFF052B26),
+            Color(0xFF0A3C2F),
+          ],
+          stops: [0.0, 0.5, 1.0],
+        ),
+      ),
+      child: CustomPaint(
+        painter: _MangroveAuraPainter(),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _HeaderRow extends StatelessWidget {
+  final bool isWide;
+  const _HeaderRow({required this.isWide});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 48,
+          height: 48,
+          decoration: BoxDecoration(
+            color: darkGreen,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: caribbeanGreen.withOpacity(0.2),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+            border: Border.all(color: caribbeanGreen.withOpacity(0.4)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Image.asset('images/MangroveGuardLogo.png'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Mangrove Guard',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: antiFlashWhite,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+            ),
+            Text(
+              'Field-ready coastal insights',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: antiFlashWhite.withOpacity(0.7),
+                    letterSpacing: 0.4,
+                  ),
+            ),
+          ],
+        ),
+        const Spacer(),
+        if (isWide)
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  caribbeanGreen.withValues(alpha: 0.2),
-                  bangladeshGreen.withValues(alpha: 0.2),
+              color: caribbeanGreen.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: caribbeanGreen.withOpacity(0.4)),
+            ),
+            child: Text(
+              'RESEARCH BUILD',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: caribbeanGreen,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
+                  ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _HeroCopy extends StatelessWidget {
+  final TextTheme textTheme;
+  const _HeroCopy({required this.textTheme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Scan, measure, and safeguard the mangrove frontier.',
+          style: textTheme.displaySmall?.copyWith(
+            color: antiFlashWhite,
+            fontWeight: FontWeight.w700,
+            height: 1.1,
+            letterSpacing: -0.6,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Mangrove Guard blends machine vision with field workflows so your crew can capture reliable trunk and root data in minutes, even in challenging terrain.',
+          style: textTheme.bodyLarge?.copyWith(
+            color: antiFlashWhite.withOpacity(0.78),
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 18),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: const [
+            _TagPill(label: 'Guided capture'),
+            _TagPill(label: 'Confidence scoring'),
+            _TagPill(label: 'Exportable reports'),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _HeroVisual extends StatelessWidget {
+  const _HeroVisual();
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 4 / 3,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              darkGreen.withOpacity(0.95),
+              const Color(0xFF0E3D35),
+              const Color(0xFF0F4734),
+            ],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.35),
+              blurRadius: 24,
+              offset: const Offset(0, 14),
+            ),
+          ],
+          border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+        ),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Opacity(
+                opacity: 0.12,
+                child: Image.asset(
+                  'images/MangroveGuardLogo.png',
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _SignalPill(
+                        label: 'Live Scan',
+                        color: caribbeanGreen,
+                      ),
+                      Icon(
+                        Icons.track_changes,
+                        color: caribbeanGreen.withOpacity(0.85),
+                        size: 28,
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Text(
+                    'Alignment check active',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: antiFlashWhite,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Instantly score trunk and root stability with on-device segmentation.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: antiFlashWhite.withOpacity(0.7),
+                          height: 1.4,
+                        ),
+                  ),
+                  const SizedBox(height: 14),
+                  _ProgressBar(value: 0.78),
                 ],
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: caribbeanGreen.withValues(alpha: 0.5),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                ),
-              ],
             ),
-            child: Icon(icon, size: 80, color: caribbeanGreen),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FeatureGrid extends StatelessWidget {
+  final bool isWide;
+  const _FeatureGrid({required this.isWide});
+
+  @override
+  Widget build(BuildContext context) {
+    final cards = [
+      const _FeatureCard(
+        title: 'Capture once, measure twice',
+        description:
+            'Use the guided scan flow to lock alignment and keep trunk data consistent.',
+        icon: Icons.center_focus_strong,
+      ),
+      const _FeatureCard(
+        title: 'Model confidence on every scan',
+        description:
+            'See a reliability score before you finalize the assessment report.',
+        icon: Icons.analytics_outlined,
+      ),
+      const _FeatureCard(
+        title: 'Export field-ready summaries',
+        description:
+            'Generate PDFs for teams, NGOs, or regulatory submissions in seconds.',
+        icon: Icons.description_outlined,
+      ),
+    ];
+
+    if (isWide) {
+      final rowChildren = <Widget>[];
+      for (int i = 0; i < cards.length; i++) {
+        rowChildren.add(Expanded(child: cards[i]));
+        if (i != cards.length - 1) {
+          rowChildren.add(const SizedBox(width: 16));
+        }
+      }
+      return Row(children: rowChildren);
+    }
+
+    return Column(
+      children: cards
+          .map(
+            (card) => Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: card,
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+}
+
+class _FeatureCard extends StatelessWidget {
+  final String title;
+  final String description;
+  final IconData icon;
+
+  const _FeatureCard({
+    required this.title,
+    required this.description,
+    required this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: const Color(0xFF0B2E2A).withOpacity(0.9),
+        border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.24),
+            blurRadius: 16,
+            offset: const Offset(0, 10),
           ),
-          const SizedBox(height: 40),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: caribbeanGreen.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: caribbeanGreen),
+          ),
+          const SizedBox(height: 14),
           Text(
             title,
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: antiFlashWhite,
-              shadows: [
-                Shadow(
-                  color: caribbeanGreen.withValues(alpha: 0.5),
-                  blurRadius: 10,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: antiFlashWhite,
+                  fontWeight: FontWeight.w600,
                 ),
-              ],
-            ),
           ),
-          const SizedBox(height: 20),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              desc,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                color: antiFlashWhite.withValues(alpha: 0.8),
-                height: 1.5,
-              ),
-            ),
+          const SizedBox(height: 8),
+          Text(
+            description,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: antiFlashWhite.withOpacity(0.72),
+                  height: 1.4,
+                ),
           ),
         ],
       ),
     );
+  }
+}
+
+class _CallToAction extends StatelessWidget {
+  final VoidCallback onGetStarted;
+  final VoidCallback onSkip;
+  const _CallToAction({required this.onGetStarted, required this.onSkip});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: const Color(0xFF0C2A25).withOpacity(0.9),
+        border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Ready to map today? ',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: antiFlashWhite,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Start a quick scan or explore recent reports. Move at your own pace as you get set up.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: antiFlashWhite.withOpacity(0.72),
+                  height: 1.4,
+                ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: caribbeanGreen,
+                    foregroundColor: richBlack,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    textStyle: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  onPressed: onGetStarted,
+                  child: const Text('Get Started'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: antiFlashWhite.withOpacity(0.4)),
+                  foregroundColor: antiFlashWhite,
+                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                  textStyle: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                onPressed: onSkip,
+                child: const Text('Skip for Now'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TagPill extends StatelessWidget {
+  final String label;
+  const _TagPill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: caribbeanGreen.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: caribbeanGreen.withOpacity(0.4)),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: caribbeanGreen,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
+            ),
+      ),
+    );
+  }
+}
+
+class _SignalPill extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _SignalPill({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: color.withOpacity(0.2),
+        border: Border.all(color: color.withOpacity(0.6)),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+      ),
+    );
+  }
+}
+
+class _ProgressBar extends StatelessWidget {
+  final double value;
+  const _ProgressBar({required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: LinearProgressIndicator(
+        minHeight: 8,
+        value: value,
+        backgroundColor: antiFlashWhite.withOpacity(0.08),
+        valueColor: const AlwaysStoppedAnimation<Color>(caribbeanGreen),
+      ),
+    );
+  }
+}
+
+class _FadeSlide extends StatelessWidget {
+  final Animation<double> animation;
+  final double yOffset;
+  final Widget child;
+
+  const _FadeSlide({
+    required this.animation,
+    required this.yOffset,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final value = animation.value;
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, (1 - value) * yOffset),
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+class _MangroveAuraPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4
+      ..color = caribbeanGreen.withOpacity(0.08);
+
+    final accentPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = caribbeanGreen.withOpacity(0.06);
+
+    final center = Offset(size.width * 0.82, size.height * 0.2);
+    for (int i = 0; i < 4; i++) {
+      canvas.drawCircle(center, size.width * 0.18 + (i * 34), glowPaint);
+    }
+
+    final bottomLeft = Offset(size.width * 0.1, size.height * 0.82);
+    for (int i = 0; i < 3; i++) {
+      canvas.drawCircle(bottomLeft, size.width * 0.15 + (i * 28), glowPaint);
+    }
+
+    final random = math.Random(7);
+    for (int i = 0; i < 22; i++) {
+      final dx = random.nextDouble() * size.width;
+      final dy = random.nextDouble() * size.height;
+      final radius = 3 + random.nextDouble() * 6;
+      canvas.drawCircle(Offset(dx, dy), radius, accentPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+class FeatureWalkthroughPage extends StatefulWidget {
+  const FeatureWalkthroughPage({super.key});
+
+  @override
+  State<FeatureWalkthroughPage> createState() => _FeatureWalkthroughPageState();
+}
+
+class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
+  final PageController _pageController = PageController();
+  int _pageIndex = 0;
+
+  final List<_WalkthroughStep> _steps = const [
+    _WalkthroughStep(
+      title: 'Frame the canopy',
+      description:
+          'Use the alignment guide to center trunk and root zones before you capture.',
+      icon: Icons.filter_center_focus,
+    ),
+    _WalkthroughStep(
+      title: 'Review confidence',
+      description:
+          'We show an on-device confidence score so you know the scan is reliable.',
+      icon: Icons.verified_outlined,
+    ),
+    _WalkthroughStep(
+      title: 'Share field reports',
+      description:
+          'Export a PDF summary the moment you finish a site assessment.',
+      icon: Icons.description_outlined,
+    ),
+  ];
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _completeWalkthrough() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('showHome', true);
+    if (!mounted) return;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const MainNavPage()),
+    );
+  }
+
+  void _handleNext() {
+    if (_pageIndex >= _steps.length - 1) {
+      _completeWalkthrough();
+      return;
+    }
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme.apply(fontFamily: 'DejaVuSans');
+
+    return Theme(
+      data: theme.copyWith(textTheme: textTheme),
+      child: Scaffold(
+        body: Stack(
+          children: [
+            const _OnboardingBackdrop(),
+            SafeArea(
+              child: Column(
+                children: [
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Feature Walkthrough',
+                          style: textTheme.titleLarge?.copyWith(
+                            color: antiFlashWhite,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: PageView.builder(
+                      controller: _pageController,
+                      onPageChanged: (index) {
+                        setState(() => _pageIndex = index);
+                      },
+                      itemCount: _steps.length,
+                      itemBuilder: (context, index) {
+                        return _WalkthroughCard(
+                          step: _steps[index],
+                          index: index,
+                          total: _steps.length,
+                        );
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                    child: Row(
+                      children: [
+                        _WalkthroughIndicators(
+                          count: _steps.length,
+                          index: _pageIndex,
+                        ),
+                        const Spacer(),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: caribbeanGreen,
+                            foregroundColor: richBlack,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 14,
+                            ),
+                            textStyle: textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          onPressed: _handleNext,
+                          child: Text(
+                            _pageIndex == _steps.length - 1
+                                ? 'Start Scanning'
+                                : 'Next',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WalkthroughStep {
+  final String title;
+  final String description;
+  final IconData icon;
+
+  const _WalkthroughStep({
+    required this.title,
+    required this.description,
+    required this.icon,
+  });
+}
+
+class _WalkthroughCard extends StatelessWidget {
+  final _WalkthroughStep step;
+  final int index;
+  final int total;
+  const _WalkthroughCard({
+    required this.step,
+    required this.index,
+    required this.total,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF0C332E).withOpacity(0.95),
+              const Color(0xFF0C3D33).withOpacity(0.9),
+              const Color(0xFF0E4735).withOpacity(0.9),
+            ],
+          ),
+          border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.35),
+              blurRadius: 22,
+              offset: const Offset(0, 12),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(28.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: caribbeanGreen.withOpacity(0.15),
+                ),
+                child: Icon(step.icon, color: caribbeanGreen, size: 34),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                step.title,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: antiFlashWhite,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                step.description,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: antiFlashWhite.withOpacity(0.75),
+                      height: 1.5,
+                    ),
+              ),
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: darkGreen.withOpacity(0.7),
+                  border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+                ),
+                child: Text(
+                  'Step ${index + 1} of $total',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: caribbeanGreen,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+}
+
+class _WalkthroughIndicators extends StatelessWidget {
+  final int count;
+  final int index;
+  const _WalkthroughIndicators({required this.count, required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    final dots = <Widget>[];
+    for (int i = 0; i < count; i++) {
+      final isActive = i == index;
+      dots.add(AnimatedContainer(
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        width: isActive ? 28 : 10,
+        height: 10,
+        margin: const EdgeInsets.only(right: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: isActive
+              ? caribbeanGreen
+              : antiFlashWhite.withOpacity(0.2),
+          boxShadow: isActive
+              ? [
+                  BoxShadow(
+                    color: caribbeanGreen.withOpacity(0.35),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : const [],
+        ),
+      ));
+    }
+    return Row(children: dots);
   }
 }
