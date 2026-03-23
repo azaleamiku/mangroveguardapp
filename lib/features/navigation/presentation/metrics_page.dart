@@ -581,23 +581,23 @@ class _AboutAppSheet extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'Mangroves (Rhizophora mangle)',
-                                    style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
-                                          .withValues(alpha: 0.9),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
+	                                  Text(
+	                                    'Mangroves',
+	                                    style: TextStyle(
+	                                      color: MetricsPage.antiFlashWhite
+	                                          .withValues(alpha: 0.9),
+	                                      fontSize: 12,
+	                                      fontWeight: FontWeight.w800,
                                       letterSpacing: 0.2,
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Rhizophora mangle, the red mangrove, anchors shorelines with stilt roots, filters sediments, shelters juvenile marine life, and thrives in salty tidal water.',
-                                    style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
-                                          .withValues(alpha: 0.8),
-                                      fontSize: 12,
+	                                  const SizedBox(height: 6),
+	                                  Text(
+	                                    'Mangroves anchor shorelines with dense roots, filter sediments, shelter juvenile marine life, and thrive in salty tidal water.',
+	                                    style: TextStyle(
+	                                      color: MetricsPage.antiFlashWhite
+	                                          .withValues(alpha: 0.8),
+	                                      fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                       height: 1.35,
                                     ),
@@ -638,7 +638,7 @@ class _AboutAppSheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite to deliver high-speed, on-device instance segmentation for real-time tree analysis. By extracting root geometry and computing a weighted stability score, the system evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
+                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device instance segmentation for real-time tree analysis. By extracting root geometry and computing a weighted stability score, the system evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan. AI-generated results are assistive and should not replace expert ecological judgement.',
                                     style: TextStyle(
                                       color: MetricsPage.antiFlashWhite
                                           .withValues(alpha: 0.82),
@@ -791,6 +791,51 @@ class _AboutAppSheet extends StatelessWidget {
                                         ],
                                       );
                                     },
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: MetricsPage.darkGreen.withValues(
+                                  alpha: 0.9,
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: MetricsPage.bangladeshGreen.withValues(
+                                    alpha: 0.9,
+                                  ),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Safety & Disclaimer',
+                                    style: TextStyle(
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.9),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Please use caution during fieldwork in mangrove areas (slippery ground, tides, and weather). AI-generated results are assistive and should not replace expert ecological judgement.',
+                                    style: TextStyle(
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.82),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.35,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1300,6 +1345,14 @@ class _AverageStabilityGaugePainter extends CustomPainter {
   final double maxValue;
   final Color progressColor;
 
+  static const List<double> _stabilityStops = <double>[
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0,
+  ];
+
   const _AverageStabilityGaugePainter({
     required this.value,
     required this.maxValue,
@@ -1330,15 +1383,6 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     final arcRect = Rect.fromCircle(center: center, radius: radius);
     canvas.drawArc(arcRect, startAngle, sweepAngle, false, trackPaint);
 
-    final lowLimit = 1.5;
-    final moderateLimit = 3.0;
-    final lowPortion = (lowLimit / maxValue).clamp(0.0, 1.0);
-    final moderatePortion = ((moderateLimit - lowLimit) / maxValue).clamp(
-      0.0,
-      1.0 - lowPortion,
-    );
-    final highPortion = (1.0 - lowPortion - moderatePortion).clamp(0.0, 1.0);
-
     final scaleRadius = radius + (trackThickness / 2) + 8;
     final scaleRect = Rect.fromCircle(center: center, radius: scaleRadius);
     final scalePaint = Paint()
@@ -1346,24 +1390,37 @@ class _AverageStabilityGaugePainter extends CustomPainter {
       ..strokeWidth = scaleThickness
       ..strokeCap = StrokeCap.round;
     var currentAngle = startAngle;
-    const scaleGap = 0.08;
-    final scaleSegments = [
-      (lowPortion, const Color(0xFFEF4444)),
-      (moderatePortion, const Color(0xFFF59E0B)),
-      (highPortion, MetricsPage.caribbeanGreen),
+    const scaleGap = 0.095;
+    final scaleSegments = <(double, Color)>[
+      (_stabilityStops[1] - _stabilityStops[0], const Color(0xFFB91C1C)),
+      (_stabilityStops[2] - _stabilityStops[1], const Color(0xFFEF4444)),
+      (_stabilityStops[3] - _stabilityStops[2], const Color(0xFFF59E0B)),
+      (_stabilityStops[4] - _stabilityStops[3], MetricsPage.caribbeanGreen),
     ];
-    for (final segment in scaleSegments) {
+    final sweepSign = sweepAngle.sign == 0 ? 1.0 : sweepAngle.sign;
+    for (var index = 0; index < scaleSegments.length; index++) {
+      final segment = scaleSegments[index];
       final portion = segment.$1;
-      if (portion <= 0) {
+      if (portion <= 0) continue;
+
+      final fullSweep = sweepAngle * portion;
+      final startTrim = index == 0 ? 0.0 : scaleGap / 2;
+      final endTrim = index == scaleSegments.length - 1 ? 0.0 : scaleGap / 2;
+      final drawableSweep = fullSweep - ((startTrim + endTrim) * sweepSign);
+      if (drawableSweep.abs() <= 0.001) {
+        currentAngle += fullSweep;
         continue;
       }
-      final fullSweep = sweepAngle * portion;
-      final gap = fullSweep.abs() > scaleGap ? scaleGap : 0.0;
-      final segmentSweep = fullSweep - gap;
-      currentAngle += gap / 2;
+
       scalePaint.color = segment.$2;
-      canvas.drawArc(scaleRect, currentAngle, segmentSweep, false, scalePaint);
-      currentAngle += segmentSweep + (gap / 2);
+      canvas.drawArc(
+        scaleRect,
+        currentAngle + (startTrim * sweepSign),
+        drawableSweep,
+        false,
+        scalePaint,
+      );
+      currentAngle += fullSweep;
     }
 
     final clampedValue = value.clamp(0.0, maxValue);
@@ -1376,19 +1433,42 @@ class _AverageStabilityGaugePainter extends CustomPainter {
       ..color = progressColor;
     canvas.drawArc(arcRect, startAngle, progressSweep, false, progressPaint);
 
+    final progressEndAngle = startAngle + progressSweep;
+    final progressEnd = Offset(
+      center.dx + radius * math.cos(progressEndAngle),
+      center.dy + radius * math.sin(progressEndAngle),
+    );
+    final markerFill = Paint()..color = progressColor;
+    final markerBorder = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..color = MetricsPage.antiFlashWhite.withValues(alpha: 0.9);
+    canvas
+      ..drawCircle(progressEnd, 7, markerFill)
+      ..drawCircle(progressEnd, 7, markerBorder);
+
     final labelStyle = TextStyle(
       color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
       fontSize: 10,
       fontWeight: FontWeight.w700,
+      shadows: [
+        Shadow(
+          color: Colors.black.withValues(alpha: 0.55),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
     );
-    final labelRadius = scaleRadius + 12;
-    final labelValues = <double>[0, lowLimit, moderateLimit, maxValue];
-    for (final labelValue in labelValues) {
-      final ratio = (labelValue / maxValue).clamp(0.0, 1.0);
+    final labelRadius = scaleRadius + 16;
+    for (final stop in _stabilityStops) {
+      final labelValue = maxValue * stop;
+      final ratio = stop.clamp(0.0, 1.0);
       final angle = startAngle + sweepAngle * ratio;
-      final label = labelValue % 1 == 0
-          ? labelValue.toStringAsFixed(0)
-          : labelValue.toStringAsFixed(1);
+      final label = (maxValue <= 1.0)
+          ? labelValue.toStringAsFixed(2)
+          : (labelValue % 1 == 0
+                ? labelValue.toStringAsFixed(0)
+                : labelValue.toStringAsFixed(1));
       final textPainter = TextPainter(
         text: TextSpan(text: label, style: labelStyle),
         textDirection: TextDirection.ltr,

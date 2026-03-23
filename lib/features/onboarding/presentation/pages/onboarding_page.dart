@@ -49,7 +49,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
             _buildOnboardingScreen(
               title: "MangroveGuard AI",
               desc:
-                  "Our YOLOv10-Nano model and ARCore integration allow you to measure tree support with expert-level precision on your mobile device.",
+                  "MangroveGuard uses a quantized YOLOv8-Nano model (TensorFlow Lite/LiteRT) to segment mangrove roots and trunks fully on-device, even without internet. Results are assistive and should be validated by qualified environmental experts.",
               icon: Icons.auto_awesome,
             ),
           ],

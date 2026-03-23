@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import '../../models/mangrove_tree.dart';
 
@@ -28,6 +29,7 @@ class ScannerPageController extends ChangeNotifier {
   void setLatestMeasuredTree({
     required MangroveTree tree,
     double metersPerPixel = 0.003,
+    double? predictionConfidence,
     String? capturedImagePath,
     Uint8List? rootMaskBytes,
     int? rootMaskWidth,
@@ -39,6 +41,7 @@ class ScannerPageController extends ChangeNotifier {
     _latestMeasuredTreeResult = MeasuredTreeResult(
       tree: tree,
       metersPerPixel: metersPerPixel,
+      predictionConfidence: predictionConfidence,
       capturedImagePath: capturedImagePath,
       rootMaskBytes: rootMaskBytes,
       rootMaskWidth: rootMaskWidth,
@@ -59,6 +62,7 @@ class ScannerPageController extends ChangeNotifier {
 class MeasuredTreeResult {
   final MangroveTree tree;
   final double metersPerPixel;
+  final double? predictionConfidence;
   final String? capturedImagePath;
   final Uint8List? rootMaskBytes;
   final int? rootMaskWidth;
@@ -70,6 +74,7 @@ class MeasuredTreeResult {
   const MeasuredTreeResult({
     required this.tree,
     required this.metersPerPixel,
+    this.predictionConfidence,
     this.capturedImagePath,
     this.rootMaskBytes,
     this.rootMaskWidth,
@@ -83,6 +88,7 @@ class MeasuredTreeResult {
 class _InferenceResult {
   final MangroveTree tree;
   final double metersPerPixel;
+  final double? predictionConfidence;
   final Uint8List? rootMaskBytes;
   final int? rootMaskWidth;
   final int? rootMaskHeight;
@@ -93,6 +99,7 @@ class _InferenceResult {
   const _InferenceResult({
     required this.tree,
     required this.metersPerPixel,
+    this.predictionConfidence,
     this.rootMaskBytes,
     this.rootMaskWidth,
     this.rootMaskHeight,
@@ -104,6 +111,7 @@ class _InferenceResult {
 
 class _ExtractedTree {
   final MangroveTree tree;
+  final double? predictionConfidence;
   final Uint8List? rootMaskBytes;
   final int? rootMaskWidth;
   final int? rootMaskHeight;
@@ -113,6 +121,7 @@ class _ExtractedTree {
 
   const _ExtractedTree({
     required this.tree,
+    this.predictionConfidence,
     this.rootMaskBytes,
     this.rootMaskWidth,
     this.rootMaskHeight,
@@ -134,10 +143,13 @@ class ScannerPage extends StatefulWidget {
 
 class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   static const String _modelAssetPath = 'assets/models/mangroveModel.tflite';
+  static const int _expectedModelByteLength = 13309083;
+  static const int _expectedModelCrc32 = 4261647035;
   static const double _defaultMetersPerPixel = 0.003;
-  static const double _trunkConfidenceThreshold = 0.55;
-  static const double _rootConfidenceThreshold = 0.55;
+  static const double _trunkConfidenceThreshold = 0.85;
+  static const double _rootConfidenceThreshold = 0.85;
   static const double _trunkGuideYFraction = 0.6;
+  static const String _fieldSafetyPrefsKey = 'field_safety_reminder_seen_v1';
   static const List<String> _instanceClassLabels = [
     'mangrove_root',
     'mangrove_trunk',
@@ -165,6 +177,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   final GlobalKey _frameGuideInnerKey = GlobalKey();
   Rect? _lastFrameRectInViewport;
   Size? _lastViewportSize;
+  bool _modelIntegrityCheckQueued = false;
 
   @override
   void initState() {
@@ -174,6 +187,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
     _initSegmentationInterpreter();
     _initCamera();
+    unawaited(_maybeShowFieldSafetyReminder());
   }
 
   @override
@@ -335,6 +349,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         _isModelReady = true;
         _modelInitError = null;
       });
+      if (!_modelIntegrityCheckQueued) {
+        _modelIntegrityCheckQueued = true;
+        unawaited(_verifyModelIntegrity());
+      }
     } on PlatformException catch (e) {
       if (!mounted) return;
       debugPrint(
@@ -379,6 +397,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       widget.controller?.setLatestMeasuredTree(
         tree: result.tree,
         metersPerPixel: result.metersPerPixel,
+        predictionConfidence: result.predictionConfidence,
         capturedImagePath: imagePath,
         rootMaskBytes: result.rootMaskBytes,
         rootMaskWidth: result.rootMaskWidth,
@@ -430,10 +449,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     if (image == null) {
       throw StateError('Unable to decode captured image.');
     }
-    final metersPerPixel = _estimateMetersPerPixelFromExif(
-      bytes,
-      sourceWidth: image.width,
-    );
+    final metersPerPixel = _defaultMetersPerPixel;
 
     final input = _createModelInput(image);
     final outputs = <int, Object>{};
@@ -452,6 +468,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     return _InferenceResult(
       tree: extracted.tree,
       metersPerPixel: metersPerPixel,
+      predictionConfidence: extracted.predictionConfidence,
       rootMaskBytes: extracted.rootMaskBytes,
       rootMaskWidth: extracted.rootMaskWidth,
       rootMaskHeight: extracted.rootMaskHeight,
@@ -508,51 +525,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     ];
   }
 
-  double _estimateMetersPerPixelFromExif(
-    Uint8List bytes, {
-    required int sourceWidth,
-  }) {
-    try {
-      final exif = img.decodeJpgExif(bytes);
-      if (exif == null) return _defaultMetersPerPixel;
-
-      final focalLength = exif.getTag(0x920A)?.toDouble();
-      final subjectDistance = exif.getTag(0x9206)?.toDouble();
-      final focalPlaneXResolution = exif.getTag(0xA20E)?.toDouble();
-      final focalPlaneResolutionUnit = exif.getTag(0xA210)?.toInt();
-
-      if (focalLength == null ||
-          focalPlaneXResolution == null ||
-          focalPlaneResolutionUnit == null ||
-          subjectDistance == null ||
-          focalLength <= 0 ||
-          focalPlaneXResolution <= 0 ||
-          subjectDistance <= 0) {
-        return _defaultMetersPerPixel;
-      }
-
-      final unitMm = switch (focalPlaneResolutionUnit) {
-        2 => 25.4, // inch
-        3 => 10.0, // cm
-        _ => null,
-      };
-      if (unitMm == null) return _defaultMetersPerPixel;
-
-      final pixelPitchMm = unitMm / focalPlaneXResolution;
-      final isNhwc = _inputShape[3] == 3;
-      final modelWidth = isNhwc ? _inputShape[2] : _inputShape[3];
-      if (modelWidth <= 0 || sourceWidth <= 0) return _defaultMetersPerPixel;
-      final scale = sourceWidth / modelWidth;
-
-      final metersPerPixel = subjectDistance * (pixelPitchMm / focalLength);
-      final adjusted = metersPerPixel * scale;
-      if (!adjusted.isFinite || adjusted <= 0) return _defaultMetersPerPixel;
-      return adjusted.clamp(0.00005, 0.05);
-    } catch (_) {
-      return _defaultMetersPerPixel;
-    }
-  }
-
   Object _createTensorBuffer(List<int> shape, TensorType type) {
     if (shape.isEmpty) {
       if (type == TensorType.float32 || type == TensorType.float16) return 0.0;
@@ -586,6 +558,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
             : null;
         return _ExtractedTree(
           tree: tree,
+          predictionConfidence: parsed.predictionConfidence,
           rootMaskBytes: maskBytes,
           rootMaskWidth: maskWidth > 0 ? maskWidth : null,
           rootMaskHeight: maskHeight > 0 ? maskHeight : null,
@@ -598,7 +571,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
     final fromInstances = _extractTreeFromInstanceOutputs(outputs);
     if (fromInstances != null) {
-      return _ExtractedTree(tree: fromInstances);
+      return fromInstances;
     }
 
     final shapes = _outputTensors.map((t) => t.shape).join(', ');
@@ -637,7 +610,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     return bytes;
   }
 
-  MangroveTree? _extractTreeFromInstanceOutputs(Map<int, Object> outputs) {
+  _ExtractedTree? _extractTreeFromInstanceOutputs(Map<int, Object> outputs) {
     _InstanceOutput? best;
     for (var i = 0; i < _outputTensors.length; i++) {
       final shape = _outputTensors[i].shape;
@@ -763,6 +736,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     if (treeDetections.isEmpty || rootDetections.isEmpty) return null;
 
     final trunk = treeDetections.first;
+    final trunkConfidence = trunk.score.clamp(0.0, 1.0).toDouble();
     final treeWidth = trunk.width.clamp(1.0, 4000.0).toDouble();
     final trunkCenterX = trunk.centerX;
     final associatedRoots = _rootsForSelectedTree(
@@ -777,6 +751,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       measuredTrunkWidth,
       guideLineY,
     );
+
+    double? rootConfidence;
+    if (filteredRoots.isNotEmpty) {
+      var sum = 0.0;
+      for (final root in filteredRoots) {
+        sum += root.score;
+      }
+      rootConfidence = (sum / filteredRoots.length).clamp(0.0, 1.0).toDouble();
+    }
+    final predictionConfidence = rootConfidence == null
+        ? trunkConfidence
+        : (0.6 * trunkConfidence + 0.4 * rootConfidence)
+              .clamp(0.0, 1.0)
+              .toDouble();
+
     final roots = filteredRoots
         .take(96)
         .map((root) {
@@ -818,11 +807,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       bottom: (trunk.bottom / modelHeight).clamp(0.0, 1.0),
     );
 
-    return MangroveTree(
-      trunkWidthAtBranchPoint: measuredTrunkWidth,
-      roots: roots,
-      trunkMeasurement: trunkMeasurement,
-      treeBounds: treeBounds,
+    return _ExtractedTree(
+      tree: MangroveTree(
+        trunkWidthAtBranchPoint: measuredTrunkWidth,
+        roots: roots,
+        trunkMeasurement: trunkMeasurement,
+        treeBounds: treeBounds,
+      ),
+      predictionConfidence: predictionConfidence,
     );
   }
 
@@ -949,10 +941,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       growable: false,
     );
 
+    var confidenceSum = 0.0;
+    var confidenceCount = 0;
     for (var y = 0; y < height; y++) {
       for (var x = 0; x < width; x++) {
         var bestClass = 0;
         var bestScore = -double.infinity;
+        var secondBestScore = -double.infinity;
         for (var c = 0; c < classes; c++) {
           final score = channelLast
               ? ((((output[0] as List)[y] as List)[x] as List)[c] as num)
@@ -960,12 +955,26 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               : ((((output[0] as List)[c] as List)[y] as List)[x] as num)
                     .toDouble();
           if (score > bestScore) {
+            secondBestScore = bestScore;
             bestScore = score;
             bestClass = c;
+          } else if (score > secondBestScore) {
+            secondBestScore = score;
           }
         }
         if (bestClass == trunkClass) treeMask[y][x] = true;
         if (bestClass == rootClass) rootMask[y][x] = true;
+
+        if (bestClass == trunkClass || bestClass == rootClass) {
+          final margin = bestScore - secondBestScore;
+          final confidence = margin > 40
+              ? 1.0
+              : margin < -40
+                  ? 0.0
+                  : 1 / (1 + math.exp(-margin));
+          confidenceSum += confidence;
+          confidenceCount++;
+        }
       }
     }
 
@@ -975,7 +984,91 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       }
     }
 
-    return _ParsedMasks(treeMask: treeMask, rootMask: rootMask);
+    final predictionConfidence = confidenceCount == 0
+        ? null
+        : (confidenceSum / confidenceCount).clamp(0.0, 1.0).toDouble();
+
+    return _ParsedMasks(
+      treeMask: treeMask,
+      rootMask: rootMask,
+      predictionConfidence: predictionConfidence,
+    );
+  }
+
+  Future<void> _maybeShowFieldSafetyReminder() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final seen = prefs.getBool(_fieldSafetyPrefsKey) ?? false;
+      if (seen) return;
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        showDialog<void>(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              title: const Text('Field Safety Reminder'),
+              content: const Text(
+                'Mangrove areas can be slippery and tide-affected.\n\n'
+                '• Watch your footing and surroundings\n'
+                '• Be mindful of tides and weather\n'
+                '• Wear proper protection (boots/gloves)\n\n'
+                'AI results are assistive and not a substitute for expert ecological judgement.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('OK'),
+                ),
+              ],
+            );
+          },
+        ).then((_) async {
+          try {
+            await prefs.setBool(_fieldSafetyPrefsKey, true);
+          } catch (_) {}
+        });
+      });
+    } catch (_) {
+      // Ignore preference failures to avoid blocking the scanner.
+    }
+  }
+
+  Future<void> _verifyModelIntegrity() async {
+    try {
+      final data = await rootBundle.load(_modelAssetPath);
+      final bytes = data.buffer.asUint8List();
+      if (bytes.lengthInBytes != _expectedModelByteLength) {
+        _showTopNotification(
+          'Model integrity check failed (unexpected size). Reinstall the app.',
+        );
+        return;
+      }
+      final crc = _crc32(bytes);
+      if (crc != _expectedModelCrc32) {
+        _showTopNotification(
+          'Model integrity check failed (unexpected checksum). Reinstall the app.',
+        );
+      }
+    } catch (e) {
+      debugPrint('Model integrity check error: $e');
+    }
+  }
+
+  int _crc32(Uint8List bytes) {
+    const polynomial = 0xEDB88320;
+    var crc = 0xFFFFFFFF;
+    for (final value in bytes) {
+      crc ^= value;
+      for (var i = 0; i < 8; i++) {
+        if ((crc & 1) != 0) {
+          crc = (crc >> 1) ^ polynomial;
+        } else {
+          crc >>= 1;
+        }
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
   }
 
   MangroveTree? _buildTreeFromMasks(_ParsedMasks masks) {
@@ -1859,8 +1952,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 class _ParsedMasks {
   final List<List<bool>> treeMask;
   final List<List<bool>> rootMask;
+  final double? predictionConfidence;
 
-  const _ParsedMasks({required this.treeMask, required this.rootMask});
+  const _ParsedMasks({
+    required this.treeMask,
+    required this.rootMask,
+    this.predictionConfidence,
+  });
 }
 
 class _MaskBounds {

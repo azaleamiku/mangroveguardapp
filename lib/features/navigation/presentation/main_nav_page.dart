@@ -88,20 +88,23 @@ class _MainNavPageState extends State<MainNavPage> {
       scannedAt: timestamp,
     );
 
+    final newScan = RecentTreeScan(
+      treeId: treeId,
+      scannedAt: timestamp,
+      tree: measuredResult.tree,
+      metersPerPixel: measuredResult.metersPerPixel,
+      predictionConfidence: measuredResult.predictionConfidence,
+      capturedImagePath: capturedImagePath,
+      rootMaskBytes: measuredResult.rootMaskBytes,
+      rootMaskWidth: measuredResult.rootMaskWidth,
+      rootMaskHeight: measuredResult.rootMaskHeight,
+      trunkMaskBytes: measuredResult.trunkMaskBytes,
+      trunkMaskWidth: measuredResult.trunkMaskWidth,
+      trunkMaskHeight: measuredResult.trunkMaskHeight,
+    );
+
     final updated = [
-      RecentTreeScan(
-        treeId: treeId,
-        scannedAt: timestamp,
-        tree: measuredResult.tree,
-        metersPerPixel: measuredResult.metersPerPixel,
-        capturedImagePath: capturedImagePath,
-        rootMaskBytes: measuredResult.rootMaskBytes,
-        rootMaskWidth: measuredResult.rootMaskWidth,
-        rootMaskHeight: measuredResult.rootMaskHeight,
-        trunkMaskBytes: measuredResult.trunkMaskBytes,
-        trunkMaskWidth: measuredResult.trunkMaskWidth,
-        trunkMaskHeight: measuredResult.trunkMaskHeight,
-      ),
+      newScan,
       ..._recentScans.value,
     ];
 
@@ -115,6 +118,16 @@ class _MainNavPageState extends State<MainNavPage> {
     if (!mounted) return;
     _recentScans.value = trimmed;
     await _persistRecentScans(trimmed);
+    await _appendActivityLogEntry({
+      'event': 'scan_completed',
+      'treeId': newScan.treeId,
+      'scannedAt': newScan.scannedAt.toIso8601String(),
+      'rootCount': newScan.rootCount,
+      'stabilityScore': newScan.stabilityScore,
+      'assessment': _assessmentLabel(newScan),
+      if (newScan.predictionConfidence != null)
+        'predictionConfidence': newScan.predictionConfidence,
+    });
     for (final scan in removed) {
       await _deleteManagedCaptureFile(scan.capturedImagePath);
     }
@@ -171,6 +184,14 @@ class _MainNavPageState extends State<MainNavPage> {
     final scan = _recentScans.value[index];
     final exportPath = await _exportRecentScanPdf(scan);
     await _persistRecentScans(_recentScans.value);
+    if (exportPath != null) {
+      await _appendActivityLogEntry({
+        'event': 'pdf_exported',
+        'treeId': scan.treeId,
+        'scannedAt': scan.scannedAt.toIso8601String(),
+        'exportPath': exportPath,
+      });
+    }
     return exportPath;
   }
 
@@ -182,6 +203,11 @@ class _MainNavPageState extends State<MainNavPage> {
     _recentScans.value = updated;
     await _persistRecentScans(updated);
     await _deleteManagedCaptureFile(removedScan.capturedImagePath);
+    await _appendActivityLogEntry({
+      'event': 'scan_deleted',
+      'treeId': removedScan.treeId,
+      'scannedAt': removedScan.scannedAt.toIso8601String(),
+    });
   }
 
   Future<bool> _openExportPath(String pdfPath) async {
@@ -314,6 +340,11 @@ class _MainNavPageState extends State<MainNavPage> {
                     'Stability Score',
                     scan.stabilityScore.toStringAsFixed(2),
                   ),
+                  if (scan.predictionConfidence != null)
+                    _buildPdfMetricRow(
+                      'AI Confidence',
+                      '${(scan.predictionConfidence! * 100).toStringAsFixed(0)}%',
+                    ),
                   _buildPdfMetricRow('Assessment', _assessmentLabel(scan)),
                 ],
               ),
@@ -321,6 +352,15 @@ class _MainNavPageState extends State<MainNavPage> {
               pw.Text(
                 _assessmentDescription(scan),
                 style: const pw.TextStyle(fontSize: 11),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text(
+                'Disclaimer: AI-generated results are assistive and should not replace expert ecological judgement. '
+                'Follow field safety practices when working in mangrove areas.',
+                style: pw.TextStyle(
+                  fontSize: 10.5,
+                  color: PdfColors.grey700,
+                ),
               ),
             ];
 
@@ -516,6 +556,29 @@ class _MainNavPageState extends State<MainNavPage> {
       await fallback.create(recursive: true);
     }
     return fallback;
+  }
+
+  Future<void> _appendActivityLogEntry(Map<String, dynamic> entry) async {
+    try {
+      final rootDir = await _resolveStorageRootDirectory();
+      final logsDir = Directory('${rootDir.path}/scan_logs');
+      if (!await logsDir.exists()) {
+        await logsDir.create(recursive: true);
+      }
+
+      final enriched = <String, dynamic>{
+        'timestamp': DateTime.now().toIso8601String(),
+        ...entry,
+      };
+      final file = File('${logsDir.path}/activity_log.jsonl');
+      await file.writeAsString(
+        '${jsonEncode(enriched)}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    } catch (_) {
+      // Ignore logging failures to keep capture/report flows reliable.
+    }
   }
 
   Future<Uint8List?> _readCapturedImageBytes(String? filePath) async {

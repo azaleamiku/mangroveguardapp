@@ -13,6 +13,7 @@ const Color antiFlashWhite = Color(0xFFF1F7F6);
 const Color bangladeshGreen = Color(0xFF03624C);
 const Color darkGreen = Color(0xFF032221);
 const Color richBlack = Color(0xFF021B1A);
+const Color trunkHighlightColor = Color(0xFFFFA34D);
 
 String _stabilityLabel(StabilityAssessment assessment) {
   return assessment.label;
@@ -156,7 +157,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
       bytes,
       width,
       height,
-      color: const Color(0xFFFFA34D),
+      color: trunkHighlightColor,
       alphaFraction: 0.42,
     ).then((image) {
       if (image != null) {
@@ -555,9 +556,8 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                         painter:
                                                             _RootHighlightPainter(
                                                               rects: trunkRects,
-                                                              color: const Color(
-                                                                0xFFFFA34D,
-                                                              ),
+                                                              color:
+                                                                  trunkHighlightColor,
                                                             ),
                                                       );
                                                     }
@@ -581,9 +581,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                               CustomPaint(
                                                 painter: _RootHighlightPainter(
                                                   rects: trunkRects,
-                                                  color: const Color(
-                                                    0xFFFFA34D,
-                                                  ),
+                                                  color: trunkHighlightColor,
                                                 ),
                                               ),
                                             if (showHighlights && hasRootMask)
@@ -662,7 +660,16 @@ class _RecentScanPageState extends State<RecentScanPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  if (hasImage && hasAnyHighlight) ...[
+                    const SizedBox(height: 10),
+                    _HighlightLegend(
+                      showHighlights: showHighlights,
+                      showRoots: hasRootMask || rootRects.isNotEmpty,
+                      showTrunk: hasTrunkMask || trunkRects.isNotEmpty,
+                    ),
+                    const SizedBox(height: 12),
+                  ] else
+                    const SizedBox(height: 12),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
@@ -751,7 +758,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                         Row(
                           children: [
                             Text(
-                              'Highlights',
+                              'Overlay',
                               style: TextStyle(
                                 color: antiFlashWhite.withValues(alpha: 0.8),
                                 fontSize: 12,
@@ -833,11 +840,32 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     accent: statusColor,
                                   ),
                                 ),
+                                if (scan.predictionConfidence != null)
+                                  SizedBox(
+                                    width: tileWidth,
+                                    child: _MetricTile(
+                                      label: 'AI Confidence',
+                                      value:
+                                          '${(scan.predictionConfidence! * 100).toStringAsFixed(0)}%',
+                                      icon: Icons.psychology_rounded,
+                                      accent: statusColor,
+                                    ),
+                                  ),
                               ],
                             );
                           },
                         ),
                         const SizedBox(height: 14),
+                        Text(
+                          'Disclaimer: AI-generated results are assistive and should not replace expert ecological judgement.',
+                          style: TextStyle(
+                            color: antiFlashWhite.withValues(alpha: 0.78),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
@@ -1248,9 +1276,12 @@ class _PeekHighlightButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = pressed ? antiFlashWhite : caribbeanGreen;
+    final semanticLabel = pressed ? 'Show overlay' : 'Hide overlay';
+    final labelColor = antiFlashWhite.withValues(alpha: pressed ? 0.78 : 0.86);
     return Semantics(
-      label: 'Hide highlights',
+      label: semanticLabel,
       button: true,
+      toggled: pressed,
       child: AnimatedScale(
         duration: const Duration(milliseconds: 90),
         scale: pressed ? 0.97 : 1.0,
@@ -1278,26 +1309,156 @@ class _PeekHighlightButton extends StatelessWidget {
             type: MaterialType.transparency,
             child: InkWell(
               borderRadius: BorderRadius.circular(999),
-              onHighlightChanged: onPressedChanged,
-              onTap: () {},
+              onTap: () => onPressedChanged(!pressed),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
+                  horizontal: 12,
                   vertical: 8,
                 ),
-                child: Icon(
-                  pressed
-                      ? Icons.visibility_off_rounded
-                      : Icons.visibility_rounded,
-                  size: 18,
-                  color: antiFlashWhite.withValues(
-                    alpha: pressed ? 0.96 : 0.86,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      pressed
+                          ? Icons.visibility_off_rounded
+                          : Icons.visibility_rounded,
+                      size: 18,
+                      color: antiFlashWhite.withValues(
+                        alpha: pressed ? 0.96 : 0.86,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Overlay',
+                      style: TextStyle(
+                        color: labelColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _HighlightLegend extends StatelessWidget {
+  final bool showHighlights;
+  final bool showRoots;
+  final bool showTrunk;
+
+  const _HighlightLegend({
+    required this.showHighlights,
+    required this.showRoots,
+    required this.showTrunk,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labelColor = antiFlashWhite.withValues(
+      alpha: showHighlights ? 0.82 : 0.62,
+    );
+    final borderColor = bangladeshGreen.withValues(
+      alpha: showHighlights ? 0.55 : 0.35,
+    );
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            darkGreen.withValues(alpha: 0.78),
+            richBlack.withValues(alpha: 0.88),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+      ),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Text(
+            showHighlights ? 'Overlay' : 'Overlay (hidden)',
+            style: TextStyle(
+              color: labelColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+          if (showRoots)
+            _HighlightLegendChip(
+              color: caribbeanGreen,
+              label: 'Roots',
+              dim: !showHighlights,
+            ),
+          if (showTrunk)
+            _HighlightLegendChip(
+              color: trunkHighlightColor,
+              label: 'Trunk',
+              dim: !showHighlights,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HighlightLegendChip extends StatelessWidget {
+  final Color color;
+  final String label;
+  final bool dim;
+
+  const _HighlightLegendChip({
+    required this.color,
+    required this.label,
+    required this.dim,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dotColor = dim ? color.withValues(alpha: 0.6) : color;
+    final textColor = antiFlashWhite.withValues(alpha: dim ? 0.68 : 0.86);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: dim ? 0.08 : 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: dotColor.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: dotColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1433,6 +1594,7 @@ class RecentTreeScan {
   final DateTime scannedAt;
   final MangroveTree tree;
   final double metersPerPixel;
+  final double? predictionConfidence;
   final String? capturedImagePath;
   final Uint8List? rootMaskBytes;
   final int? rootMaskWidth;
@@ -1446,6 +1608,7 @@ class RecentTreeScan {
     required this.scannedAt,
     required this.tree,
     this.metersPerPixel = 0.003,
+    this.predictionConfidence,
     this.capturedImagePath,
     this.rootMaskBytes,
     this.rootMaskWidth,
@@ -1477,6 +1640,8 @@ class RecentTreeScan {
       'treeId': treeId,
       'scannedAt': scannedAt.toIso8601String(),
       'metersPerPixel': metersPerPixel,
+      if (predictionConfidence != null)
+        'predictionConfidence': predictionConfidence,
       if (capturedImagePath != null) 'capturedImagePath': capturedImagePath,
       if (maskBytes != null && maskWidth != null && maskHeight != null)
         'rootMask': {
@@ -1643,6 +1808,8 @@ class RecentTreeScan {
           ? DateTime.now()
           : (DateTime.tryParse(scannedAtRaw) ?? DateTime.now()),
       metersPerPixel: (json['metersPerPixel'] as num?)?.toDouble() ?? 0.003,
+      predictionConfidence:
+          (json['predictionConfidence'] as num?)?.toDouble(),
       capturedImagePath:
           ((json['capturedImagePath'] as String?)?.trim().isNotEmpty ?? false)
           ? (json['capturedImagePath'] as String).trim()
