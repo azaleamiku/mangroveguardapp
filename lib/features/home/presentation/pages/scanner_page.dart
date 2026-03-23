@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,6 +32,9 @@ class ScannerPageController extends ChangeNotifier {
     Uint8List? rootMaskBytes,
     int? rootMaskWidth,
     int? rootMaskHeight,
+    Uint8List? trunkMaskBytes,
+    int? trunkMaskWidth,
+    int? trunkMaskHeight,
   }) {
     _latestMeasuredTreeResult = MeasuredTreeResult(
       tree: tree,
@@ -41,6 +43,9 @@ class ScannerPageController extends ChangeNotifier {
       rootMaskBytes: rootMaskBytes,
       rootMaskWidth: rootMaskWidth,
       rootMaskHeight: rootMaskHeight,
+      trunkMaskBytes: trunkMaskBytes,
+      trunkMaskWidth: trunkMaskWidth,
+      trunkMaskHeight: trunkMaskHeight,
     );
   }
 
@@ -58,6 +63,9 @@ class MeasuredTreeResult {
   final Uint8List? rootMaskBytes;
   final int? rootMaskWidth;
   final int? rootMaskHeight;
+  final Uint8List? trunkMaskBytes;
+  final int? trunkMaskWidth;
+  final int? trunkMaskHeight;
 
   const MeasuredTreeResult({
     required this.tree,
@@ -66,6 +74,9 @@ class MeasuredTreeResult {
     this.rootMaskBytes,
     this.rootMaskWidth,
     this.rootMaskHeight,
+    this.trunkMaskBytes,
+    this.trunkMaskWidth,
+    this.trunkMaskHeight,
   });
 }
 
@@ -75,6 +86,9 @@ class _InferenceResult {
   final Uint8List? rootMaskBytes;
   final int? rootMaskWidth;
   final int? rootMaskHeight;
+  final Uint8List? trunkMaskBytes;
+  final int? trunkMaskWidth;
+  final int? trunkMaskHeight;
 
   const _InferenceResult({
     required this.tree,
@@ -82,6 +96,9 @@ class _InferenceResult {
     this.rootMaskBytes,
     this.rootMaskWidth,
     this.rootMaskHeight,
+    this.trunkMaskBytes,
+    this.trunkMaskWidth,
+    this.trunkMaskHeight,
   });
 }
 
@@ -90,12 +107,18 @@ class _ExtractedTree {
   final Uint8List? rootMaskBytes;
   final int? rootMaskWidth;
   final int? rootMaskHeight;
+  final Uint8List? trunkMaskBytes;
+  final int? trunkMaskWidth;
+  final int? trunkMaskHeight;
 
   const _ExtractedTree({
     required this.tree,
     this.rootMaskBytes,
     this.rootMaskWidth,
     this.rootMaskHeight,
+    this.trunkMaskBytes,
+    this.trunkMaskWidth,
+    this.trunkMaskHeight,
   });
 }
 
@@ -117,14 +140,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   static const double _trunkGuideYFraction = 0.6;
   static const List<String> _instanceClassLabels = [
     'mangrove_root',
-    'mangrove_tree',
+    'mangrove_trunk',
   ];
   static const int _treeClassIndex = 1;
   static const int _rootClassIndex = 0;
   static const List<String> _maskClassLabels = [
-    'background',
     'mangrove_root',
-    'mangrove_tree',
+    'mangrove_trunk',
   ];
 
   CameraController? _cameraController;
@@ -361,6 +383,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         rootMaskBytes: result.rootMaskBytes,
         rootMaskWidth: result.rootMaskWidth,
         rootMaskHeight: result.rootMaskHeight,
+        trunkMaskBytes: result.trunkMaskBytes,
+        trunkMaskWidth: result.trunkMaskWidth,
+        trunkMaskHeight: result.trunkMaskHeight,
       );
     } on PlatformException catch (e) {
       debugPrint('Model inference failed: ${e.code} ${e.message}');
@@ -385,12 +410,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     debugPrint(
       'Model signature: input name=${inputTensor.name} shape=${inputTensor.shape} type=${inputTensor.type}',
     );
-    debugPrint(
-      'Model labels (instance): ${_instanceClassLabels.join(', ')}',
-    );
-    debugPrint(
-      'Model labels (mask): ${_maskClassLabels.join(', ')}',
-    );
+    debugPrint('Model labels (instance): ${_instanceClassLabels.join(', ')}');
+    debugPrint('Model labels (mask): ${_maskClassLabels.join(', ')}');
     for (var i = 0; i < outputTensors.length; i++) {
       final tensor = outputTensors[i];
       debugPrint(
@@ -434,6 +455,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       rootMaskBytes: extracted.rootMaskBytes,
       rootMaskWidth: extracted.rootMaskWidth,
       rootMaskHeight: extracted.rootMaskHeight,
+      trunkMaskBytes: extracted.trunkMaskBytes,
+      trunkMaskWidth: extracted.trunkMaskWidth,
+      trunkMaskHeight: extracted.trunkMaskHeight,
     );
   }
 
@@ -553,16 +577,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       final tree = _buildTreeFromMasks(parsed);
       if (tree != null) {
         final maskHeight = parsed.rootMask.length;
-        final maskWidth =
-            maskHeight == 0 ? 0 : parsed.rootMask.first.length;
+        final maskWidth = maskHeight == 0 ? 0 : parsed.rootMask.first.length;
         final maskBytes = maskWidth > 0 && maskHeight > 0
             ? _packMaskToBytes(parsed.rootMask)
+            : null;
+        final trunkBytes = maskWidth > 0 && maskHeight > 0
+            ? _packMaskToBytes(parsed.treeMask)
             : null;
         return _ExtractedTree(
           tree: tree,
           rootMaskBytes: maskBytes,
           rootMaskWidth: maskWidth > 0 ? maskWidth : null,
           rootMaskHeight: maskHeight > 0 ? maskHeight : null,
+          trunkMaskBytes: trunkBytes,
+          trunkMaskWidth: maskWidth > 0 ? maskWidth : null,
+          trunkMaskHeight: maskHeight > 0 ? maskHeight : null,
         );
       }
     }
@@ -736,10 +765,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final trunk = treeDetections.first;
     final treeWidth = trunk.width.clamp(1.0, 4000.0).toDouble();
     final trunkCenterX = trunk.centerX;
-    final associatedRoots =
-        _rootsForSelectedTree(rootDetections, treeDetections, trunk);
-    final measuredTrunkWidth =
-        (treeWidth * 0.22).clamp(1.0, 4000.0).toDouble();
+    final associatedRoots = _rootsForSelectedTree(
+      rootDetections,
+      treeDetections,
+      trunk,
+    );
+    final measuredTrunkWidth = (treeWidth * 0.22).clamp(1.0, 4000.0).toDouble();
     final filteredRoots = _filterRootsByTreeBounds(
       associatedRoots,
       trunk,
@@ -772,8 +803,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     branchY = branchY.clamp(trunk.top, trunk.bottom);
 
     final halfWidth = measuredTrunkWidth / 2.0;
-    final startX =
-        ((trunkCenterX - halfWidth) / modelWidth).clamp(0.0, 1.0);
+    final startX = ((trunkCenterX - halfWidth) / modelWidth).clamp(0.0, 1.0);
     final endX = ((trunkCenterX + halfWidth) / modelWidth).clamp(0.0, 1.0);
     final trunkMeasurement = TrunkMeasurement(
       startX: startX,
@@ -841,7 +871,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       'Falling back to heuristic instance layout: channels=$channels classes=$classes '
       'hasObjectness=$hasObjectness classStart=$classStart',
     );
-    return _InstanceLayout(hasObjectness: hasObjectness, classStart: classStart);
+    return _InstanceLayout(
+      hasObjectness: hasObjectness,
+      classStart: classStart,
+    );
   }
 
   List<_Detection> _nms(List<_Detection> detections, double iouThreshold) {
@@ -895,15 +928,15 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     if (classes < 2) return null;
     if (classes != 2 && classes != 3) {
       debugPrint(
-        'Unsupported mask classes: $classes. Expected 2 (tree, root) or 3 (background, tree, root).',
+        'Unsupported mask classes: $classes. Expected 2 (root=0, trunk=1) or 3 (root=0, trunk=1, extra/background).',
       );
       return null;
     }
 
-    // Swapped mapping: [background, mangrove_root, mangrove_tree] or [root, tree].
-    final treeClass = classes >= 3 ? 2 : 1;
-    final rootClass = classes >= 3 ? 1 : 0;
-    if (rootClass >= classes) return null;
+    // Fixed class mapping: 0 = mangrove_root, 1 = mangrove_trunk.
+    const rootClass = 0;
+    const trunkClass = 1;
+    if (trunkClass >= classes) return null;
 
     final treeMask = List.generate(
       height,
@@ -931,7 +964,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
             bestClass = c;
           }
         }
-        if (bestClass == treeClass) treeMask[y][x] = true;
+        if (bestClass == trunkClass) treeMask[y][x] = true;
         if (bestClass == rootClass) rootMask[y][x] = true;
       }
     }
@@ -944,7 +977,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
     return _ParsedMasks(treeMask: treeMask, rootMask: rootMask);
   }
-
 
   MangroveTree? _buildTreeFromMasks(_ParsedMasks masks) {
     final treeBounds = _findMaskBounds(masks.treeMask);
@@ -959,9 +991,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final maskHeight = masks.rootMask.length;
     final maskWidth = masks.rootMask.first.length;
     final guideLineY = maskHeight * _trunkGuideYFraction;
-    var branchY = activeComponents.first.minY
-        .toInt()
-        .clamp(treeBounds.minY, treeBounds.maxY);
+    var branchY = activeComponents.first.minY.toInt().clamp(
+      treeBounds.minY,
+      treeBounds.maxY,
+    );
     for (final component in activeComponents) {
       final minY = component.minY.toInt();
       if (minY < branchY) branchY = minY;
@@ -975,14 +1008,15 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       6,
     );
 
-    final trunkWidth =
-        rowSpan?.width.toDouble() ?? treeBounds.width.toDouble();
+    final trunkWidth = rowSpan?.width.toDouble() ?? treeBounds.width.toDouble();
     final trunkCenterX = rowSpan?.centerX ?? treeBounds.centerX;
     final spanMinX = rowSpan?.minX ?? treeBounds.minX;
     final spanMaxX = rowSpan?.maxX ?? treeBounds.maxX;
 
-    final corridorHalfWidth =
-        math.min(treeBounds.width * 0.35, trunkWidth * 3.5);
+    final corridorHalfWidth = math.min(
+      treeBounds.width * 0.35,
+      trunkWidth * 3.5,
+    );
     final corridorMinX = trunkCenterX - corridorHalfWidth;
     final corridorMaxX = trunkCenterX + corridorHalfWidth;
     final corridorComponents = activeComponents
@@ -993,10 +1027,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               component.minY >= math.max(branchY, guideLineY);
         })
         .toList(growable: false);
-    final usableComponents =
-        corridorComponents.isEmpty ? activeComponents : corridorComponents;
-    var adjustedBranchY =
-        usableComponents.first.minY.toInt().clamp(treeBounds.minY, treeBounds.maxY);
+    final usableComponents = corridorComponents.isEmpty
+        ? activeComponents
+        : corridorComponents;
+    var adjustedBranchY = usableComponents.first.minY.toInt().clamp(
+      treeBounds.minY,
+      treeBounds.maxY,
+    );
     for (final component in usableComponents) {
       final minY = component.minY.toInt();
       if (minY < adjustedBranchY) adjustedBranchY = minY;
@@ -1106,8 +1143,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     double guideLineY,
   ) {
     if (roots.isEmpty) return roots;
-    final corridorHalfWidth =
-        math.min(tree.width * 0.35, measuredTrunkWidth * 3.5);
+    final corridorHalfWidth = math.min(
+      tree.width * 0.35,
+      measuredTrunkWidth * 3.5,
+    );
     final minX = tree.centerX - corridorHalfWidth;
     final maxX = tree.centerX + corridorHalfWidth;
     final minY = math.max(tree.bottom + (tree.height * 0.02), guideLineY);
@@ -1378,8 +1417,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                           height: 12,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(antiFlashWhite),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              antiFlashWhite,
+                            ),
                           ),
                         )
                       : null,
@@ -1430,10 +1470,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               letterSpacing: 0.8,
             ),
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 6),
-            trailing,
-          ],
+          if (trailing != null) ...[const SizedBox(width: 6), trailing],
         ],
       ),
     );
@@ -1662,8 +1699,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       ((frameRectInViewport.left - offsetX) / scale).clamp(0.0, previewWidth),
       ((frameRectInViewport.top - offsetY) / scale).clamp(0.0, previewHeight),
       ((frameRectInViewport.right - offsetX) / scale).clamp(0.0, previewWidth),
-      ((frameRectInViewport.bottom - offsetY) / scale)
-          .clamp(0.0, previewHeight),
+      ((frameRectInViewport.bottom - offsetY) / scale).clamp(
+        0.0,
+        previewHeight,
+      ),
     );
     if (previewCropRect.width <= 1 || previewCropRect.height <= 1) {
       return imagePath;
@@ -1710,8 +1749,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       );
 
       final extension = _fileExtension(imagePath);
-      final croppedPath =
-          imagePath.replaceFirst(RegExp(r'\.[^.]+$'), '_grid$extension');
+      final croppedPath = imagePath.replaceFirst(
+        RegExp(r'\.[^.]+$'),
+        '_grid$extension',
+      );
       await File(
         croppedPath,
       ).writeAsBytes(img.encodeJpg(cropped, quality: 95), flush: true);

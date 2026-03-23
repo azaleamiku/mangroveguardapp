@@ -107,8 +107,7 @@ class _MetricsPageState extends State<MetricsPage> {
       }
 
       final isPushingPastBottom = metrics.pixels > metrics.maxScrollExtent;
-      final isReversingIntoList =
-          !isPushingPastBottom && isDraggingDown;
+      final isReversingIntoList = !isPushingPastBottom && isDraggingDown;
       if (isReversingIntoList &&
           (_aboutPullExtent > 0 || _aboutTriggerArmed || _aboutReleaseQueued)) {
         setState(() {
@@ -188,15 +187,14 @@ class _MetricsPageState extends State<MetricsPage> {
     return false;
   }
 
-  List<_WeeklyScanBucket> _buildWeeklyScanBuckets(
-    List<RecentTreeScan> scans,
-  ) {
+  List<_WeeklyScanBucket> _buildWeeklyScanBuckets(List<RecentTreeScan> scans) {
     final today = DateTime.now();
     final currentWeekStart = _startOfWeek(today);
     final buckets = List<_WeeklyScanBucket>.generate(_weeklyTrendWeeks, (i) {
       final offsetWeeks = _weeklyTrendWeeks - 1 - i;
-      final weekStart =
-          currentWeekStart.subtract(Duration(days: 7 * offsetWeeks));
+      final weekStart = currentWeekStart.subtract(
+        Duration(days: 7 * offsetWeeks),
+      );
       return _WeeklyScanBucket(weekStart: weekStart, count: 0);
     });
 
@@ -287,9 +285,10 @@ class _MetricsPageState extends State<MetricsPage> {
             var highCount = 0;
             var moderateCount = 0;
             var lowCount = 0;
+            var veryUnstableCount = 0;
 
             for (final scan in scans) {
-              stabilitySum += scan.stabilityIndex;
+              stabilitySum += scan.stabilityScore;
               switch (scan.assessment) {
                 case StabilityAssessment.high:
                   highCount++;
@@ -300,12 +299,15 @@ class _MetricsPageState extends State<MetricsPage> {
                 case StabilityAssessment.low:
                   lowCount++;
                   break;
+                case StabilityAssessment.veryUnstable:
+                  veryUnstableCount++;
+                  break;
               }
             }
 
             final averageStability = recentScanCount == 0
                 ? 0.0
-                : (stabilitySum / recentScanCount).clamp(0.0, 4.5);
+                : (stabilitySum / recentScanCount).clamp(0.0, 1.0);
             final weeklyBuckets = _buildWeeklyScanBuckets(scans);
 
             return NotificationListener<ScrollNotification>(
@@ -337,6 +339,7 @@ class _MetricsPageState extends State<MetricsPage> {
                           highCount: highCount,
                           moderateCount: moderateCount,
                           lowCount: lowCount,
+                          veryUnstableCount: veryUnstableCount,
                         ),
                         const SizedBox(height: 14),
                         _WeeklyScanVolumeTrendCard(buckets: weeklyBuckets),
@@ -383,9 +386,7 @@ class _AboutOverscrollNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     final isPulling = pullExtent > 0;
     final isVisible = isPulling || isArmed;
-    final title = isArmed
-        ? 'Release for App Info'
-        : 'Pull up for App Info';
+    final title = isArmed ? 'Release for App Info' : 'Pull up for App Info';
 
     return IgnorePointer(
       child: AnimatedSlide(
@@ -435,7 +436,9 @@ class _AboutOverscrollNotice extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+                        color: MetricsPage.antiFlashWhite.withValues(
+                          alpha: 0.9,
+                        ),
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
                       ),
@@ -565,12 +568,14 @@ class _AboutAppSheet extends StatelessWidget {
                                 vertical: 10,
                               ),
                               decoration: BoxDecoration(
-                                color:
-                                    MetricsPage.darkGreen.withValues(alpha: 0.9),
+                                color: MetricsPage.darkGreen.withValues(
+                                  alpha: 0.9,
+                                ),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: MetricsPage.bangladeshGreen
-                                      .withValues(alpha: 0.9),
+                                  color: MetricsPage.bangladeshGreen.withValues(
+                                    alpha: 0.9,
+                                  ),
                                 ),
                               ),
                               child: Column(
@@ -579,10 +584,8 @@ class _AboutAppSheet extends StatelessWidget {
                                   Text(
                                     'Mangroves (Rhizophora mangle)',
                                     style: TextStyle(
-                                      color:
-                                          MetricsPage.antiFlashWhite.withValues(
-                                        alpha: 0.9,
-                                      ),
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.9),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w800,
                                       letterSpacing: 0.2,
@@ -592,10 +595,8 @@ class _AboutAppSheet extends StatelessWidget {
                                   Text(
                                     'Rhizophora mangle, the red mangrove, anchors shorelines with stilt roots, filters sediments, shelters juvenile marine life, and thrives in salty tidal water.',
                                     style: TextStyle(
-                                      color:
-                                          MetricsPage.antiFlashWhite.withValues(
-                                        alpha: 0.8,
-                                      ),
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.8),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                       height: 1.35,
@@ -612,12 +613,14 @@ class _AboutAppSheet extends StatelessWidget {
                                 vertical: 10,
                               ),
                               decoration: BoxDecoration(
-                                color:
-                                    MetricsPage.darkGreen.withValues(alpha: 0.9),
+                                color: MetricsPage.darkGreen.withValues(
+                                  alpha: 0.9,
+                                ),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: MetricsPage.bangladeshGreen
-                                      .withValues(alpha: 0.9),
+                                  color: MetricsPage.bangladeshGreen.withValues(
+                                    alpha: 0.9,
+                                  ),
                                 ),
                               ),
                               child: Column(
@@ -626,10 +629,8 @@ class _AboutAppSheet extends StatelessWidget {
                                   Text(
                                     'The App',
                                     style: TextStyle(
-                                      color:
-                                          MetricsPage.antiFlashWhite.withValues(
-                                        alpha: 0.9,
-                                      ),
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.9),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w800,
                                       letterSpacing: 0.2,
@@ -637,12 +638,10 @@ class _AboutAppSheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite to deliver high-speed, on-device instance segmentation for real-time tree analysis. By calculating the ratio of root spread to trunk width, the system instantly evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
+                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite to deliver high-speed, on-device instance segmentation for real-time tree analysis. By extracting root geometry and computing a weighted stability score, the system evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
                                     style: TextStyle(
-                                      color:
-                                          MetricsPage.antiFlashWhite.withValues(
-                                        alpha: 0.82,
-                                      ),
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.82),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                       height: 1.35,
@@ -687,24 +686,24 @@ class _AboutAppSheet extends StatelessWidget {
                                 vertical: 10,
                               ),
                               decoration: BoxDecoration(
-                                color:
-                                    MetricsPage.darkGreen.withValues(alpha: 0.9),
+                                color: MetricsPage.darkGreen.withValues(
+                                  alpha: 0.9,
+                                ),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: MetricsPage.bangladeshGreen
-                                      .withValues(alpha: 0.9),
+                                  color: MetricsPage.bangladeshGreen.withValues(
+                                    alpha: 0.9,
+                                  ),
                                 ),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Stability Index (SI)',
+                                    'Stability Score (S)',
                                     style: TextStyle(
-                                      color:
-                                          MetricsPage.antiFlashWhite.withValues(
-                                        alpha: 0.9,
-                                      ),
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.9),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w800,
                                       letterSpacing: 0.2,
@@ -712,12 +711,10 @@ class _AboutAppSheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'SI is the ratio of root spread width to trunk width. Higher values indicate broader root support relative to the trunk.',
+                                    'S is a weighted score from 0 to 1 computed from root count, density, spread, coverage, symmetry, and thickness proxy. Higher scores indicate stronger structural stability.',
                                     style: TextStyle(
-                                      color:
-                                          MetricsPage.antiFlashWhite.withValues(
-                                        alpha: 0.82,
-                                      ),
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.82),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                       height: 1.35,
@@ -731,8 +728,9 @@ class _AboutAppSheet extends StatelessWidget {
                                       vertical: 8,
                                     ),
                                     decoration: BoxDecoration(
-                                      color:
-                                          Colors.black.withValues(alpha: 0.28),
+                                      color: Colors.black.withValues(
+                                        alpha: 0.28,
+                                      ),
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
                                         color: MetricsPage.bangladeshGreen
@@ -740,7 +738,7 @@ class _AboutAppSheet extends StatelessWidget {
                                       ),
                                     ),
                                     child: const Text(
-                                      'SI = Root Spread Width ÷ Trunk Width',
+                                      'S = 0.20RC + 0.15RD + 0.20RS + 0.15RCR + 0.20SS + 0.10RT',
                                       style: TextStyle(
                                         color: MetricsPage.antiFlashWhite,
                                         fontSize: 12,
@@ -750,32 +748,49 @@ class _AboutAppSheet extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 10),
-                                  Row(
-                                    children: const [
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.trending_down_rounded,
-                                          label: 'Low',
-                                          value: '< 1.5',
-                                        ),
-                                      ),
-                                      SizedBox(width: 10),
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.trending_flat_rounded,
-                                          label: 'Moderate',
-                                          value: '1.5–3.0',
-                                        ),
-                                      ),
-                                      SizedBox(width: 10),
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.trending_up_rounded,
-                                          label: 'High',
-                                          value: '> 3.0',
-                                        ),
-                                      ),
-                                    ],
+                                  LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      final tileWidth =
+                                          (constraints.maxWidth - 10) / 2;
+                                      return Wrap(
+                                        spacing: 10,
+                                        runSpacing: 10,
+                                        children: [
+                                          SizedBox(
+                                            width: tileWidth,
+                                            child: const _AboutPillMetric(
+                                              icon: Icons.warning_rounded,
+                                              label: 'Very Unstable',
+                                              value: '0.00–0.24',
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: tileWidth,
+                                            child: const _AboutPillMetric(
+                                              icon: Icons.trending_down_rounded,
+                                              label: 'Low',
+                                              value: '0.25–0.49',
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: tileWidth,
+                                            child: const _AboutPillMetric(
+                                              icon: Icons.trending_flat_rounded,
+                                              label: 'Moderate',
+                                              value: '0.50–0.74',
+                                            ),
+                                          ),
+                                          SizedBox(
+                                            width: tileWidth,
+                                            child: const _AboutPillMetric(
+                                              icon: Icons.trending_up_rounded,
+                                              label: 'High',
+                                              value: '0.75–1.00',
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
                                   ),
                                 ],
                               ),
@@ -946,10 +961,10 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasData = recentScanCount > 0;
-    final averageLabel =
-        hasData ? averageStability.toStringAsFixed(2) : '--';
-    final statusLabel =
-        hasData ? _statusLabel(averageStability) : 'No data yet';
+    final averageLabel = hasData ? averageStability.toStringAsFixed(2) : '--';
+    final statusLabel = hasData
+        ? _statusLabel(averageStability)
+        : 'No data yet';
     final statusColor = hasData
         ? _statusColor(averageStability)
         : MetricsPage.antiFlashWhite.withValues(alpha: 0.6);
@@ -998,15 +1013,17 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
   }
 
   String _statusLabel(double value) {
-    if (value > 3) return 'High stability';
-    if (value >= 1.5) return 'Moderate stability';
-    return 'Low stability';
+    if (value >= 0.75) return 'High stability';
+    if (value >= 0.50) return 'Moderate stability';
+    if (value >= 0.25) return 'Low stability';
+    return 'Very unstable';
   }
 
   Color _statusColor(double value) {
-    if (value > 3) return MetricsPage.caribbeanGreen;
-    if (value >= 1.5) return const Color(0xFFF59E0B);
-    return const Color(0xFFEF4444);
+    if (value >= 0.75) return MetricsPage.caribbeanGreen;
+    if (value >= 0.50) return const Color(0xFFF59E0B);
+    if (value >= 0.25) return const Color(0xFFEF4444);
+    return const Color(0xFFB91C1C);
   }
 }
 
@@ -1014,18 +1031,19 @@ class _StabilityBreakdownCard extends StatelessWidget {
   final int highCount;
   final int moderateCount;
   final int lowCount;
+  final int veryUnstableCount;
 
   const _StabilityBreakdownCard({
     required this.highCount,
     required this.moderateCount,
     required this.lowCount,
+    required this.veryUnstableCount,
   });
 
   @override
   Widget build(BuildContext context) {
-    final total = highCount + moderateCount + lowCount;
-    final subtitle =
-        total == 0 ? 'No scans yet' : 'From $total recent scans';
+    final total = highCount + moderateCount + lowCount + veryUnstableCount;
+    final subtitle = total == 0 ? 'No scans yet' : 'From $total recent scans';
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1064,35 +1082,52 @@ class _StabilityBreakdownCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: _BreakdownMetric(
-                  label: 'High',
-                  value: '$highCount',
-                  color: MetricsPage.caribbeanGreen,
-                  icon: Icons.trending_up_rounded,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _BreakdownMetric(
-                  label: 'Moderate',
-                  value: '$moderateCount',
-                  color: const Color(0xFFF59E0B),
-                  icon: Icons.trending_flat_rounded,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _BreakdownMetric(
-                  label: 'Low',
-                  value: '$lowCount',
-                  color: const Color(0xFFEF4444),
-                  icon: Icons.trending_down_rounded,
-                ),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final tileWidth = (constraints.maxWidth - 10) / 2;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: tileWidth,
+                    child: _BreakdownMetric(
+                      label: 'High',
+                      value: '$highCount',
+                      color: MetricsPage.caribbeanGreen,
+                      icon: Icons.trending_up_rounded,
+                    ),
+                  ),
+                  SizedBox(
+                    width: tileWidth,
+                    child: _BreakdownMetric(
+                      label: 'Moderate',
+                      value: '$moderateCount',
+                      color: const Color(0xFFF59E0B),
+                      icon: Icons.trending_flat_rounded,
+                    ),
+                  ),
+                  SizedBox(
+                    width: tileWidth,
+                    child: _BreakdownMetric(
+                      label: 'Low',
+                      value: '$lowCount',
+                      color: const Color(0xFFEF4444),
+                      icon: Icons.trending_down_rounded,
+                    ),
+                  ),
+                  SizedBox(
+                    width: tileWidth,
+                    child: _BreakdownMetric(
+                      label: 'Very Unstable',
+                      value: '$veryUnstableCount',
+                      color: const Color(0xFFB91C1C),
+                      icon: Icons.warning_rounded,
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -1150,7 +1185,7 @@ class _BreakdownMetric extends StatelessWidget {
 }
 
 class _AverageStabilityGauge extends StatelessWidget {
-  static const double maxValue = 4.5;
+  static const double maxValue = 1.0;
 
   final double value;
   final String valueLabel;
@@ -1200,16 +1235,16 @@ class _AverageStabilityGauge extends StatelessWidget {
                     ),
                     if (caption.isNotEmpty) ...[
                       const SizedBox(height: 2),
-                    Text(
-                      caption,
-                      style: TextStyle(
-                        color: MetricsPage.antiFlashWhite.withValues(
-                          alpha: 0.68,
+                      Text(
+                        caption,
+                        style: TextStyle(
+                          color: MetricsPage.antiFlashWhite.withValues(
+                            alpha: 0.68,
+                          ),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
                         ),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
                       ),
-                    ),
                     ],
                   ],
                 ),
@@ -1231,19 +1266,25 @@ class _AverageStabilityGauge extends StatelessWidget {
         const Column(
           children: [
             _GaugeLegendItem(
-              label: 'Low Stability (below 1.5)',
+              label: 'Very Unstable (0.00–0.24)',
+              color: Color(0xFFB91C1C),
+              alignment: Alignment.centerLeft,
+            ),
+            SizedBox(height: 6),
+            _GaugeLegendItem(
+              label: 'Low Stability (0.25–0.49)',
               color: Color(0xFFEF4444),
               alignment: Alignment.centerLeft,
             ),
             SizedBox(height: 6),
             _GaugeLegendItem(
-              label: 'Moderate Stability (1.5–3.0)',
+              label: 'Moderate Stability (0.50–0.74)',
               color: Color(0xFFF59E0B),
               alignment: Alignment.centerLeft,
             ),
             SizedBox(height: 6),
             _GaugeLegendItem(
-              label: 'High Stability (above 3.0)',
+              label: 'High Stability (0.75–1.00)',
               color: MetricsPage.caribbeanGreen,
               alignment: Alignment.centerLeft,
             ),
@@ -1292,10 +1333,11 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     final lowLimit = 1.5;
     final moderateLimit = 3.0;
     final lowPortion = (lowLimit / maxValue).clamp(0.0, 1.0);
-    final moderatePortion =
-        ((moderateLimit - lowLimit) / maxValue).clamp(0.0, 1.0 - lowPortion);
-    final highPortion =
-        (1.0 - lowPortion - moderatePortion).clamp(0.0, 1.0);
+    final moderatePortion = ((moderateLimit - lowLimit) / maxValue).clamp(
+      0.0,
+      1.0 - lowPortion,
+    );
+    final highPortion = (1.0 - lowPortion - moderatePortion).clamp(0.0, 1.0);
 
     final scaleRadius = radius + (trackThickness / 2) + 8;
     final scaleRect = Rect.fromCircle(center: center, radius: scaleRadius);
@@ -1388,10 +1430,7 @@ class _GaugeLegendItem extends StatelessWidget {
           Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(width: 6),
           Flexible(
@@ -1639,7 +1678,8 @@ class _WeeklyScanSparklineState extends State<_WeeklyScanSparkline> {
                   const chartHeight = 72.0;
                   final width = constraints.maxWidth;
                   final selectedIndex = _selectedIndex;
-                  final selectedBucket = (selectedIndex != null &&
+                  final selectedBucket =
+                      (selectedIndex != null &&
                           selectedIndex >= 0 &&
                           selectedIndex < widget.buckets.length)
                       ? widget.buckets[selectedIndex]
@@ -1763,8 +1803,7 @@ class _SparklineTooltip extends StatelessWidget {
     final top = placeAbove
         ? y - tooltipHeight - verticalGap
         : (y + verticalGap).clamp(0.0, chartHeight - tooltipHeight);
-    final left = (x - (tooltipWidth / 2))
-        .clamp(0.0, chartWidth - tooltipWidth);
+    final left = (x - (tooltipWidth / 2)).clamp(0.0, chartWidth - tooltipWidth);
 
     return Positioned(
       left: left,
@@ -1821,9 +1860,7 @@ class _WeeklyScanSparklinePainter extends CustomPainter {
     if (buckets.isEmpty) return;
 
     final maxValue = maxCount == 0 ? 1 : maxCount;
-    final stepX = buckets.length == 1
-        ? 0.0
-        : size.width / (buckets.length - 1);
+    final stepX = buckets.length == 1 ? 0.0 : size.width / (buckets.length - 1);
 
     final points = <Offset>[];
     for (var i = 0; i < buckets.length; i++) {
