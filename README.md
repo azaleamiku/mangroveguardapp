@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=500&size=18&pause=1400&color=0B8A83&center=true&vCenter=true&width=960&lines=Camera-guided+scan+workflow;TensorFlow+Lite+inference+running+on-device;Live+stability+metrics+with+history+tracking;One-tap+PDF+report+export" alt="Animated intro" />
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=500&size=18&pause=1400&color=0B8A83&center=true&vCenter=true&width=960&lines=Camera-guided+scan+workflow;TensorFlow+Lite+inference+running+on-device;On-device+stability+metrics+with+history+tracking;One-tap+PDF+report+export" alt="Animated intro" />
 </p>
 
 <p align="center">
@@ -22,20 +22,22 @@
 
 ## What It Does
 
-- Captures mangrove scans using a guided camera frame.
+- Captures mangrove scans (still images) using a guided camera frame.
 - Runs YOLOv8 Nano instance segmentation via TensorFlow Lite on-device.
-- Calculates stability from root spread vs trunk width ratio.
+- Calculates stability from weighted root structure metrics (RC, RD, RS, RCR, SS, RT).
 - Tracks metrics and recent scans using local persistence.
 - Exports detailed PDF reports per scan.
 - Shows onboarding once, then routes directly to home.
 
 ## Stability Logic
 
-| Ratio (Root Spread / Trunk Width) | Classification |
+`S = 0.20RC + 0.15RD + 0.20RS + 0.15RCR + 0.20SS + 0.10RT`
+
+| Stability Score (S) | Classification |
 | --- | --- |
-| `> 3.0` | `High` |
-| `>= 1.5` and `<= 3.0` | `Moderate` |
-| `< 1.5` | `Low` |
+| `0.75–1.00` | `High` |
+| `0.50–0.74` | `Moderate` |
+| `0.00–0.49` | `Low` |
 
 ## Tech Stack
 

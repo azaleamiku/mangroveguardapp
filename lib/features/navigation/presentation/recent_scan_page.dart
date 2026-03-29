@@ -323,8 +323,6 @@ class _RecentScanPageState extends State<RecentScanPage> {
         return const Color(0xFFF59E0B);
       case StabilityAssessment.low:
         return const Color(0xFFEF4444);
-      case StabilityAssessment.veryUnstable:
-        return const Color(0xFFB91C1C);
     }
   }
 
@@ -747,7 +745,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                 SizedBox(
                                   width: tileWidth,
                                   child: _MetricTile(
-                                    label: 'Stability Score',
+                                    label: 'Stability Score (S)',
                                     value: scan.stabilityScore.toStringAsFixed(
                                       2,
                                     ),
@@ -991,19 +989,11 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                             color: const Color(0xFFF59E0B),
                                           ),
                                           _ThresholdChip(
-                                            label: 'Low (0.25–0.49)',
+                                            label: 'Low (0.00–0.49)',
                                             active:
                                                 scan.assessment ==
                                                 StabilityAssessment.low,
                                             color: const Color(0xFFEF4444),
-                                          ),
-                                          _ThresholdChip(
-                                            label: 'Very Unstable (0.00–0.24)',
-                                            active:
-                                                scan.assessment ==
-                                                StabilityAssessment
-                                                    .veryUnstable,
-                                            color: const Color(0xFFB91C1C),
                                           ),
                                         ],
                                       ),

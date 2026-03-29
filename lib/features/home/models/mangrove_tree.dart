@@ -52,7 +52,7 @@ class TreeBounds {
   });
 }
 
-enum StabilityAssessment { high, moderate, low, veryUnstable }
+enum StabilityAssessment { high, moderate, low }
 
 extension StabilityAssessmentExtension on StabilityAssessment {
   String get label {
@@ -63,8 +63,6 @@ extension StabilityAssessmentExtension on StabilityAssessment {
         return 'Moderate Stability';
       case StabilityAssessment.low:
         return 'Low Stability';
-      case StabilityAssessment.veryUnstable:
-        return 'Very Unstable';
     }
   }
 
@@ -75,9 +73,7 @@ extension StabilityAssessmentExtension on StabilityAssessment {
       case StabilityAssessment.moderate:
         return 'Moderate Stability (0.50–0.74) — Root support is adequate but may be vulnerable under stronger stressors.';
       case StabilityAssessment.low:
-        return 'Low Stability (0.25–0.49) — Root structure is limited or uneven; stability may be compromised.';
-      case StabilityAssessment.veryUnstable:
-        return 'Very Unstable (0.00–0.24) — Very limited or poorly distributed root support; high risk of instability.';
+        return 'Low Stability (0.00–0.49) — Root structure is limited or uneven; stability may be compromised.';
     }
   }
 }
@@ -95,14 +91,6 @@ class StabilityMetrics {
   final double stabilityScore;
   final StabilityAssessment assessment;
 
-  // Normalized feature values (0–1), used in weighted scoring.
-  final double rcNorm;
-  final double rdNorm;
-  final double rsNorm;
-  final double rcrNorm;
-  final double ssNorm;
-  final double rtNorm;
-
   const StabilityMetrics({
     required this.rootCount,
     required this.rootDensity,
@@ -112,12 +100,6 @@ class StabilityMetrics {
     required this.rootThicknessProxy,
     required this.stabilityScore,
     required this.assessment,
-    required this.rcNorm,
-    required this.rdNorm,
-    required this.rsNorm,
-    required this.rcrNorm,
-    required this.ssNorm,
-    required this.rtNorm,
   });
 
   factory StabilityMetrics.fromTree(MangroveTree tree) {
@@ -156,25 +138,19 @@ class StabilityMetrics {
     final rootThicknessProxy = rootCount == 0 ? 0.0 : (rootAreaSum / rootCount);
     final rootDensity = rootCount / roiArea;
 
-    // Root spread (RS) and symmetry (SS) are computed from root centroids.
-    var rootSpread = 0.0;
+    // Root spread (RS) is defined as the horizontal span of root endpoints.
+    final rootSpread = tree.rootSpread;
     final thetas = <double>[];
     if (rootCentroids.isNotEmpty) {
-      var distanceSum = 0.0;
       for (final centroid in rootCentroids) {
         final dx = centroid.dx - trunkCentroid.dx;
         final dy = centroid.dy - trunkCentroid.dy;
-        distanceSum += math.sqrt((dx * dx) + (dy * dy));
         thetas.add(math.atan2(dy, dx));
       }
-      rootSpread = distanceSum / rootCentroids.length;
     }
 
     final symmetryScore = _symmetryScoreFromAngles(thetas);
 
-    // Normalization: The paper uses min-max normalization (X - Xmin)/(Xmax - Xmin).
-    // Xmin/Xmax are dataset-dependent; for this app we use bounded geometry-derived caps
-    // to keep the score stable and interpretable in 0–1.
     final rcNorm = (rootCount / _kMaxRoots).clamp(0.0, 1.0);
     final rdNorm = (rootDensity / _kMaxRoots).clamp(0.0, 1.0);
     final rsNorm = roiDiagonal <= 0
@@ -194,13 +170,11 @@ class StabilityMetrics {
         (0.15 * rcrNorm) +
         (0.20 * ssNorm) +
         (0.10 * rtNorm);
-
     final clampedScore = stabilityScore.clamp(0.0, 1.0);
     final assessment = switch (clampedScore) {
       >= 0.75 => StabilityAssessment.high,
       >= 0.50 => StabilityAssessment.moderate,
-      >= 0.25 => StabilityAssessment.low,
-      _ => StabilityAssessment.veryUnstable,
+      _ => StabilityAssessment.low,
     };
 
     return StabilityMetrics(
@@ -212,12 +186,6 @@ class StabilityMetrics {
       rootThicknessProxy: rootThicknessProxy,
       stabilityScore: clampedScore,
       assessment: assessment,
-      rcNorm: rcNorm,
-      rdNorm: rdNorm,
-      rsNorm: rsNorm,
-      rcrNorm: rcrNorm,
-      ssNorm: ssNorm,
-      rtNorm: rtNorm,
     );
   }
 

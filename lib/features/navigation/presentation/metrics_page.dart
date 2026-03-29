@@ -285,7 +285,6 @@ class _MetricsPageState extends State<MetricsPage> {
             var highCount = 0;
             var moderateCount = 0;
             var lowCount = 0;
-            var veryUnstableCount = 0;
 
             for (final scan in scans) {
               stabilitySum += scan.stabilityScore;
@@ -298,9 +297,6 @@ class _MetricsPageState extends State<MetricsPage> {
                   break;
                 case StabilityAssessment.low:
                   lowCount++;
-                  break;
-                case StabilityAssessment.veryUnstable:
-                  veryUnstableCount++;
                   break;
               }
             }
@@ -339,7 +335,6 @@ class _MetricsPageState extends State<MetricsPage> {
                           highCount: highCount,
                           moderateCount: moderateCount,
                           lowCount: lowCount,
-                          veryUnstableCount: veryUnstableCount,
                         ),
                         const SizedBox(height: 14),
                         _WeeklyScanVolumeTrendCard(buckets: weeklyBuckets),
@@ -759,17 +754,9 @@ class _AboutAppSheet extends StatelessWidget {
                                           SizedBox(
                                             width: tileWidth,
                                             child: const _AboutPillMetric(
-                                              icon: Icons.warning_rounded,
-                                              label: 'Very Unstable',
-                                              value: '0.00–0.24',
-                                            ),
-                                          ),
-                                          SizedBox(
-                                            width: tileWidth,
-                                            child: const _AboutPillMetric(
                                               icon: Icons.trending_down_rounded,
                                               label: 'Low',
-                                              value: '0.25–0.49',
+                                              value: '0.00–0.49',
                                             ),
                                           ),
                                           SizedBox(
@@ -1060,15 +1047,13 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
   String _statusLabel(double value) {
     if (value >= 0.75) return 'High stability';
     if (value >= 0.50) return 'Moderate stability';
-    if (value >= 0.25) return 'Low stability';
-    return 'Very unstable';
+    return 'Low stability';
   }
 
   Color _statusColor(double value) {
     if (value >= 0.75) return MetricsPage.caribbeanGreen;
     if (value >= 0.50) return const Color(0xFFF59E0B);
-    if (value >= 0.25) return const Color(0xFFEF4444);
-    return const Color(0xFFB91C1C);
+    return const Color(0xFFEF4444);
   }
 }
 
@@ -1076,18 +1061,16 @@ class _StabilityBreakdownCard extends StatelessWidget {
   final int highCount;
   final int moderateCount;
   final int lowCount;
-  final int veryUnstableCount;
 
   const _StabilityBreakdownCard({
     required this.highCount,
     required this.moderateCount,
     required this.lowCount,
-    required this.veryUnstableCount,
   });
 
   @override
   Widget build(BuildContext context) {
-    final total = highCount + moderateCount + lowCount + veryUnstableCount;
+    final total = highCount + moderateCount + lowCount;
     final subtitle = total == 0 ? 'No scans yet' : 'From $total recent scans';
 
     return Container(
@@ -1159,15 +1142,6 @@ class _StabilityBreakdownCard extends StatelessWidget {
                       value: '$lowCount',
                       color: const Color(0xFFEF4444),
                       icon: Icons.trending_down_rounded,
-                    ),
-                  ),
-                  SizedBox(
-                    width: tileWidth,
-                    child: _BreakdownMetric(
-                      label: 'Very Unstable',
-                      value: '$veryUnstableCount',
-                      color: const Color(0xFFB91C1C),
-                      icon: Icons.warning_rounded,
                     ),
                   ),
                 ],
@@ -1311,13 +1285,7 @@ class _AverageStabilityGauge extends StatelessWidget {
         const Column(
           children: [
             _GaugeLegendItem(
-              label: 'Very Unstable (0.00–0.24)',
-              color: Color(0xFFB91C1C),
-              alignment: Alignment.centerLeft,
-            ),
-            SizedBox(height: 6),
-            _GaugeLegendItem(
-              label: 'Low Stability (0.25–0.49)',
+              label: 'Low Stability (0.00–0.49)',
               color: Color(0xFFEF4444),
               alignment: Alignment.centerLeft,
             ),
@@ -1347,7 +1315,6 @@ class _AverageStabilityGaugePainter extends CustomPainter {
 
   static const List<double> _stabilityStops = <double>[
     0.0,
-    0.25,
     0.5,
     0.75,
     1.0,
@@ -1392,10 +1359,9 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     var currentAngle = startAngle;
     const scaleGap = 0.095;
     final scaleSegments = <(double, Color)>[
-      (_stabilityStops[1] - _stabilityStops[0], const Color(0xFFB91C1C)),
-      (_stabilityStops[2] - _stabilityStops[1], const Color(0xFFEF4444)),
-      (_stabilityStops[3] - _stabilityStops[2], const Color(0xFFF59E0B)),
-      (_stabilityStops[4] - _stabilityStops[3], MetricsPage.caribbeanGreen),
+      (_stabilityStops[1] - _stabilityStops[0], const Color(0xFFEF4444)),
+      (_stabilityStops[2] - _stabilityStops[1], const Color(0xFFF59E0B)),
+      (_stabilityStops[3] - _stabilityStops[2], MetricsPage.caribbeanGreen),
     ];
     final sweepSign = sweepAngle.sign == 0 ? 1.0 : sweepAngle.sign;
     for (var index = 0; index < scaleSegments.length; index++) {

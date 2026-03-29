@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../home/models/mangrove_tree.dart';
 import '../../home/presentation/pages/scanner_page.dart';
 import 'recent_scan_page.dart';
 import 'metrics_page.dart';
@@ -337,7 +338,7 @@ class _MainNavPageState extends State<MainNavPage> {
                     scan.symmetryScore.toStringAsFixed(2),
                   ),
                   _buildPdfMetricRow(
-                    'Stability Score',
+                    'Stability Score (S)',
                     scan.stabilityScore.toStringAsFixed(2),
                   ),
                   if (scan.predictionConfidence != null)
@@ -624,33 +625,11 @@ class _MainNavPageState extends State<MainNavPage> {
   }
 
   String _assessmentLabel(RecentTreeScan scan) {
-    switch (scan.assessment.name) {
-      case 'high':
-        return 'High Stability';
-      case 'moderate':
-        return 'Moderate Stability';
-      case 'low':
-        return 'Low Stability';
-      case 'veryUnstable':
-        return 'Very Unstable';
-      default:
-        return 'Assessment unavailable.';
-    }
+    return scan.assessment.label;
   }
 
   String _assessmentDescription(RecentTreeScan scan) {
-    switch (scan.assessment.name) {
-      case 'high':
-        return 'High Stability (0.75–1.00) — Dense, well-distributed prop roots provide strong structural support.';
-      case 'moderate':
-        return 'Moderate Stability (0.50–0.74) — Root support is adequate but may be vulnerable under stronger stressors.';
-      case 'low':
-        return 'Low Stability (0.25–0.49) — Root structure is limited or uneven; stability may be compromised.';
-      case 'veryUnstable':
-        return 'Very Unstable (0.00–0.24) — Very limited or poorly distributed root support; high risk of instability.';
-      default:
-        return 'Assessment unavailable.';
-    }
+    return scan.assessment.description;
   }
 
   String _formatTimestamp(DateTime value) {
