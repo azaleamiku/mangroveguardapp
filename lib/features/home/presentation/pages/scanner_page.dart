@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
+import 'package:image_picker/image_picker.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import '../../models/mangrove_tree.dart';
 
@@ -171,6 +172,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   bool _isCapturing = false;
   String? _cameraError;
   String? _modelInitError;
+  final ImagePicker _imagePicker = ImagePicker();
   int _lastShutterSignal = 0;
   final GlobalKey _frameGuideInnerKey = GlobalKey();
   Rect? _lastFrameRectInViewport;
@@ -1609,6 +1611,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   }
 
   Widget _buildGuidancePanel() {
+    final canUpload = !_isCapturing;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -1617,11 +1620,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: caribbeanGreen.withValues(alpha: 0.3)),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
+          const Text(
             'Field Guidance',
             style: TextStyle(
               color: antiFlashWhite,
@@ -1630,10 +1633,33 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               letterSpacing: 0.4,
             ),
           ),
-          SizedBox(height: 6),
-          Text(
+          const SizedBox(height: 6),
+          const Text(
             '1) Keep the trunk base fully visible.\n2) Hold steady and tap the center shutter button.\n3) Re-capture if roots are partially blocked.',
             style: TextStyle(color: antiFlashWhite, fontSize: 12, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: canUpload ? _handleUploadPhoto : null,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: antiFlashWhite,
+                backgroundColor: darkGreen.withValues(alpha: 0.45),
+                side: BorderSide(
+                  color: caribbeanGreen.withValues(alpha: 0.5),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.photo_library_rounded, size: 18),
+              label: Text(canUpload ? 'Upload Photo' : 'Processing...'),
+            ),
           ),
         ],
       ),
@@ -1697,6 +1723,34 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     } catch (_) {
       if (!mounted) return;
       _showTopNotification('Unexpected scanner error.');
+    } finally {
+      if (mounted) setState(() => _isCapturing = false);
+    }
+  }
+
+  Future<void> _handleUploadPhoto() async {
+    if (_isCapturing) return;
+
+    XFile? picked;
+    try {
+      picked = await _imagePicker.pickImage(source: ImageSource.gallery);
+    } on PlatformException catch (e) {
+      _showTopNotification(
+        'Photo picker failed: ${e.message ?? e.code}',
+      );
+      return;
+    } catch (_) {
+      _showTopNotification('Photo picker failed.');
+      return;
+    }
+
+    if (!mounted || picked == null) return;
+
+    setState(() => _isCapturing = true);
+    try {
+      await _runModelInferenceOnCapture(picked.path);
+      if (!mounted) return;
+      widget.onScanCompleted?.call();
     } finally {
       if (mounted) setState(() => _isCapturing = false);
     }

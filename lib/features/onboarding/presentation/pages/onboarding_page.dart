@@ -772,6 +772,8 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme.apply(fontFamily: 'DejaVuSans');
+    final primaryActionLabel =
+        _pageIndex == _steps.length - 1 ? 'Start Scanning' : 'Next';
 
     return Theme(
       data: theme.copyWith(textTheme: textTheme),
@@ -836,10 +838,25 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
                             ),
                           ),
                           onPressed: _handleNext,
-                          child: Text(
-                            _pageIndex == _steps.length - 1
-                                ? 'Start Scanning'
-                                : 'Next',
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 260),
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            transitionBuilder: (child, animation) {
+                              return FadeTransition(
+                                opacity: animation,
+                                child: SizeTransition(
+                                  sizeFactor: animation,
+                                  axis: Axis.horizontal,
+                                  axisAlignment: -1,
+                                  child: child,
+                                ),
+                              );
+                            },
+                            child: Text(
+                              primaryActionLabel,
+                              key: ValueKey(primaryActionLabel),
+                            ),
                           ),
                         ),
                       ],

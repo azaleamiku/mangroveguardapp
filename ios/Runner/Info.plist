@@ -47,6 +47,8 @@
 		<true/>
 		<key>NSCameraUsageDescription</key>
 		<string>MangroveGuard uses the camera to scan mangrove trees for support and resilience analysis.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>MangroveGuard uses your photo library to analyze uploaded mangrove images.</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
 	</dict>

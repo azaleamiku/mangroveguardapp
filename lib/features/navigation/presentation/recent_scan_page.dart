@@ -414,49 +414,20 @@ class _RecentScanPageState extends State<RecentScanPage> {
                             padding: EdgeInsets.all(photoBorderWidth),
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(18),
-                              child: hasImage
-                                  ? FutureBuilder<Size?>(
-                                      future: _loadImageSize(imagePath),
-                                      builder: (context, snapshot) {
-                                    final imageSize = snapshot.data;
-                                    if (imageSize == null) {
-                                      return Image.file(
-                                        File(imagePath),
-                                        fit: BoxFit.cover,
-                                        width: double.infinity,
-                                        height: double.infinity,
-                                        errorBuilder:
-                                            (context, error, stackTrace) {
-                                              return Container(
-                                                color: darkGreen.withValues(
-                                                  alpha: 0.55,
-                                                ),
-                                                child: const Center(
-                                                  child: Icon(
-                                                    Icons.broken_image_rounded,
-                                                    color: antiFlashWhite,
-                                                    size: 36,
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                      );
-                                    }
-
-                                    return FittedBox(
-                                      fit: BoxFit.cover,
-                                      alignment: Alignment.center,
-                                      child: SizedBox(
-                                        width: imageSize.width,
-                                        height: imageSize.height,
-                                        child: Stack(
-                                          fit: StackFit.expand,
-                                          children: [
-                                            Image.file(
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: hasImage
+                                        ? FutureBuilder<Size?>(
+                                            future: _loadImageSize(imagePath),
+                                            builder: (context, snapshot) {
+                                          final imageSize = snapshot.data;
+                                          if (imageSize == null) {
+                                            return Image.file(
                                               File(imagePath),
-                                              fit: BoxFit.fill,
-                                              width: imageSize.width,
-                                              height: imageSize.height,
+                                              fit: BoxFit.cover,
+                                              width: double.infinity,
+                                              height: double.infinity,
                                               errorBuilder:
                                                   (context, error, stackTrace) {
                                                     return Container(
@@ -474,122 +445,191 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                       ),
                                                     );
                                                   },
+                                            );
+                                          }
+
+                                          return FittedBox(
+                                            fit: BoxFit.cover,
+                                            alignment: Alignment.center,
+                                            child: SizedBox(
+                                              width: imageSize.width,
+                                              height: imageSize.height,
+                                              child: Stack(
+                                                fit: StackFit.expand,
+                                                children: [
+                                                  Image.file(
+                                                    File(imagePath),
+                                                    fit: BoxFit.fill,
+                                                    width: imageSize.width,
+                                                    height: imageSize.height,
+                                                    errorBuilder: (
+                                                      context,
+                                                      error,
+                                                      stackTrace,
+                                                    ) {
+                                                      return Container(
+                                                        color: darkGreen
+                                                            .withValues(
+                                                              alpha: 0.55,
+                                                            ),
+                                                        child: const Center(
+                                                          child: Icon(
+                                                            Icons
+                                                                .broken_image_rounded,
+                                                            color:
+                                                                antiFlashWhite,
+                                                            size: 36,
+                                                          ),
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                                  if (showHighlights &&
+                                                      hasTrunkMask)
+                                                    FutureBuilder<ui.Image?>(
+                                                      future:
+                                                          _loadTrunkMaskImage(
+                                                            scan,
+                                                          ),
+                                                      builder: (
+                                                        context,
+                                                        snapshot,
+                                                      ) {
+                                                        final maskImage =
+                                                            snapshot.data;
+                                                        if (maskImage == null) {
+                                                          if (trunkRects
+                                                              .isNotEmpty) {
+                                                            return CustomPaint(
+                                                              painter:
+                                                                  _RootHighlightPainter(
+                                                                    rects:
+                                                                        trunkRects,
+                                                                    color:
+                                                                        trunkHighlightColor,
+                                                                  ),
+                                                            );
+                                                          }
+                                                          return const SizedBox
+                                                              .shrink();
+                                                        }
+                                                        return CustomPaint(
+                                                          painter:
+                                                              _RootMaskPainter(
+                                                                maskImage:
+                                                                    maskImage,
+                                                                maskSize: Size(
+                                                                  scan.trunkMaskWidth!
+                                                                      .toDouble(),
+                                                                  scan.trunkMaskHeight!
+                                                                      .toDouble(),
+                                                                ),
+                                                              ),
+                                                        );
+                                                      },
+                                                    )
+                                                  else if (showHighlights &&
+                                                      trunkRects.isNotEmpty)
+                                                    CustomPaint(
+                                                      painter:
+                                                          _RootHighlightPainter(
+                                                            rects: trunkRects,
+                                                            color:
+                                                                trunkHighlightColor,
+                                                          ),
+                                                    ),
+                                                  if (showHighlights &&
+                                                      hasRootMask)
+                                                    FutureBuilder<ui.Image?>(
+                                                      future:
+                                                          _loadRootMaskImage(
+                                                            scan,
+                                                          ),
+                                                      builder: (
+                                                        context,
+                                                        snapshot,
+                                                      ) {
+                                                        final maskImage =
+                                                            snapshot.data;
+                                                        if (maskImage == null) {
+                                                          if (rootRects
+                                                              .isNotEmpty) {
+                                                            return CustomPaint(
+                                                              painter:
+                                                                  _RootHighlightPainter(
+                                                                    rects:
+                                                                        rootRects,
+                                                                    color:
+                                                                        caribbeanGreen,
+                                                                  ),
+                                                            );
+                                                          }
+                                                          return const SizedBox
+                                                              .shrink();
+                                                        }
+                                                        return CustomPaint(
+                                                          painter:
+                                                              _RootMaskPainter(
+                                                                maskImage:
+                                                                    maskImage,
+                                                                maskSize: Size(
+                                                                  scan.rootMaskWidth!
+                                                                      .toDouble(),
+                                                                  scan.rootMaskHeight!
+                                                                      .toDouble(),
+                                                                ),
+                                                              ),
+                                                        );
+                                                      },
+                                                    )
+                                                  else if (showHighlights &&
+                                                      rootRects.isNotEmpty)
+                                                    CustomPaint(
+                                                      painter:
+                                                          _RootHighlightPainter(
+                                                            rects: rootRects,
+                                                            color:
+                                                                caribbeanGreen,
+                                                          ),
+                                                    ),
+                                                ],
+                                              ),
                                             ),
-                                            if (showHighlights && hasTrunkMask)
-                                              FutureBuilder<ui.Image?>(
-                                                future: _loadTrunkMaskImage(
-                                                  scan,
-                                                ),
-                                                builder: (context, snapshot) {
-                                                  final maskImage =
-                                                      snapshot.data;
-                                                  if (maskImage == null) {
-                                                    if (trunkRects.isNotEmpty) {
-                                                      return CustomPaint(
-                                                        painter:
-                                                            _RootHighlightPainter(
-                                                              rects: trunkRects,
-                                                              color:
-                                                                  trunkHighlightColor,
-                                                            ),
-                                                      );
-                                                    }
-                                                    return const SizedBox.shrink();
-                                                  }
-                                                  return CustomPaint(
-                                                    painter: _RootMaskPainter(
-                                                      maskImage: maskImage,
-                                                      maskSize: Size(
-                                                        scan.trunkMaskWidth!
-                                                            .toDouble(),
-                                                        scan.trunkMaskHeight!
-                                                            .toDouble(),
-                                                      ),
-                                                    ),
-                                                  );
-                                                },
-                                              )
-                                            else if (showHighlights &&
-                                                trunkRects.isNotEmpty)
-                                              CustomPaint(
-                                                painter: _RootHighlightPainter(
-                                                  rects: trunkRects,
-                                                  color: trunkHighlightColor,
-                                                ),
+                                          );
+                                        },
+                                      )
+                                        : Container(
+                                            color: darkGreen.withValues(
+                                              alpha: 0.55,
+                                            ),
+                                            child: const Center(
+                                              child: Icon(
+                                                Icons.image_rounded,
+                                                color: antiFlashWhite,
+                                                size: 36,
                                               ),
-                                            if (showHighlights && hasRootMask)
-                                              FutureBuilder<ui.Image?>(
-                                                future: _loadRootMaskImage(
-                                                  scan,
-                                                ),
-                                                builder: (context, snapshot) {
-                                                  final maskImage =
-                                                      snapshot.data;
-                                                  if (maskImage == null) {
-                                                    if (rootRects.isNotEmpty) {
-                                                      return CustomPaint(
-                                                        painter:
-                                                            _RootHighlightPainter(
-                                                              rects: rootRects,
-                                                              color:
-                                                                  caribbeanGreen,
-                                                            ),
-                                                      );
-                                                    }
-                                                    return const SizedBox.shrink();
-                                                  }
-                                                  return CustomPaint(
-                                                    painter: _RootMaskPainter(
-                                                      maskImage: maskImage,
-                                                      maskSize: Size(
-                                                        scan.rootMaskWidth!
-                                                            .toDouble(),
-                                                        scan.rootMaskHeight!
-                                                            .toDouble(),
-                                                      ),
-                                                    ),
-                                                  );
-                                                },
-                                              )
-                                            else if (showHighlights &&
-                                                rootRects.isNotEmpty)
-                                              CustomPaint(
-                                                painter: _RootHighlightPainter(
-                                                  rects: rootRects,
-                                                  color: caribbeanGreen,
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                )
-                              : Container(
-                                  color: darkGreen.withValues(alpha: 0.55),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.image_rounded,
-                                      color: antiFlashWhite,
-                                      size: 36,
-                                    ),
+                                            ),
+                                          ),
                                   ),
-                                ),
+                                  if (hasImage && hasAnyHighlight)
+                                    Positioned(
+                                      bottom: 12,
+                                      right: 12,
+                                      child: _PeekHighlightButton(
+                                        pressed: _peekRawPhoto,
+                                        onPressedChanged: (pressed) {
+                                          if (!mounted) return;
+                                          setState(
+                                            () => _peekRawPhoto = pressed,
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                        if (hasImage && hasAnyHighlight)
-                          Positioned(
-                            bottom: 10,
-                            right: 10,
-                            child: _PeekHighlightButton(
-                              pressed: _peekRawPhoto,
-                              onPressedChanged: (pressed) {
-                                if (!mounted) return;
-                                setState(() => _peekRawPhoto = pressed);
-                              },
-                            ),
-                          ),
                       ],
                     ),
                   ),
