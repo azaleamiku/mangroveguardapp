@@ -146,8 +146,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   static const int _expectedModelByteLength = 13309083;
   static const int _expectedModelCrc32 = 4261647035;
   static const double _defaultMetersPerPixel = 0.003;
-  static const double _trunkConfidenceThreshold = 0.85;
-  static const double _rootConfidenceThreshold = 0.85;
+  static const double _trunkConfidenceThreshold = 0.80;
+  static const double _rootConfidenceThreshold = 0.80;
   static const double _trunkGuideYFraction = 0.6;
   static const List<String> _instanceClassLabels = [
     'mangrove_root',

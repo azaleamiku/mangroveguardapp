@@ -299,16 +299,7 @@ class _MainNavPageState extends State<MainNavPage> {
                   color: PdfColors.teal900,
                 ),
               ),
-              pw.SizedBox(height: 6),
-              pw.Text(
-                scan.treeId,
-                style: pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.grey800,
-                ),
-              ),
-              pw.SizedBox(height: 12),
+              pw.SizedBox(height: 10),
               pw.Text(
                 'Scanned at: ${_formatTimestamp(scan.scannedAt)}',
                 style: const pw.TextStyle(fontSize: 11),
@@ -353,15 +344,6 @@ class _MainNavPageState extends State<MainNavPage> {
               pw.Text(
                 _assessmentDescription(scan),
                 style: const pw.TextStyle(fontSize: 11),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Text(
-                'Disclaimer: AI-generated results are assistive and should not replace expert ecological judgement. '
-                'Follow field safety practices when working in mangrove areas.',
-                style: pw.TextStyle(
-                  fontSize: 10.5,
-                  color: PdfColors.grey700,
-                ),
               ),
             ];
 
@@ -412,8 +394,7 @@ class _MainNavPageState extends State<MainNavPage> {
         ),
       );
 
-      final fileName =
-          '${_sanitizeFileName(scan.treeId)}_${scan.scannedAt.millisecondsSinceEpoch}.pdf';
+      final fileName = 'scan_${scan.scannedAt.millisecondsSinceEpoch}.pdf';
 
       final pdfBytes = await pdf.save();
       if (Platform.isAndroid) {

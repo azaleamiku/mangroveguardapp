@@ -55,11 +55,39 @@ class _RecentScanPageState extends State<RecentScanPage> {
     final exportedPdfPath = await saveCallback(index);
     if (!mounted) return;
     final filename = exportedPdfPath?.split('/').last;
+    if (filename == null) {
+      _showNotice(
+        message: 'PDF export failed. Try a full app restart.',
+        kind: _NoticeKind.error,
+      );
+      return;
+    }
+
+    final safePath = exportedPdfPath!;
     _showNotice(
-      message: filename == null
-          ? 'PDF export failed. Try a full app restart.'
-          : 'PDF exported to Downloads/MangroveGuard: $filename',
-      kind: filename == null ? _NoticeKind.error : _NoticeKind.success,
+      message: 'Saved to Downloads/MangroveGuard • $filename',
+      kind: _NoticeKind.success,
+      actionLabel: 'Open',
+      onAction: () async {
+        final openCallback = widget.onOpenExportPath;
+        if (openCallback == null) return;
+        try {
+          final opened = await openCallback(safePath);
+          if (!mounted) return;
+          if (!opened) {
+            _showNotice(
+              message: 'Unable to open the PDF. Try from Downloads.',
+              kind: _NoticeKind.error,
+            );
+          }
+        } catch (_) {
+          if (!mounted) return;
+          _showNotice(
+            message: 'Unable to open the PDF. Try from Downloads.',
+            kind: _NoticeKind.error,
+          );
+        }
+      },
     );
   }
 
@@ -264,17 +292,127 @@ class _RecentScanPageState extends State<RecentScanPage> {
   void _showNotice({
     required String message,
     required _NoticeKind kind,
+    String? actionLabel,
+    Future<void> Function()? onAction,
   }) {
     if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: _noticeColor(kind),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
+    final navigator = Navigator.of(context, rootNavigator: true);
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'notification',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 260),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted && navigator.mounted && navigator.canPop()) {
+            navigator.pop();
+          }
+        });
+
+        final accentColor = _noticeAccentColor(kind);
+        final actionText = actionLabel?.trim();
+        final hasAction =
+            actionText != null && actionText.isNotEmpty && onAction != null;
+
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: darkGreen.withValues(alpha: 0.94),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: accentColor.withValues(alpha: 0.4),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.35),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _noticeIcon(kind),
+                        color: accentColor,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Flexible(
+                        child: Text(
+                          message,
+                          style: const TextStyle(
+                            color: antiFlashWhite,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (hasAction) ...[
+                        const SizedBox(width: 12),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: accentColor,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: BorderSide(
+                                color: accentColor.withValues(alpha: 0.45),
+                              ),
+                            ),
+                          ),
+                          onPressed: () async {
+                            if (navigator.canPop()) {
+                              navigator.pop();
+                            }
+                            await onAction();
+                          },
+                          child: Text(
+                            actionText,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, -0.2),
+            end: Offset.zero,
+          ).animate(curved),
+          child: FadeTransition(opacity: curved, child: child),
+        );
+      },
     );
   }
 
@@ -326,14 +464,25 @@ class _RecentScanPageState extends State<RecentScanPage> {
     }
   }
 
-  Color _noticeColor(_NoticeKind kind) {
+  Color _noticeAccentColor(_NoticeKind kind) {
     switch (kind) {
       case _NoticeKind.success:
-        return const Color(0xFF10B981);
+        return caribbeanGreen;
       case _NoticeKind.delete:
         return const Color(0xFFEF4444);
       case _NoticeKind.error:
         return const Color(0xFFF97316);
+    }
+  }
+
+  IconData _noticeIcon(_NoticeKind kind) {
+    switch (kind) {
+      case _NoticeKind.success:
+        return Icons.picture_as_pdf_rounded;
+      case _NoticeKind.delete:
+        return Icons.delete_forever_rounded;
+      case _NoticeKind.error:
+        return Icons.error_outline_rounded;
     }
   }
 
@@ -829,16 +978,6 @@ class _RecentScanPageState extends State<RecentScanPage> {
                           },
                         ),
                         const SizedBox(height: 14),
-                        Text(
-                          'Disclaimer: AI-generated results are assistive and should not replace expert ecological judgement.',
-                          style: TextStyle(
-                            color: antiFlashWhite.withValues(alpha: 0.78),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            height: 1.35,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(

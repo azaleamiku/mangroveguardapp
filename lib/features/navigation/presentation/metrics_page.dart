@@ -633,7 +633,7 @@ class _AboutAppSheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device instance segmentation for real-time tree analysis. By extracting root geometry and computing a weighted stability score, the system evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan. AI-generated results are assistive and should not replace expert ecological judgement.',
+                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device instance segmentation for real-time tree analysis. By extracting root geometry and computing a weighted stability score, the system evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
                                     style: TextStyle(
                                       color: MetricsPage.antiFlashWhite
                                           .withValues(alpha: 0.82),
@@ -778,51 +778,6 @@ class _AboutAppSheet extends StatelessWidget {
                                         ],
                                       );
                                     },
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: MetricsPage.darkGreen.withValues(
-                                  alpha: 0.9,
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: MetricsPage.bangladeshGreen.withValues(
-                                    alpha: 0.9,
-                                  ),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Safety & Disclaimer',
-                                    style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
-                                          .withValues(alpha: 0.9),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.2,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Please use caution during fieldwork in mangrove areas (slippery ground, tides, and weather). AI-generated results are assistive and should not replace expert ecological judgement.',
-                                    style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
-                                          .withValues(alpha: 0.82),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.35,
-                                    ),
                                   ),
                                 ],
                               ),
