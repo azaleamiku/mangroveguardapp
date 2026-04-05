@@ -743,41 +743,32 @@ class _AboutAppSheet extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 10),
-                                  LayoutBuilder(
-                                    builder: (context, constraints) {
-                                      final tileWidth =
-                                          (constraints.maxWidth - 10) / 2;
-                                      return Wrap(
-                                        spacing: 10,
-                                        runSpacing: 10,
-                                        children: [
-                                          SizedBox(
-                                            width: tileWidth,
-                                            child: const _AboutPillMetric(
-                                              icon: Icons.trending_down_rounded,
-                                              label: 'Low',
-                                              value: '0.00–0.49',
-                                            ),
-                                          ),
-                                          SizedBox(
-                                            width: tileWidth,
-                                            child: const _AboutPillMetric(
-                                              icon: Icons.trending_flat_rounded,
-                                              label: 'Moderate',
-                                              value: '0.50–0.74',
-                                            ),
-                                          ),
-                                          SizedBox(
-                                            width: tileWidth,
-                                            child: const _AboutPillMetric(
-                                              icon: Icons.trending_up_rounded,
-                                              label: 'High',
-                                              value: '0.75–1.00',
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    },
+                                  Row(
+                                    children: const [
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.trending_down_rounded,
+                                          label: 'Low',
+                                          value: '0.00–0.49',
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.trending_flat_rounded,
+                                          label: 'Moderate',
+                                          value: '0.50–0.74',
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.trending_up_rounded,
+                                          label: 'High',
+                                          value: '0.75–1.00',
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
@@ -1065,43 +1056,35 @@ class _StabilityBreakdownCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final tileWidth = (constraints.maxWidth - 10) / 2;
-              return Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  SizedBox(
-                    width: tileWidth,
-                    child: _BreakdownMetric(
-                      label: 'High',
-                      value: '$highCount',
-                      color: MetricsPage.caribbeanGreen,
-                      icon: Icons.trending_up_rounded,
-                    ),
-                  ),
-                  SizedBox(
-                    width: tileWidth,
-                    child: _BreakdownMetric(
-                      label: 'Moderate',
-                      value: '$moderateCount',
-                      color: const Color(0xFFF59E0B),
-                      icon: Icons.trending_flat_rounded,
-                    ),
-                  ),
-                  SizedBox(
-                    width: tileWidth,
-                    child: _BreakdownMetric(
-                      label: 'Low',
-                      value: '$lowCount',
-                      color: const Color(0xFFEF4444),
-                      icon: Icons.trending_down_rounded,
-                    ),
-                  ),
-                ],
-              );
-            },
+          Row(
+            children: [
+              Expanded(
+                child: _BreakdownMetric(
+                  label: 'Low',
+                  value: '$lowCount',
+                  color: const Color(0xFFEF4444),
+                  icon: Icons.trending_down_rounded,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _BreakdownMetric(
+                  label: 'Moderate',
+                  value: '$moderateCount',
+                  color: const Color(0xFFF59E0B),
+                  icon: Icons.trending_flat_rounded,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _BreakdownMetric(
+                  label: 'High',
+                  value: '$highCount',
+                  color: MetricsPage.caribbeanGreen,
+                  icon: Icons.trending_up_rounded,
+                ),
+              ),
+            ],
           ),
         ],
       ),
