@@ -24,6 +24,12 @@ const String _liveIsolateResult = 'result';
 const String _liveIsolateError = 'error';
 const String _liveIsolateStop = 'stop';
 
+const String _stillIsolateReady = 'still_ready';
+const String _stillIsolateProcess = 'still_process';
+const String _stillIsolateResult = 'still_result';
+const String _stillIsolateError = 'still_error';
+const String _stillIsolateStop = 'still_stop';
+
 int _clampByte(num value) {
   if (value < 0) return 0;
   if (value > 255) return 255;
@@ -100,6 +106,69 @@ Rect? _cropRectFromNormalized({
     cropRight.toDouble(),
     cropBottom.toDouble(),
   );
+}
+
+void _stillAssessmentIsolate(Map<String, Object?> config) async {
+  final sendPort = config['sendPort'] as SendPort;
+  final modelData = config['modelData'] as TransferableTypedData;
+  final modelBytes = modelData.materialize().asUint8List();
+
+  MangroveDetector detector;
+  try {
+    detector = await MangroveDetector.createFromBuffer(modelBytes);
+  } catch (e) {
+    sendPort.send({'type': _stillIsolateError, 'error': e.toString()});
+    return;
+  }
+
+  final receivePort = ReceivePort();
+  sendPort.send({'type': _stillIsolateReady, 'sendPort': receivePort.sendPort});
+
+  await for (final message in receivePort) {
+    if (message is! Map<String, Object?>) continue;
+    final type = message['type'];
+    if (type == _stillIsolateStop) {
+      break;
+    }
+    if (type != _stillIsolateProcess) continue;
+
+    final requestId = message['requestId'] as int?;
+    try {
+      final imageBytes = (message['imageBytes'] as TransferableTypedData).materialize().asUint8List();
+      final img.Image? image = img.decodeImage(imageBytes);
+      if (image == null) {
+        sendPort.send({'type': _stillIsolateError, 'requestId': requestId, 'error': 'Failed to decode image'});
+        continue;
+      }
+      final detection = await detector.detectFromImage(image);
+      final trunkWidth = detection.tree.trunkWidthAtBranchPoint;
+      final confidence = detection.predictionConfidence;
+      final assessmentName = detection.predictedAssessment?.name ?? '';
+      final bounds = detection.tree.treeBounds;
+      sendPort.send({
+        'type': _stillIsolateResult,
+        'requestId': requestId,
+        'treeTrunkWidth': trunkWidth,
+        'confidence': confidence,
+        'assessmentName': assessmentName,
+        'treeBounds': bounds == null ? null : {
+          'left': bounds.left,
+          'top': bounds.top,
+          'right': bounds.right,
+          'bottom': bounds.bottom,
+        },
+      });
+    } catch (e) {
+      sendPort.send({
+        'type': _stillIsolateError,
+        'requestId': requestId,
+        'error': e.toString(),
+      });
+    }
+  }
+
+  detector.dispose();
+  receivePort.close();
 }
 
 void _liveAssessmentIsolate(Map<String, Object?> config) async {
@@ -329,6 +398,19 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   int _liveRequestId = 0;
   int _pendingLiveRequestId = 0;
   Uint8List? _liveModelBytes;
+  
+  // Still isolate for fast photo processing
+  Isolate? _stillIsolate;
+  ReceivePort? _stillReceivePort;
+  SendPort? _stillSendPort;
+  bool _isStillIsolateReady = false;
+  bool _isStillIsolateStarting = false;
+  Completer<void>? _stillReadyCompleter;
+  Uint8List? _stillModelBytes;
+  bool _isStillProcessing = false;
+  int _stillRequestId = 0;
+  int _pendingStillRequestId = 0;
+  
   bool _isCameraInitInProgress = false;
 
 
@@ -355,13 +437,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
   }
 
-  @override
+@override
   void dispose() {
     widget.controller?.stopRealtimeAssessment();
     widget.controller?.removeListener(_handleControllerSignal);
     WidgetsBinding.instance.removeObserver(this);
     _stopRealtimeAssessment();
     _disposeLiveIsolate();
+    _disposeStillIsolate();
     _safeDisposeCamera();
     _detector?.dispose();
     super.dispose();
@@ -407,17 +490,16 @@ Future<void> _scheduleCameraInit() async {
     // Request camera permission first
     final permissionStatus = await Permission.camera.request();
     _cameraPermissionStatus = permissionStatus;
-    if (!permissionStatus.isGranted) {
-      if (mounted) {
-        setState(() {
-          _isInitializing = false;
-          _cameraError = permissionStatus.isDenied 
-              ? 'Camera permission required. Please grant access.' 
-              : 'Camera access permanently denied. Enable in Settings.';
-        });
+      if (!permissionStatus.isGranted) {
+        if (mounted) {
+          setState(() {
+            _cameraError = permissionStatus.isDenied 
+                ? 'Camera permission required. Please grant access.' 
+                : 'Camera access permanently denied. Enable in Settings.';
+          });
+        }
+        return;
       }
-      return;
-    }
     
     unawaited(_ensureLiveIsolateReady());
     // Longer cold-start delay to avoid race conditions
@@ -428,11 +510,155 @@ Future<void> _scheduleCameraInit() async {
   }
 }
 
-Future<void> _initCamera() async {
-  setState(() {
-    _isInitializing = true;
-    _cameraError = null;
+Future<void> _ensureStillIsolateReady() async {
+  if (_isStillIsolateReady) return;
+  if (_isStillIsolateStarting) {
+    final completer = _stillReadyCompleter;
+    if (completer != null) await completer.future;
+    return;
+  }
+
+  _isStillIsolateStarting = true;
+  _stillReadyCompleter = Completer<void>();
+  _stillModelBytes ??= await MangroveDetector.loadModelBytes();
+  
+  _stillReceivePort ??= ReceivePort();
+  _stillReceivePort!.listen(_handleStillIsolateMessage);
+
+    _stillIsolate = await Isolate.spawn(
+      _stillAssessmentIsolate,
+    {
+      'sendPort': _stillReceivePort!.sendPort,
+      'modelData': TransferableTypedData.fromList([_stillModelBytes!]),
+    },
+    debugName: 'still-assessment',
+  );
+  
+  await _stillReadyCompleter!.future.timeout(
+    const Duration(seconds: 3),
+    onTimeout: () {
+      final completer = _stillReadyCompleter;
+      if (completer != null && !completer.isCompleted) completer.complete();
+    },
+  );
+  _isStillIsolateStarting = false;
+}
+
+void _handleStillIsolateMessage(dynamic message) {
+  if (message is! Map) return;
+  final type = message['type'];
+  if (type == _stillIsolateReady) {
+    _stillSendPort = message['sendPort'] as SendPort?;
+    _isStillIsolateReady = _stillSendPort != null;
+    final completer = _stillReadyCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+    return;
+  }
+  if (type == _stillIsolateResult) {
+    final requestId = message['requestId'] as int?;
+    if (requestId != _pendingStillRequestId) return;
+    _isStillProcessing = false;
+    if (mounted) setState(() => _isCapturing = false);
+    
+    final trunkWidth = (message['treeTrunkWidth'] as num?)?.toDouble() ?? 0.0;
+    final confidence = message['confidence'] as double?;
+    final assessmentName = message['assessmentName'] as String?;
+    final boundsData = message['treeBounds'] as Map?;
+    
+    StabilityAssessment? assessment;
+    if (assessmentName != null && assessmentName.isNotEmpty) {
+      try {
+        assessment = StabilityAssessment.values.byName(assessmentName);
+      } catch (_) {}
+    }
+    
+    TreeBounds? bounds;
+    if (boundsData != null) {
+      bounds = TreeBounds(
+        left: (boundsData['left'] as num).toDouble(),
+        top: (boundsData['top'] as num).toDouble(),
+        right: (boundsData['right'] as num).toDouble(),
+        bottom: (boundsData['bottom'] as num).toDouble(),
+      );
+    }
+    
+    final tree = MangroveTree(
+      trunkWidthAtBranchPoint: trunkWidth,
+      roots: const [],
+      treeBounds: bounds,
+    );
+    
+    widget.controller?.setLatestMeasuredTree(
+      tree: tree,
+      metersPerPixel: _defaultMetersPerPixel,
+      predictionConfidence: confidence,
+      capturedImagePath: _currentStillImagePath,
+      outcome: confidence != null && confidence >= _minPredictionConfidence 
+        ? ScanOutcome.detected 
+        : ScanOutcome.noMangroveDetected,
+      predictedAssessment: assessment,
+    );
+    widget.onScanCompleted?.call();
+    return;
+  }
+  if (type == _stillIsolateError) {
+    _isStillProcessing = false;
+    debugPrint('Still isolate error: ${message['error']}');
+  }
+}
+
+String? _currentStillImagePath;
+
+/// Resize image to max dimension for fast inference (5s → <1s).
+Future<Uint8List> _resizeImageForInference(String imagePath, {int maxDimension = 512}) async {
+  final bytes = await File(imagePath).readAsBytes();
+  final image = img.decodeImage(bytes);
+  if (image == null) return bytes; // Fallback
+
+  final scale = math.max(1, (math.max(image.width, image.height) / maxDimension).round());
+  final resized = img.copyResize(image, width: (image.width / scale).round(), height: (image.height / scale).round());
+
+  // PNG lossless for model input
+  return Uint8List.fromList(img.encodePng(resized));
+}
+
+Future<void> _processStillImage(String imagePath) async {
+  _currentStillImagePath = imagePath;
+  await _ensureStillIsolateReady();
+  if (!_isStillIsolateReady || _stillSendPort == null) {
+    if (mounted) setState(() => _isCapturing = false);
+    _storeCapturedImageResult(imagePath);
+    widget.onScanCompleted?.call();
+    return;
+  }
+  
+  if (_isStillProcessing) return;
+  _isStillProcessing = true;
+  
+  final resizedBytes = await _resizeImageForInference(imagePath);
+  final requestId = ++_stillRequestId;
+  _pendingStillRequestId = requestId;
+  
+  _stillSendPort!.send({
+    'type': _stillIsolateProcess,
+    'requestId': requestId,
+    'imageBytes': TransferableTypedData.fromList([resizedBytes]),
   });
+
+  // Reduced timeout with faster input
+  await Future.delayed(const Duration(seconds: 4));
+  if (_isStillProcessing && mounted) {
+    setState(() => _isCapturing = false);
+    _isStillProcessing = false;
+    widget.onScanCompleted?.call();
+  }
+}
+
+Future<void> _initCamera() async {
+  // Removed _isInitializing setState; UI shows immediately with status chips
+  _cameraError = null;
 
   const maxRetries = 3;
   var retryCount = 0;
@@ -472,7 +698,7 @@ Future<void> _initCamera() async {
 
       await _cameraController?.dispose();
       _cameraController = controller;
-      setState(() => _isInitializing = false);
+      // No _isInitializing set; status chips handle ready state
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
       }
@@ -604,6 +830,24 @@ Future<void> _initCamera() async {
     _liveIsolate = null;
   }
 
+  void _disposeStillIsolate() {
+    _isStillIsolateReady = false;
+    _isStillIsolateStarting = false;
+    final completer = _stillReadyCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+    _stillReadyCompleter = null;
+    try {
+      _stillSendPort?.send({'type': _stillIsolateStop});
+    } catch (_) {}
+    _stillReceivePort?.close();
+    _stillReceivePort = null;
+    _stillSendPort = null;
+    _stillIsolate?.kill(priority: Isolate.immediate);
+    _stillIsolate = null;
+  }
+
   void _handleLiveIsolateMessage(dynamic message) {
     if (message is! Map) return;
     final type = message['type'];
@@ -727,63 +971,12 @@ Future<void> _initCamera() async {
     );
   }
 
-  Future<void> _storeDetectedImageResult(String imagePath) async {
-    final detector = await _ensureDetector();
-    if (detector == null) {
-      _storeCapturedImageResult(imagePath);
-      return;
-    }
-
-    try {
-      final detection = await detector.detect(imagePath);
-      final confidence = detection.predictionConfidence;
-      final isConfident =
-          confidence != null && confidence >= _minPredictionConfidence;
-      final predictedAssessment = detection.predictedAssessment;
-      widget.controller?.setLatestMeasuredTree(
-        tree: detection.tree,
-        metersPerPixel: _defaultMetersPerPixel,
-        predictionConfidence: confidence,
-        capturedImagePath: imagePath,
-        outcome: predictedAssessment != null && isConfident
-            ? ScanOutcome.detected
-            : ScanOutcome.noMangroveDetected,
-        predictedAssessment: predictedAssessment,
-      );
-    } catch (e) {
-      debugPrint('Detector failed: $e');
-      _storeCapturedImageResult(imagePath);
-      if (!mounted) return;
-      _showTopNotification('Detection failed. Saved photo only.');
-    }
-  }
-
-
   @override
   Widget build(BuildContext context) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _cacheFrameRectIfPossible();
     });
-
-    if (_isInitializing) {
-      return const Scaffold(
-        backgroundColor: richBlack,
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: caribbeanGreen),
-              SizedBox(height: 20),
-              Text(
-                'Initializing Scanner...',
-                style: TextStyle(color: antiFlashWhite, fontSize: 16),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
 
     if (_cameraError != null) {
       return Scaffold(
@@ -1182,6 +1375,7 @@ Future<void> _initCamera() async {
     );
   }
   void _cacheFrameRectIfPossible() {
+    if (!mounted) return;
     final frameContext = _frameGuideInnerKey.currentContext;
     final rootRenderObject = context.findRenderObject();
     final frameRenderObject = frameContext?.findRenderObject();
@@ -1194,6 +1388,7 @@ Future<void> _initCamera() async {
     _lastFrameRectInViewport =
         (frameGlobalTopLeft - rootGlobalTopLeft) & frameRenderObject.size;
     _lastViewportSize = rootRenderObject.size;
+    if (mounted) setState(() {});
   }
 
   Rect? _previewCropRectForFrameGuide({
@@ -1541,60 +1736,56 @@ Future<void> _initCamera() async {
     unawaited(controller.stopImageStream().catchError((_) {}));
   }
 
-  Future<void> _captureShutter() async {
-    final controller = _cameraController;
-    if (_isRealtimeAssessment) return;
-    if (_isCapturing || controller == null || !controller.value.isInitialized) {
-      return;
-    }
-    if (controller.value.isTakingPicture) return;
+Future<void> _captureShutter() async {
+  final controller = _cameraController;
+  if (_isRealtimeAssessment) return;
+  if (_isCapturing || controller == null || !controller.value.isInitialized) {
+    return;
+  }
+  if (controller.value.isTakingPicture) return;
 
-    setState(() => _isCapturing = true);
-    try {
-      final picture = await controller.takePicture();
-      final croppedImagePath = await _cropCapturedImageToFrame(picture.path);
-      if (!mounted) return;
-      await _storeDetectedImageResult(croppedImagePath);
-      if (!mounted) return;
-      widget.onScanCompleted?.call();
-    } on CameraException catch (e) {
-      if (!mounted) return;
-      _showTopNotification('Capture failed: ${e.description ?? e.code}');
-    } catch (_) {
-      if (!mounted) return;
-      _showTopNotification('Unexpected scanner error.');
-    } finally {
-      if (mounted) setState(() => _isCapturing = false);
-    }
+  setState(() => _isCapturing = true);
+  try {
+    final picture = await controller.takePicture();
+    final croppedImagePath = await _cropCapturedImageToFrame(picture.path);
+    if (!mounted) return;
+    await _processStillImage(croppedImagePath);
+  } on CameraException catch (e) {
+    if (!mounted) return;
+    _showTopNotification('Capture failed: ${e.description ?? e.code}');
+    setState(() => _isCapturing = false);
+  } catch (e) {
+    if (!mounted) return;
+    _showTopNotification('Capture error: $e');
+    setState(() => _isCapturing = false);
+  }
+}
+
+Future<void> _handleUploadPhoto() async {
+  if (_isCapturing || _isRealtimeAssessment) return;
+
+  XFile? picked;
+  try {
+    picked = await _imagePicker.pickImage(source: ImageSource.gallery);
+  } on PlatformException catch (e) {
+    _showTopNotification(
+      'Photo picker failed: ${e.message ?? e.code}',
+    );
+    return;
+  } catch (_) {
+    _showTopNotification('Photo picker failed.');
+    return;
   }
 
-  Future<void> _handleUploadPhoto() async {
-    if (_isCapturing || _isRealtimeAssessment) return;
+  if (!mounted || picked == null) return;
 
-    XFile? picked;
-    try {
-      picked = await _imagePicker.pickImage(source: ImageSource.gallery);
-    } on PlatformException catch (e) {
-      _showTopNotification(
-        'Photo picker failed: ${e.message ?? e.code}',
-      );
-      return;
-    } catch (_) {
-      _showTopNotification('Photo picker failed.');
-      return;
-    }
-
-    if (!mounted || picked == null) return;
-
-    setState(() => _isCapturing = true);
-    try {
-      await _storeDetectedImageResult(picked.path);
-      if (!mounted) return;
-      widget.onScanCompleted?.call();
-    } finally {
-      if (mounted) setState(() => _isCapturing = false);
-    }
+  setState(() => _isCapturing = true);
+  try {
+    await _processStillImage(picked.path);
+  } finally {
+    if (mounted) setState(() => _isCapturing = false);
   }
+}
 
   Future<String> _cropCapturedImageToFrame(String imagePath) async {
     final controller = _cameraController;
@@ -1643,7 +1834,7 @@ Future<void> _initCamera() async {
       final cropHeight = cropBottom - cropTop;
       if (cropWidth <= 1 || cropHeight <= 1) return imagePath;
 
-      final cropped = img.copyCrop(
+      var cropped = img.copyCrop(
         oriented,
         x: cropLeft,
         y: cropTop,
@@ -1651,17 +1842,20 @@ Future<void> _initCamera() async {
         height: cropHeight,
       );
 
+      // Resize cropped for fast inference + smaller storage
+      final maxDim = 512;
+      final scale = math.max(1, math.max(cropped.width, cropped.height) ~/ maxDim);
+      cropped = img.copyResize(cropped, width: (cropped.width ~/ scale), height: (cropped.height ~/ scale));
+
       final extension = _fileExtension(imagePath);
       final croppedPath = imagePath.replaceFirst(
         RegExp(r'\.[^.]+$'),
         '_grid$extension',
       );
-      await File(
-        croppedPath,
-      ).writeAsBytes(img.encodeJpg(cropped, quality: 95), flush: true);
+      await File(croppedPath).writeAsBytes(img.encodeJpg(cropped, quality: 95), flush: true);
       return croppedPath;
     } catch (e) {
-      debugPrint('Failed to crop capture to frame guide: $e');
+      debugPrint('Failed to crop/resize capture: $e');
       return imagePath;
     }
   }

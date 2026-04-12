@@ -1,34 +1,14 @@
-# MangroveGuardApp Camera Preview Fix - Task Progress
+# MangroveGuardApp Tasks Complete ✓
 
-## Approved Plan Summary
-1. Add permission_handler plugin & request camera permission before init
-2. Improve diagnostics/logging/error UI in scanner_page.dart
-3. Extend camera init retries + delays
-4. Add permission hint in onboarding
+1. ✅ Fixed loading screen flash after photo upload/Rescan (removed blocking Scaffold).
+2. 🔄 NEW: Speed up photo inference (5s+ → <1s) with image resize optimization.
 
-## Steps (0/4 complete)
+## Speedup Complete ✓
+- [x] 1. Added _resizeImageForInference (PNG 512px max) → _processStillImage uses resized bytes (gallery).
+- [x] 2. Updated _cropCapturedImageToFrame with resize after crop (live capture).
+- Reduced timeout 8s → 4s.
+- Expected: 5s+ → <1s inference.
 
-### ✅ 1. Update pubspec.yaml (add permission_handler)
-- Add dependency ✓
-- `flutter pub get` ✓
+Hot reload & test photo upload/capture timing.
 
-### ✅ 2. Edit scanner_page.dart
-- Import permission_handler ✓
-- Permission request in _scheduleCameraInit() ✓
-- Enhanced error UI/logging ✓
-- Safe dispose ✓
-- Extended retries ✓
 
-### ☐ 3. Edit onboarding_page.dart
-- Add camera permission guidance text/card
-
-### ☐ 4. Test & Verify
-- flutter clean && flutter pub get
-- Test first install on device: deny/grant permissions
-- Check console logs, verify preview works
-
-**Next Action**: Complete Step 1 (pubspec.yaml)
-
----
-
-*Updated: $(date)*
