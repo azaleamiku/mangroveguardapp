@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
+import '../../data/mangrove_detector.dart';
 import '../../models/mangrove_tree.dart';
 
 const Color caribbeanGreen = Color(0xFF00DF81);
@@ -14,41 +16,223 @@ const Color antiFlashWhite = Color(0xFFF1F7F6);
 const Color darkGreen = Color(0xFF032221);
 const Color richBlack = Color(0xFF021B1A);
 
+const String _liveIsolateReady = 'ready';
+const String _liveIsolateProcess = 'process';
+const String _liveIsolateResult = 'result';
+const String _liveIsolateError = 'error';
+const String _liveIsolateStop = 'stop';
+
+int _clampByte(num value) {
+  if (value < 0) return 0;
+  if (value > 255) return 255;
+  return value.round();
+}
+
+img.Image _convertYuv420ToRgb({
+  required int width,
+  required int height,
+  required Uint8List bytesY,
+  required Uint8List bytesU,
+  required Uint8List bytesV,
+  required int yRowStride,
+  required int uvRowStride,
+  required int uvPixelStride,
+  int? maxDimension,
+}) {
+  final scale = (maxDimension == null)
+      ? 1
+      : math.max(
+          1,
+          ((math.max(width, height) + maxDimension - 1) ~/ maxDimension),
+        );
+  final scaledWidth = (width + scale - 1) ~/ scale;
+  final scaledHeight = (height + scale - 1) ~/ scale;
+  final img.Image imgImage =
+      img.Image(width: scaledWidth, height: scaledHeight);
+
+  var dy = 0;
+  for (int y = 0; y < height; y += scale) {
+    final int uvRow = uvRowStride * (y >> 1);
+    final int yRow = yRowStride * y;
+    var dx = 0;
+    for (int x = 0; x < width; x += scale) {
+      final int yIndex = yRow + x;
+      final int uvIndex = uvRow + (x >> 1) * uvPixelStride;
+      final int yVal = bytesY[yIndex];
+      final int uVal = bytesU[uvIndex];
+      final int vVal = bytesV[uvIndex];
+      final int r = _clampByte(yVal + (1.403 * (vVal - 128)));
+      final int g =
+          _clampByte(yVal - (0.344 * (uVal - 128)) - (0.714 * (vVal - 128)));
+      final int b = _clampByte(yVal + (1.770 * (uVal - 128)));
+      imgImage.setPixelRgb(dx, dy, r, g, b);
+      dx++;
+    }
+    dy++;
+  }
+
+  if (scaledWidth > scaledHeight) {
+    return img.copyRotate(imgImage, angle: 90);
+  }
+  return imgImage;
+}
+
+Rect? _cropRectFromNormalized({
+  required double left,
+  required double top,
+  required double right,
+  required double bottom,
+  required int width,
+  required int height,
+}) {
+  final cropLeft = (left * width).round().clamp(0, width - 1);
+  final cropTop = (top * height).round().clamp(0, height - 1);
+  final cropRight = (right * width).round().clamp(cropLeft + 1, width);
+  final cropBottom = (bottom * height).round().clamp(cropTop + 1, height);
+  if (cropRight - cropLeft <= 1 || cropBottom - cropTop <= 1) {
+    return null;
+  }
+  return Rect.fromLTRB(
+    cropLeft.toDouble(),
+    cropTop.toDouble(),
+    cropRight.toDouble(),
+    cropBottom.toDouble(),
+  );
+}
+
+void _liveAssessmentIsolate(Map<String, Object?> config) async {
+  final sendPort = config['sendPort'] as SendPort;
+  final modelData = config['modelData'] as TransferableTypedData;
+  final modelBytes = modelData.materialize().asUint8List();
+
+  MangroveDetector detector;
+  try {
+    detector = await MangroveDetector.createFromBuffer(modelBytes);
+  } catch (e) {
+    sendPort.send({'type': _liveIsolateError, 'error': e.toString()});
+    return;
+  }
+
+  final receivePort = ReceivePort();
+  sendPort.send({'type': _liveIsolateReady, 'sendPort': receivePort.sendPort});
+
+  await for (final message in receivePort) {
+    if (message is! Map<String, Object?>) continue;
+    final type = message['type'];
+    if (type == _liveIsolateStop) {
+      break;
+    }
+    if (type != _liveIsolateProcess) continue;
+
+    final requestId = message['requestId'] as int?;
+    try {
+      final width = message['width'] as int;
+      final height = message['height'] as int;
+      final yRowStride = message['yRowStride'] as int;
+      final uvRowStride = message['uvRowStride'] as int;
+      final uvPixelStride = message['uvPixelStride'] as int;
+      final maxDimension = message['maxDimension'] as int?;
+      final bytesY =
+          (message['bytesY'] as TransferableTypedData).materialize().asUint8List();
+      final bytesU =
+          (message['bytesU'] as TransferableTypedData).materialize().asUint8List();
+      final bytesV =
+          (message['bytesV'] as TransferableTypedData).materialize().asUint8List();
+      final crop = message['crop'] as Map<String, Object?>?;
+
+      var rgb = _convertYuv420ToRgb(
+        width: width,
+        height: height,
+        bytesY: bytesY,
+        bytesU: bytesU,
+        bytesV: bytesV,
+        yRowStride: yRowStride,
+        uvRowStride: uvRowStride,
+        uvPixelStride: uvPixelStride,
+        maxDimension: maxDimension,
+      );
+
+      if (crop != null) {
+        final rect = _cropRectFromNormalized(
+          left: (crop['left'] as num).toDouble(),
+          top: (crop['top'] as num).toDouble(),
+          right: (crop['right'] as num).toDouble(),
+          bottom: (crop['bottom'] as num).toDouble(),
+          width: rgb.width,
+          height: rgb.height,
+        );
+        if (rect != null) {
+          rgb = img.copyCrop(
+            rgb,
+            x: rect.left.round(),
+            y: rect.top.round(),
+            width: rect.width.round(),
+            height: rect.height.round(),
+          );
+        }
+      }
+
+      final detection = await detector.detectFromImage(rgb);
+      sendPort.send({
+        'type': _liveIsolateResult,
+        'requestId': requestId,
+        'assessment': detection.predictedAssessment?.name,
+        'confidence': detection.predictionConfidence,
+      });
+    } catch (e) {
+      sendPort.send({
+        'type': _liveIsolateError,
+        'requestId': requestId,
+        'error': e.toString(),
+      });
+    }
+  }
+
+  detector.dispose();
+  receivePort.close();
+}
+
 class ScannerPageController extends ChangeNotifier {
   int _shutterSignal = 0;
   MeasuredTreeResult? _latestMeasuredTreeResult;
+  bool _isRealtimeAssessment = false;
 
   int get shutterSignal => _shutterSignal;
+  bool get isRealtimeAssessment => _isRealtimeAssessment;
 
   void triggerShutter() {
     _shutterSignal++;
     notifyListeners();
   }
 
-  // Call this from the measurement/inference pipeline when a tree model is ready.
+  void startRealtimeAssessment() {
+    if (_isRealtimeAssessment) return;
+    _isRealtimeAssessment = true;
+    notifyListeners();
+  }
+
+  void stopRealtimeAssessment() {
+    if (!_isRealtimeAssessment) return;
+    _isRealtimeAssessment = false;
+    notifyListeners();
+  }
+
+  // Call this when a scan result is ready to store.
   void setLatestMeasuredTree({
     required MangroveTree tree,
     double metersPerPixel = 0.003,
     double? predictionConfidence,
     String? capturedImagePath,
-    Uint8List? rootMaskBytes,
-    int? rootMaskWidth,
-    int? rootMaskHeight,
-    Uint8List? trunkMaskBytes,
-    int? trunkMaskWidth,
-    int? trunkMaskHeight,
+    ScanOutcome outcome = ScanOutcome.detected,
+    StabilityAssessment? predictedAssessment,
   }) {
     _latestMeasuredTreeResult = MeasuredTreeResult(
       tree: tree,
       metersPerPixel: metersPerPixel,
       predictionConfidence: predictionConfidence,
       capturedImagePath: capturedImagePath,
-      rootMaskBytes: rootMaskBytes,
-      rootMaskWidth: rootMaskWidth,
-      rootMaskHeight: rootMaskHeight,
-      trunkMaskBytes: trunkMaskBytes,
-      trunkMaskWidth: trunkMaskWidth,
-      trunkMaskHeight: trunkMaskHeight,
+      outcome: outcome,
+      predictedAssessment: predictedAssessment,
     );
   }
 
@@ -64,71 +248,23 @@ class MeasuredTreeResult {
   final double metersPerPixel;
   final double? predictionConfidence;
   final String? capturedImagePath;
-  final Uint8List? rootMaskBytes;
-  final int? rootMaskWidth;
-  final int? rootMaskHeight;
-  final Uint8List? trunkMaskBytes;
-  final int? trunkMaskWidth;
-  final int? trunkMaskHeight;
+  final ScanOutcome outcome;
+  final StabilityAssessment? predictedAssessment;
 
   const MeasuredTreeResult({
     required this.tree,
     required this.metersPerPixel,
     this.predictionConfidence,
     this.capturedImagePath,
-    this.rootMaskBytes,
-    this.rootMaskWidth,
-    this.rootMaskHeight,
-    this.trunkMaskBytes,
-    this.trunkMaskWidth,
-    this.trunkMaskHeight,
+    this.outcome = ScanOutcome.detected,
+    this.predictedAssessment,
   });
 }
 
-class _InferenceResult {
-  final MangroveTree tree;
-  final double metersPerPixel;
-  final double? predictionConfidence;
-  final Uint8List? rootMaskBytes;
-  final int? rootMaskWidth;
-  final int? rootMaskHeight;
-  final Uint8List? trunkMaskBytes;
-  final int? trunkMaskWidth;
-  final int? trunkMaskHeight;
-
-  const _InferenceResult({
-    required this.tree,
-    required this.metersPerPixel,
-    this.predictionConfidence,
-    this.rootMaskBytes,
-    this.rootMaskWidth,
-    this.rootMaskHeight,
-    this.trunkMaskBytes,
-    this.trunkMaskWidth,
-    this.trunkMaskHeight,
-  });
-}
-
-class _ExtractedTree {
-  final MangroveTree tree;
-  final double? predictionConfidence;
-  final Uint8List? rootMaskBytes;
-  final int? rootMaskWidth;
-  final int? rootMaskHeight;
-  final Uint8List? trunkMaskBytes;
-  final int? trunkMaskWidth;
-  final int? trunkMaskHeight;
-
-  const _ExtractedTree({
-    required this.tree,
-    this.predictionConfidence,
-    this.rootMaskBytes,
-    this.rootMaskWidth,
-    this.rootMaskHeight,
-    this.trunkMaskBytes,
-    this.trunkMaskWidth,
-    this.trunkMaskHeight,
-  });
+enum ScanOutcome {
+  detected,
+  noMangroveDetected,
+  captureOnly,
 }
 
 class ScannerPage extends StatefulWidget {
@@ -142,51 +278,58 @@ class ScannerPage extends StatefulWidget {
 }
 
 class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
-  static const String _modelAssetPath = 'assets/models/mangroveModel.tflite';
-  static const int _expectedModelByteLength = 13309082;
-  static const int _expectedModelCrc32 = 3498243871;
   static const double _defaultMetersPerPixel = 0.003;
-  static const double _trunkConfidenceThreshold = 0.80;
-  static const double _rootConfidenceThreshold = 0.80;
-  static const double _trunkGuideYFraction = 0.6;
-  static const List<String> _instanceClassLabels = [
-    'mangrove_root',
-    'mangrove_trunk',
-  ];
-  static const int _treeClassIndex = 1;
-  static const int _rootClassIndex = 0;
-  static const List<String> _maskClassLabels = [
-    'mangrove_root',
-    'mangrove_trunk',
-  ];
+  static const double _minPredictionConfidence = 0.4;
+  static const Duration _realtimeInterval = Duration(milliseconds: 450);
+  static const int _liveProcessingMaxDimension = 512;
+  static const double _sharpnessLowVariance = 80;
+  static const double _sharpnessHighVariance = 280;
+  static const double _framingLowEdge = 6;
+  static const double _framingHighEdge = 20;
 
   CameraController? _cameraController;
-  Interpreter? _interpreter;
-  IsolateInterpreter? _isolateInterpreter;
-  List<int> _inputShape = const [];
-  List<Tensor> _outputTensors = const [];
-  TensorType? _inputType;
   List<CameraDescription> _cameras = [];
   bool _isInitializing = true;
-  bool _isModelReady = false;
   bool _isCapturing = false;
   String? _cameraError;
-  String? _modelInitError;
+  MangroveDetector? _detector;
+  Future<MangroveDetector?>? _detectorFuture;
+  bool _isDetectorReady = false;
+  String? _detectorError;
   final ImagePicker _imagePicker = ImagePicker();
   int _lastShutterSignal = 0;
+  bool _lastRealtimeSignal = false;
   final GlobalKey _frameGuideInnerKey = GlobalKey();
   Rect? _lastFrameRectInViewport;
   Size? _lastViewportSize;
-  bool _modelIntegrityCheckQueued = false;
+  bool _isRealtimeAssessment = false;
+  bool _isRealtimeProcessing = false;
+  DateTime _lastRealtimeRun = DateTime.fromMillisecondsSinceEpoch(0);
+  StabilityAssessment? _liveAssessment;
+  double? _liveConfidence;
+  double? _liveSharpnessScore;
+  double? _liveFramingScore;
+  double? _liveQualityScore;
+  Isolate? _liveIsolate;
+  ReceivePort? _liveReceivePort;
+  SendPort? _liveSendPort;
+  bool _isLiveIsolateReady = false;
+  bool _isLiveIsolateStarting = false;
+  Completer<void>? _liveReadyCompleter;
+  int _liveRequestId = 0;
+  int _pendingLiveRequestId = 0;
+  Uint8List? _liveModelBytes;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    widget.controller?.addListener(_handleExternalShutter);
+    widget.controller?.addListener(_handleControllerSignal);
     _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
-    _initSegmentationInterpreter();
-    _initCamera();
+    _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleCameraInit());
+    _initDetector();
+    unawaited(_ensureLiveIsolateReady());
   }
 
   @override
@@ -194,34 +337,48 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller == widget.controller) return;
 
-    oldWidget.controller?.removeListener(_handleExternalShutter);
-    widget.controller?.addListener(_handleExternalShutter);
+    oldWidget.controller?.removeListener(_handleControllerSignal);
+    widget.controller?.addListener(_handleControllerSignal);
     _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
+    _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
   }
 
   @override
   void dispose() {
-    widget.controller?.removeListener(_handleExternalShutter);
+    widget.controller?.stopRealtimeAssessment();
+    widget.controller?.removeListener(_handleControllerSignal);
     WidgetsBinding.instance.removeObserver(this);
-    if (_isolateInterpreter != null) {
-      unawaited(_isolateInterpreter!.close());
-      _isolateInterpreter = null;
-    }
-    _interpreter?.close();
+    _stopRealtimeAssessment();
+    _disposeLiveIsolate();
     _cameraController?.dispose();
+    _detector?.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) return;
-
-    if (state == AppLifecycleState.inactive) {
-      controller.dispose();
-    } else if (state == AppLifecycleState.resumed) {
-      _initCamera();
+    if (state == AppLifecycleState.resumed) {
+      _scheduleCameraInit();
+      return;
     }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      widget.controller?.stopRealtimeAssessment();
+      _stopRealtimeAssessment();
+      _disposeLiveIsolate();
+      _cameraController?.dispose();
+      _cameraController = null;
+    }
+  }
+
+  void _scheduleCameraInit() {
+    if (!mounted) return;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
+    unawaited(_ensureLiveIsolateReady());
+    _initCamera();
   }
 
   Future<void> _initCamera() async {
@@ -255,7 +412,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       await controller.initialize();
       await _configureCameraForFastCapture(controller);
 
-      if (!mounted) {
+      if (!mounted ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
         await controller.dispose();
         return;
       }
@@ -263,6 +421,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       await _cameraController?.dispose();
       _cameraController = controller;
       setState(() => _isInitializing = false);
+      if (_lastRealtimeSignal) {
+        unawaited(_startRealtimeAssessment());
+      }
     } on CameraException catch (e) {
       setState(() {
         _cameraError = 'Camera error: ${e.description ?? e.code}';
@@ -276,14 +437,188 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
-  void _handleExternalShutter() {
-    final controller = widget.controller;
-    if (controller == null || controller.shutterSignal == _lastShutterSignal) {
+  Future<void> _initDetector() async {
+    setState(() {
+      _isDetectorReady = false;
+      _detectorError = null;
+    });
+    final future = _createDetector();
+    _detectorFuture = future;
+    final detector = await future;
+    if (!mounted) return;
+    setState(() {
+      _isDetectorReady = detector != null;
+      _detectorError ??=
+          detector == null ? 'Model failed to load.' : null;
+    });
+  }
+
+  Future<MangroveDetector?> _createDetector() async {
+    try {
+      final detector = await MangroveDetector.create();
+      if (!mounted) {
+        detector.dispose();
+        return null;
+      }
+      _detector = detector;
+      return detector;
+    } catch (e) {
+      debugPrint('Detector initialization failed: $e');
+      if (mounted) {
+        _detectorError = 'Model failed to load.';
+      }
+      return null;
+    }
+  }
+
+  Future<MangroveDetector?> _ensureDetector() async {
+    final existing = _detector;
+    if (existing != null) return existing;
+    final future = _detectorFuture;
+    if (future == null) return null;
+    return future;
+  }
+
+  Future<void> _ensureLiveIsolateReady() async {
+    if (_isLiveIsolateReady) return;
+    if (_isLiveIsolateStarting) {
+      final completer = _liveReadyCompleter;
+      if (completer != null) {
+        await completer.future;
+      }
       return;
     }
 
-    _lastShutterSignal = controller.shutterSignal;
-    _captureShutter();
+    _isLiveIsolateStarting = true;
+    _liveReadyCompleter = Completer<void>();
+
+    try {
+      _liveModelBytes ??= await MangroveDetector.loadModelBytes();
+      _liveReceivePort ??= ReceivePort();
+      _liveReceivePort!.listen(_handleLiveIsolateMessage);
+      _liveIsolate = await Isolate.spawn(
+        _liveAssessmentIsolate,
+        {
+          'sendPort': _liveReceivePort!.sendPort,
+          'modelData': TransferableTypedData.fromList([_liveModelBytes!]),
+        },
+        debugName: 'live-assessment',
+      );
+      await _liveReadyCompleter!.future.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {
+          final completer = _liveReadyCompleter;
+          if (completer != null && !completer.isCompleted) {
+            completer.complete();
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint('Failed to start live assessment isolate: $e');
+      final completer = _liveReadyCompleter;
+      if (completer != null && !completer.isCompleted) {
+        completer.complete();
+      }
+    } finally {
+      _isLiveIsolateStarting = false;
+    }
+  }
+
+  void _disposeLiveIsolate() {
+    _isLiveIsolateReady = false;
+    _isLiveIsolateStarting = false;
+    final completer = _liveReadyCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
+    _liveReadyCompleter = null;
+    try {
+      _liveSendPort?.send({'type': _liveIsolateStop});
+    } catch (_) {}
+    _liveReceivePort?.close();
+    _liveReceivePort = null;
+    _liveSendPort = null;
+    _liveIsolate?.kill(priority: Isolate.immediate);
+    _liveIsolate = null;
+  }
+
+  void _handleLiveIsolateMessage(dynamic message) {
+    if (message is! Map) return;
+    final type = message['type'];
+    if (type == _liveIsolateReady) {
+      _liveSendPort = message['sendPort'] as SendPort?;
+      _isLiveIsolateReady = _liveSendPort != null;
+      final completer = _liveReadyCompleter;
+      if (completer != null && !completer.isCompleted) {
+        completer.complete();
+      }
+      return;
+    }
+
+    if (type == _liveIsolateResult) {
+      final requestId = message['requestId'] as int?;
+      if (requestId == null || requestId != _pendingLiveRequestId) {
+        return;
+      }
+      if (!_isRealtimeAssessment) {
+        _isRealtimeProcessing = false;
+        return;
+      }
+      final assessmentName = message['assessment'] as String?;
+      final confidence = message['confidence'] as double?;
+      final assessment = assessmentName != null
+          ? StabilityAssessment.values.byName(assessmentName)
+          : null;
+      if (mounted) {
+        setState(() {
+          _liveAssessment = assessment;
+          _liveConfidence = confidence;
+          _liveQualityScore = _combinedQualityScore(
+            confidenceScore: confidence ?? 0,
+            sharpnessScore: _liveSharpnessScore ?? 0,
+            framingScore: _liveFramingScore ?? 0,
+          );
+        });
+      } else {
+        _liveAssessment = assessment;
+        _liveConfidence = confidence;
+        _liveQualityScore = _combinedQualityScore(
+          confidenceScore: confidence ?? 0,
+          sharpnessScore: _liveSharpnessScore ?? 0,
+          framingScore: _liveFramingScore ?? 0,
+        );
+      }
+      _isRealtimeProcessing = false;
+      return;
+    }
+
+    if (type == _liveIsolateError) {
+      _isRealtimeProcessing = false;
+      final completer = _liveReadyCompleter;
+      if (completer != null && !completer.isCompleted) {
+        completer.complete();
+      }
+      debugPrint('Live assessment isolate error: ${message['error']}');
+    }
+  }
+
+  void _handleControllerSignal() {
+    final controller = widget.controller;
+    if (controller == null) return;
+
+    if (controller.shutterSignal != _lastShutterSignal) {
+      _lastShutterSignal = controller.shutterSignal;
+      _captureShutter();
+    }
+
+    if (controller.isRealtimeAssessment != _lastRealtimeSignal) {
+      _lastRealtimeSignal = controller.isRealtimeAssessment;
+      if (_lastRealtimeSignal) {
+        unawaited(_startRealtimeAssessment());
+      } else {
+        _stopRealtimeAssessment();
+      }
+    }
   }
 
   Future<void> _configureCameraForFastCapture(
@@ -306,1040 +641,49 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _initSegmentationInterpreter() async {
-    setState(() {
-      _isModelReady = false;
-      _modelInitError = null;
-    });
-
-    try {
-      final options = InterpreterOptions()..threads = 2;
-      if (_isolateInterpreter != null) {
-        await _isolateInterpreter!.close();
-        _isolateInterpreter = null;
-      }
-      _interpreter?.close();
-      final interpreter = await Interpreter.fromAsset(
-        _modelAssetPath,
-        options: options,
-      );
-      IsolateInterpreter? isolateInterpreter;
-      try {
-        isolateInterpreter = await IsolateInterpreter.create(
-          address: interpreter.address,
-        );
-      } catch (e) {
-        debugPrint('Isolate interpreter init failed: $e');
-      }
-      final inputTensor = interpreter.getInputTensor(0);
-      final outputTensors = interpreter.getOutputTensors();
-      if (inputTensor.shape.length != 4) {
-        throw StateError('Expected 4D input tensor, got ${inputTensor.shape}');
-      }
-
-      _interpreter = interpreter;
-      _isolateInterpreter = isolateInterpreter;
-      _inputShape = inputTensor.shape;
-      _inputType = inputTensor.type;
-      _outputTensors = outputTensors;
-      _logModelSignature(inputTensor, outputTensors);
-      if (!mounted) return;
-      setState(() {
-        _isModelReady = true;
-        _modelInitError = null;
-      });
-      if (!_modelIntegrityCheckQueued) {
-        _modelIntegrityCheckQueued = true;
-        unawaited(_verifyModelIntegrity());
-      }
-    } on PlatformException catch (e) {
-      if (!mounted) return;
-      debugPrint(
-        'Segmentation interpreter init failed: ${e.code} ${e.message}',
-      );
-      setState(() {
-        _isModelReady = false;
-        _modelInitError = _compactModelError(e.message);
-      });
-    } catch (e) {
-      if (!mounted) return;
-      debugPrint('Segmentation interpreter init failed: $e');
-      setState(() {
-        _isModelReady = false;
-        _modelInitError = _compactModelError(e.toString());
-      });
-    }
+  void _storeCapturedImageResult(String imagePath) {
+    widget.controller?.setLatestMeasuredTree(
+      tree: MangroveTree(
+        trunkWidthAtBranchPoint: 0,
+        roots: const <Root>[],
+      ),
+      metersPerPixel: _defaultMetersPerPixel,
+      capturedImagePath: imagePath,
+      outcome: ScanOutcome.captureOnly,
+    );
   }
 
-  Future<void> _runModelInferenceOnCapture(String imagePath) async {
-    if (_interpreter == null || !_isModelReady) {
-      await _initSegmentationInterpreter();
-    }
-
-    if (_interpreter == null) {
-      final message = _modelInitError == null
-          ? 'Model not ready.'
-          : 'Model not ready: $_modelInitError';
-      _showTopNotification(message);
+  Future<void> _storeDetectedImageResult(String imagePath) async {
+    final detector = await _ensureDetector();
+    if (detector == null) {
+      _storeCapturedImageResult(imagePath);
       return;
     }
 
     try {
-      final result = await _inferTreeFromImagePath(imagePath);
-      if (result == null) {
-        _showTopNotification(
-          'No mangrove tree and roots detected. Try recapturing with roots visible.',
-        );
-        return;
-      }
-
+      final detection = await detector.detect(imagePath);
+      final confidence = detection.predictionConfidence;
+      final isConfident =
+          confidence != null && confidence >= _minPredictionConfidence;
+      final predictedAssessment = detection.predictedAssessment;
       widget.controller?.setLatestMeasuredTree(
-        tree: result.tree,
-        metersPerPixel: result.metersPerPixel,
-        predictionConfidence: result.predictionConfidence,
+        tree: detection.tree,
+        metersPerPixel: _defaultMetersPerPixel,
+        predictionConfidence: confidence,
         capturedImagePath: imagePath,
-        rootMaskBytes: result.rootMaskBytes,
-        rootMaskWidth: result.rootMaskWidth,
-        rootMaskHeight: result.rootMaskHeight,
-        trunkMaskBytes: result.trunkMaskBytes,
-        trunkMaskWidth: result.trunkMaskWidth,
-        trunkMaskHeight: result.trunkMaskHeight,
+        outcome: predictedAssessment != null && isConfident
+            ? ScanOutcome.detected
+            : ScanOutcome.noMangroveDetected,
+        predictedAssessment: predictedAssessment,
       );
-    } on PlatformException catch (e) {
-      debugPrint('Model inference failed: ${e.code} ${e.message}');
-      final errorMessage = _compactModelError(e.message);
-      _showTopNotification('Model inference failed: $errorMessage');
     } catch (e) {
-      debugPrint('Model inference failed: $e');
-      _showTopNotification(
-        'Model inference failed: ${_compactModelError(e.toString())}',
-      );
+      debugPrint('Detector failed: $e');
+      _storeCapturedImageResult(imagePath);
+      if (!mounted) return;
+      _showTopNotification('Detection failed. Saved photo only.');
     }
   }
 
-  String _compactModelError(String? message) {
-    if (message == null || message.trim().isEmpty) return 'Unknown error';
-    final normalized = message.replaceAll('\n', ' ').trim();
-    if (normalized.length <= 80) return normalized;
-    return '${normalized.substring(0, 77)}...';
-  }
-
-  void _logModelSignature(Tensor inputTensor, List<Tensor> outputTensors) {
-    debugPrint(
-      'Model signature: input name=${inputTensor.name} shape=${inputTensor.shape} type=${inputTensor.type}',
-    );
-    debugPrint('Model labels (instance): ${_instanceClassLabels.join(', ')}');
-    debugPrint('Model labels (mask): ${_maskClassLabels.join(', ')}');
-    for (var i = 0; i < outputTensors.length; i++) {
-      final tensor = outputTensors[i];
-      debugPrint(
-        'Model signature: output[$i] name=${tensor.name} shape=${tensor.shape} type=${tensor.type}',
-      );
-    }
-  }
-
-  Future<_InferenceResult?> _inferTreeFromImagePath(String imagePath) async {
-    final interpreter = _interpreter;
-    if (interpreter == null) return null;
-    final isolateInterpreter = _isolateInterpreter;
-
-    final bytes = await File(imagePath).readAsBytes();
-    final image = img.decodeImage(bytes);
-    if (image == null) {
-      throw StateError('Unable to decode captured image.');
-    }
-    final metersPerPixel = _defaultMetersPerPixel;
-
-    final input = _createModelInput(image);
-    final outputs = <int, Object>{};
-    for (var i = 0; i < _outputTensors.length; i++) {
-      final tensor = _outputTensors[i];
-      outputs[i] = _createTensorBuffer(tensor.shape, tensor.type);
-    }
-
-    if (isolateInterpreter != null) {
-      await isolateInterpreter.runForMultipleInputs([input], outputs);
-    } else {
-      interpreter.runForMultipleInputs([input], outputs);
-    }
-    final extracted = _extractTreeFromOutputs(outputs);
-    if (extracted == null) return null;
-    return _InferenceResult(
-      tree: extracted.tree,
-      metersPerPixel: metersPerPixel,
-      predictionConfidence: extracted.predictionConfidence,
-      rootMaskBytes: extracted.rootMaskBytes,
-      rootMaskWidth: extracted.rootMaskWidth,
-      rootMaskHeight: extracted.rootMaskHeight,
-      trunkMaskBytes: extracted.trunkMaskBytes,
-      trunkMaskWidth: extracted.trunkMaskWidth,
-      trunkMaskHeight: extracted.trunkMaskHeight,
-    );
-  }
-
-  Object _createModelInput(img.Image image) {
-    if (_inputShape.length != 4 || _inputType == null) {
-      throw StateError('Unsupported input tensor configuration: $_inputShape');
-    }
-
-    final isNhwc = _inputShape[3] == 3;
-    final isNchw = _inputShape[1] == 3;
-    if (!isNhwc && !isNchw) {
-      throw StateError('Expected 3-channel input, got $_inputShape');
-    }
-
-    final height = isNhwc ? _inputShape[1] : _inputShape[2];
-    final width = isNhwc ? _inputShape[2] : _inputShape[3];
-    final resized = img.copyResize(image, width: width, height: height);
-    final isFloat = _inputType == TensorType.float32;
-
-    if (isNhwc) {
-      return [
-        List.generate(height, (y) {
-          return List.generate(width, (x) {
-            final pixel = resized.getPixel(x, y);
-            if (isFloat) {
-              return [pixel.r / 255.0, pixel.g / 255.0, pixel.b / 255.0];
-            }
-            return [pixel.r.toInt(), pixel.g.toInt(), pixel.b.toInt()];
-          });
-        }),
-      ];
-    }
-
-    return [
-      List.generate(3, (channel) {
-        return List.generate(height, (y) {
-          return List.generate(width, (x) {
-            final pixel = resized.getPixel(x, y);
-            final value = switch (channel) {
-              0 => pixel.r,
-              1 => pixel.g,
-              _ => pixel.b,
-            };
-            return isFloat ? value / 255.0 : value.toInt();
-          });
-        });
-      }),
-    ];
-  }
-
-  Object _createTensorBuffer(List<int> shape, TensorType type) {
-    if (shape.isEmpty) {
-      if (type == TensorType.float32 || type == TensorType.float16) return 0.0;
-      return 0;
-    }
-    final rest = shape.sublist(1);
-    return List.generate(
-      shape.first,
-      (_) => _createTensorBuffer(rest, type),
-      growable: false,
-    );
-  }
-
-  _ExtractedTree? _extractTreeFromOutputs(Map<int, Object> outputs) {
-    for (var i = 0; i < _outputTensors.length; i++) {
-      final tensor = _outputTensors[i];
-      final shape = tensor.shape;
-      if (shape.length != 4 || shape.first != 1) continue;
-
-      final parsed = _parseMasksFromTensor(outputs[i], shape);
-      if (parsed == null) continue;
-      final tree = _buildTreeFromMasks(parsed);
-      if (tree != null) {
-        final maskHeight = parsed.rootMask.length;
-        final maskWidth = maskHeight == 0 ? 0 : parsed.rootMask.first.length;
-        final maskBytes = maskWidth > 0 && maskHeight > 0
-            ? _packMaskToBytes(parsed.rootMask)
-            : null;
-        final trunkBytes = maskWidth > 0 && maskHeight > 0
-            ? _packMaskToBytes(parsed.treeMask)
-            : null;
-        return _ExtractedTree(
-          tree: tree,
-          predictionConfidence: parsed.predictionConfidence,
-          rootMaskBytes: maskBytes,
-          rootMaskWidth: maskWidth > 0 ? maskWidth : null,
-          rootMaskHeight: maskHeight > 0 ? maskHeight : null,
-          trunkMaskBytes: trunkBytes,
-          trunkMaskWidth: maskWidth > 0 ? maskWidth : null,
-          trunkMaskHeight: maskHeight > 0 ? maskHeight : null,
-        );
-      }
-    }
-
-    final fromInstances = _extractTreeFromInstanceOutputs(outputs);
-    if (fromInstances != null) {
-      return fromInstances;
-    }
-
-    final shapes = _outputTensors.map((t) => t.shape).join(', ');
-    debugPrint('Unsupported output tensors for parser: $shapes');
-    return null;
-  }
-
-  Uint8List _packMaskToBytes(List<List<bool>> mask) {
-    final height = mask.length;
-    if (height == 0) return Uint8List(0);
-    final width = mask.first.length;
-    if (width == 0) return Uint8List(0);
-    final total = width * height;
-    final bytes = Uint8List((total + 7) >> 3);
-    var byteIndex = 0;
-    var bitIndex = 0;
-    var current = 0;
-    for (var y = 0; y < height; y++) {
-      final row = mask[y];
-      for (var x = 0; x < width; x++) {
-        if (row[x]) {
-          current |= 1 << (7 - bitIndex);
-        }
-        bitIndex++;
-        if (bitIndex == 8) {
-          bytes[byteIndex] = current;
-          byteIndex++;
-          bitIndex = 0;
-          current = 0;
-        }
-      }
-    }
-    if (bitIndex != 0 && byteIndex < bytes.length) {
-      bytes[byteIndex] = current;
-    }
-    return bytes;
-  }
-
-  _ExtractedTree? _extractTreeFromInstanceOutputs(Map<int, Object> outputs) {
-    _InstanceOutput? best;
-    for (var i = 0; i < _outputTensors.length; i++) {
-      final shape = _outputTensors[i].shape;
-      if (shape.length != 3 || shape.first != 1) continue;
-      final parsed = _parseInstanceOutput(outputs[i], shape);
-      if (parsed == null) continue;
-      if (best == null || parsed.predictions > best.predictions) {
-        best = parsed;
-      }
-    }
-    if (best == null) return null;
-
-    final classes = _instanceClassLabels.length;
-    final channels = best.channels;
-    if (channels < 4 + classes) return null;
-
-    final layout = _inferInstanceLayout(channels, classes);
-    if (layout == null) {
-      debugPrint(
-        'Unsupported instance layout: channels=$channels classes=$classes (labels=${_instanceClassLabels.join(', ')})',
-      );
-      return null;
-    }
-    final hasObjectness = layout.hasObjectness;
-    final classStart = layout.classStart;
-    final treeScoreIndex = classStart + _treeClassIndex;
-    final rootScoreIndex = classStart + _rootClassIndex;
-    if (rootScoreIndex >= channels) return null;
-
-    final modelHeight = _inputShape[3] == 3 ? _inputShape[1] : _inputShape[2];
-    final modelWidth = _inputShape[3] == 3 ? _inputShape[2] : _inputShape[3];
-    final guideLineY = modelHeight * _trunkGuideYFraction;
-
-    final treeCandidates = <_Detection>[];
-    final rootCandidates = <_Detection>[];
-    var maxBoxValue = 0.0;
-    for (var p = 0; p < best.predictions; p++) {
-      final cx = best.valueAt(p, 0).toDouble();
-      final cy = best.valueAt(p, 1).toDouble();
-      final w = best.valueAt(p, 2).abs().toDouble();
-      final h = best.valueAt(p, 3).abs().toDouble();
-      if (w <= 0 || h <= 0) continue;
-
-      final treeScore = _toProbability(
-        best.valueAt(p, treeScoreIndex).toDouble(),
-      );
-      final rootScore = _toProbability(
-        best.valueAt(p, rootScoreIndex).toDouble(),
-      );
-      final objectness = hasObjectness
-          ? _toProbability(best.valueAt(p, 4).toDouble())
-          : 1.0;
-      final treeConfidence = objectness * treeScore;
-      final rootConfidence = objectness * rootScore;
-      if (treeConfidence < _trunkConfidenceThreshold &&
-          rootConfidence < _rootConfidenceThreshold) {
-        continue;
-      }
-
-      final left = cx - (w / 2);
-      final top = cy - (h / 2);
-      final right = cx + (w / 2);
-      final bottom = cy + (h / 2);
-
-      maxBoxValue = math.max(maxBoxValue, math.max(right.abs(), bottom.abs()));
-      if (treeConfidence >= _trunkConfidenceThreshold) {
-        treeCandidates.add(
-          _Detection(
-            classId: 0,
-            score: treeConfidence,
-            left: left,
-            top: top,
-            right: right,
-            bottom: bottom,
-          ),
-        );
-      }
-      if (rootConfidence >= _rootConfidenceThreshold) {
-        rootCandidates.add(
-          _Detection(
-            classId: 1,
-            score: rootConfidence,
-            left: left,
-            top: top,
-            right: right,
-            bottom: bottom,
-          ),
-        );
-      }
-    }
-    if (treeCandidates.isEmpty || rootCandidates.isEmpty) return null;
-
-    final normalizedBoxes = maxBoxValue <= 2.0;
-    final scaledTrees = treeCandidates
-        .map((d) {
-          if (!normalizedBoxes) return d;
-          return _Detection(
-            classId: 0,
-            score: d.score,
-            left: d.left * modelWidth,
-            top: d.top * modelHeight,
-            right: d.right * modelWidth,
-            bottom: d.bottom * modelHeight,
-          );
-        })
-        .toList(growable: false);
-    final scaledRoots = rootCandidates
-        .map((d) {
-          if (!normalizedBoxes) return d;
-          return _Detection(
-            classId: 1,
-            score: d.score,
-            left: d.left * modelWidth,
-            top: d.top * modelHeight,
-            right: d.right * modelWidth,
-            bottom: d.bottom * modelHeight,
-          );
-        })
-        .toList(growable: false);
-
-    final treeDetections = _nms(scaledTrees, 0.45);
-    final rootDetections = _nms(scaledRoots, 0.55);
-    if (treeDetections.isEmpty || rootDetections.isEmpty) return null;
-
-    final trunk = treeDetections.first;
-    final trunkConfidence = trunk.score.clamp(0.0, 1.0).toDouble();
-    final treeWidth = trunk.width.clamp(1.0, 4000.0).toDouble();
-    final trunkCenterX = trunk.centerX;
-    final associatedRoots = _rootsForSelectedTree(
-      rootDetections,
-      treeDetections,
-      trunk,
-    );
-    final measuredTrunkWidth = (treeWidth * 0.22).clamp(1.0, 4000.0).toDouble();
-    final filteredRoots = _filterRootsByTreeBounds(
-      associatedRoots,
-      trunk,
-      measuredTrunkWidth,
-      guideLineY,
-    );
-
-    double? rootConfidence;
-    if (filteredRoots.isNotEmpty) {
-      var sum = 0.0;
-      for (final root in filteredRoots) {
-        sum += root.score;
-      }
-      rootConfidence = (sum / filteredRoots.length).clamp(0.0, 1.0).toDouble();
-    }
-    final predictionConfidence = rootConfidence == null
-        ? trunkConfidence
-        : (0.6 * trunkConfidence + 0.4 * rootConfidence)
-              .clamp(0.0, 1.0)
-              .toDouble();
-
-    final roots = filteredRoots
-        .take(96)
-        .map((root) {
-          final dx = root.centerX - trunkCenterX;
-          final dy = root.centerY - trunk.bottom;
-          final rootLength = root.width.clamp(4.0, 4000.0).toDouble();
-          return Root(
-            position: Offset(dx, dy),
-            length: rootLength,
-            angle: dx < 0 ? math.pi : 0.0,
-            normalizedLeft: (root.left / modelWidth).clamp(0.0, 1.0),
-            normalizedTop: (root.top / modelHeight).clamp(0.0, 1.0),
-            normalizedRight: (root.right / modelWidth).clamp(0.0, 1.0),
-            normalizedBottom: (root.bottom / modelHeight).clamp(0.0, 1.0),
-          );
-        })
-        .toList(growable: false);
-    if (roots.isEmpty) return null;
-
-    var branchY = trunk.bottom;
-    for (final root in filteredRoots) {
-      if (root.top < branchY) branchY = root.top;
-    }
-    branchY = branchY.clamp(trunk.top, trunk.bottom);
-
-    final halfWidth = measuredTrunkWidth / 2.0;
-    final startX = ((trunkCenterX - halfWidth) / modelWidth).clamp(0.0, 1.0);
-    final endX = ((trunkCenterX + halfWidth) / modelWidth).clamp(0.0, 1.0);
-    final trunkMeasurement = TrunkMeasurement(
-      startX: startX,
-      endX: endX,
-      y: (branchY / modelHeight).clamp(0.0, 1.0),
-      isEstimated: true,
-    );
-    final treeBounds = TreeBounds(
-      left: (trunk.left / modelWidth).clamp(0.0, 1.0),
-      top: (trunk.top / modelHeight).clamp(0.0, 1.0),
-      right: (trunk.right / modelWidth).clamp(0.0, 1.0),
-      bottom: (trunk.bottom / modelHeight).clamp(0.0, 1.0),
-    );
-
-    return _ExtractedTree(
-      tree: MangroveTree(
-        trunkWidthAtBranchPoint: measuredTrunkWidth,
-        roots: roots,
-        trunkMeasurement: trunkMeasurement,
-        treeBounds: treeBounds,
-      ),
-      predictionConfidence: predictionConfidence,
-    );
-  }
-
-  _InstanceOutput? _parseInstanceOutput(Object? output, List<int> shape) {
-    if (output is! List || output.isEmpty) return null;
-    final first = output.first;
-    if (first is! List || first.isEmpty) return null;
-
-    final a = shape[1];
-    final b = shape[2];
-    final channelFirst = b > a;
-    final channels = channelFirst ? a : b;
-    final predictions = channelFirst ? b : a;
-    if (channels < 6 || predictions < 1) return null;
-
-    return _InstanceOutput(
-      data: first,
-      channels: channels,
-      predictions: predictions,
-      channelFirst: channelFirst,
-    );
-  }
-
-  _InstanceLayout? _inferInstanceLayout(int channels, int classes) {
-    final noMaskNoObj = 4 + classes;
-    final objNoMask = 5 + classes;
-    final noObjMask = 4 + classes + 32;
-    final objMask = 5 + classes + 32;
-
-    if (channels == noMaskNoObj) {
-      return const _InstanceLayout(hasObjectness: false, classStart: 4);
-    }
-    if (channels == objNoMask) {
-      return const _InstanceLayout(hasObjectness: true, classStart: 5);
-    }
-    if (channels == noObjMask) {
-      return const _InstanceLayout(hasObjectness: false, classStart: 4);
-    }
-    if (channels == objMask) {
-      return const _InstanceLayout(hasObjectness: true, classStart: 5);
-    }
-
-    final hasObjectness = channels > (4 + classes + 32);
-    final classStart = hasObjectness ? 5 : 4;
-    debugPrint(
-      'Falling back to heuristic instance layout: channels=$channels classes=$classes '
-      'hasObjectness=$hasObjectness classStart=$classStart',
-    );
-    return _InstanceLayout(
-      hasObjectness: hasObjectness,
-      classStart: classStart,
-    );
-  }
-
-  List<_Detection> _nms(List<_Detection> detections, double iouThreshold) {
-    if (detections.isEmpty) return const [];
-    final sorted = [...detections]..sort((a, b) => b.score.compareTo(a.score));
-    final kept = <_Detection>[];
-    for (final det in sorted) {
-      var overlaps = false;
-      for (final chosen in kept) {
-        if (_iou(det, chosen) > iouThreshold) {
-          overlaps = true;
-          break;
-        }
-      }
-      if (!overlaps) kept.add(det);
-    }
-    return kept;
-  }
-
-  double _iou(_Detection a, _Detection b) {
-    final interLeft = math.max(a.left, b.left);
-    final interTop = math.max(a.top, b.top);
-    final interRight = math.min(a.right, b.right);
-    final interBottom = math.min(a.bottom, b.bottom);
-    final interW = math.max(0.0, interRight - interLeft);
-    final interH = math.max(0.0, interBottom - interTop);
-    final interArea = interW * interH;
-    if (interArea <= 0) return 0;
-    final union = a.area + b.area - interArea;
-    if (union <= 0) return 0;
-    return interArea / union;
-  }
-
-  double _toProbability(double value) {
-    if (value >= 0 && value <= 1) return value;
-    if (value > 20) return 1;
-    if (value < -20) return 0;
-    return 1 / (1 + math.exp(-value));
-  }
-
-  _ParsedMasks? _parseMasksFromTensor(Object? output, List<int> shape) {
-    if (output is! List) return null;
-
-    final channelLast = shape[3] >= 2 && shape[3] <= 8;
-    final channelFirst = shape[1] >= 2 && shape[1] <= 8;
-    if (!channelLast && !channelFirst) return null;
-
-    final height = channelLast ? shape[1] : shape[2];
-    final width = channelLast ? shape[2] : shape[3];
-    final classes = channelLast ? shape[3] : shape[1];
-    if (classes < 2) return null;
-    if (classes != 2 && classes != 3) {
-      debugPrint(
-        'Unsupported mask classes: $classes. Expected 2 (root=0, trunk=1) or 3 (root=0, trunk=1, extra/background).',
-      );
-      return null;
-    }
-
-    // Fixed class mapping: 0 = mangrove_root, 1 = mangrove_trunk.
-    const rootClass = 0;
-    const trunkClass = 1;
-    if (trunkClass >= classes) return null;
-
-    final treeMask = List.generate(
-      height,
-      (_) => List<bool>.filled(width, false, growable: false),
-      growable: false,
-    );
-    final rootMask = List.generate(
-      height,
-      (_) => List<bool>.filled(width, false, growable: false),
-      growable: false,
-    );
-
-    var confidenceSum = 0.0;
-    var confidenceCount = 0;
-    for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        var bestClass = 0;
-        var bestScore = -double.infinity;
-        var secondBestScore = -double.infinity;
-        for (var c = 0; c < classes; c++) {
-          final score = channelLast
-              ? ((((output[0] as List)[y] as List)[x] as List)[c] as num)
-                    .toDouble()
-              : ((((output[0] as List)[c] as List)[y] as List)[x] as num)
-                    .toDouble();
-          if (score > bestScore) {
-            secondBestScore = bestScore;
-            bestScore = score;
-            bestClass = c;
-          } else if (score > secondBestScore) {
-            secondBestScore = score;
-          }
-        }
-        if (bestClass == trunkClass) treeMask[y][x] = true;
-        if (bestClass == rootClass) rootMask[y][x] = true;
-
-        if (bestClass == trunkClass || bestClass == rootClass) {
-          final margin = bestScore - secondBestScore;
-          final confidence = margin > 40
-              ? 1.0
-              : margin < -40
-                  ? 0.0
-                  : 1 / (1 + math.exp(-margin));
-          confidenceSum += confidence;
-          confidenceCount++;
-        }
-      }
-    }
-
-    for (var y = 0; y < height; y++) {
-      for (var x = 0; x < width; x++) {
-        if (treeMask[y][x]) rootMask[y][x] = false;
-      }
-    }
-
-    final predictionConfidence = confidenceCount == 0
-        ? null
-        : (confidenceSum / confidenceCount).clamp(0.0, 1.0).toDouble();
-
-    return _ParsedMasks(
-      treeMask: treeMask,
-      rootMask: rootMask,
-      predictionConfidence: predictionConfidence,
-    );
-  }
-
-  Future<void> _verifyModelIntegrity() async {
-    try {
-      final data = await rootBundle.load(_modelAssetPath);
-      final bytes = data.buffer.asUint8List();
-      if (bytes.lengthInBytes != _expectedModelByteLength) {
-        _showTopNotification(
-          'Model integrity check failed (unexpected size). Reinstall the app.',
-        );
-        return;
-      }
-      final crc = _crc32(bytes);
-      if (crc != _expectedModelCrc32) {
-        _showTopNotification(
-          'Model integrity check failed (unexpected checksum). Reinstall the app.',
-        );
-      }
-    } catch (e) {
-      debugPrint('Model integrity check error: $e');
-    }
-  }
-
-  int _crc32(Uint8List bytes) {
-    const polynomial = 0xEDB88320;
-    var crc = 0xFFFFFFFF;
-    for (final value in bytes) {
-      crc ^= value;
-      for (var i = 0; i < 8; i++) {
-        if ((crc & 1) != 0) {
-          crc = (crc >> 1) ^ polynomial;
-        } else {
-          crc >>= 1;
-        }
-      }
-    }
-    return (crc ^ 0xFFFFFFFF) & 0xFFFFFFFF;
-  }
-
-  MangroveTree? _buildTreeFromMasks(_ParsedMasks masks) {
-    final treeBounds = _findMaskBounds(masks.treeMask);
-    if (treeBounds == null) return null;
-
-    final components = _extractRootComponents(masks.rootMask);
-    if (components.isEmpty) return null;
-    final activeComponents = _filterRootComponentsByTreeBounds(
-      components,
-      treeBounds,
-    );
-    final maskHeight = masks.rootMask.length;
-    final maskWidth = masks.rootMask.first.length;
-    final guideLineY = maskHeight * _trunkGuideYFraction;
-    var branchY = activeComponents.first.minY.toInt().clamp(
-      treeBounds.minY,
-      treeBounds.maxY,
-    );
-    for (final component in activeComponents) {
-      final minY = component.minY.toInt();
-      if (minY < branchY) branchY = minY;
-    }
-    branchY = math.max(branchY, guideLineY.toInt());
-    final rowSpan = _findNearestRowSpan(
-      masks.treeMask,
-      branchY,
-      treeBounds.minY,
-      treeBounds.maxY,
-      6,
-    );
-
-    final trunkWidth = rowSpan?.width.toDouble() ?? treeBounds.width.toDouble();
-    final trunkCenterX = rowSpan?.centerX ?? treeBounds.centerX;
-    final spanMinX = rowSpan?.minX ?? treeBounds.minX;
-    final spanMaxX = rowSpan?.maxX ?? treeBounds.maxX;
-
-    final corridorHalfWidth = math.min(
-      treeBounds.width * 0.35,
-      trunkWidth * 3.5,
-    );
-    final corridorMinX = trunkCenterX - corridorHalfWidth;
-    final corridorMaxX = trunkCenterX + corridorHalfWidth;
-    final corridorComponents = activeComponents
-        .where((component) {
-          final cx = component.centerX;
-          return cx >= corridorMinX &&
-              cx <= corridorMaxX &&
-              component.minY >= math.max(branchY, guideLineY);
-        })
-        .toList(growable: false);
-    final usableComponents = corridorComponents.isEmpty
-        ? activeComponents
-        : corridorComponents;
-    var adjustedBranchY = usableComponents.first.minY.toInt().clamp(
-      treeBounds.minY,
-      treeBounds.maxY,
-    );
-    for (final component in usableComponents) {
-      final minY = component.minY.toInt();
-      if (minY < adjustedBranchY) adjustedBranchY = minY;
-    }
-
-    final roots = usableComponents
-        .map((component) {
-          final dx = component.centerX - trunkCenterX;
-          final dy = component.centerY - adjustedBranchY;
-          final length = (component.width * 0.7).clamp(4.0, 4000.0).toDouble();
-          return Root(
-            position: Offset(dx, dy),
-            length: length,
-            angle: dx < 0 ? math.pi : 0.0,
-            normalizedLeft: (component.minX / maskWidth).clamp(0.0, 1.0),
-            normalizedTop: (component.minY / maskHeight).clamp(0.0, 1.0),
-            normalizedRight: (component.maxX / maskWidth).clamp(0.0, 1.0),
-            normalizedBottom: (component.maxY / maskHeight).clamp(0.0, 1.0),
-          );
-        })
-        .toList(growable: false);
-
-    final trunkMeasurement = TrunkMeasurement(
-      startX: (spanMinX / maskWidth).clamp(0.0, 1.0),
-      endX: (spanMaxX / maskWidth).clamp(0.0, 1.0),
-      y: (adjustedBranchY / maskHeight).clamp(0.0, 1.0),
-      isEstimated: false,
-    );
-    final treeBoundsNormalized = TreeBounds(
-      left: (treeBounds.minX / maskWidth).clamp(0.0, 1.0),
-      top: (treeBounds.minY / maskHeight).clamp(0.0, 1.0),
-      right: (treeBounds.maxX / maskWidth).clamp(0.0, 1.0),
-      bottom: (treeBounds.maxY / maskHeight).clamp(0.0, 1.0),
-    );
-
-    return MangroveTree(
-      trunkWidthAtBranchPoint: trunkWidth.clamp(1.0, 4000.0).toDouble(),
-      roots: roots,
-      trunkMeasurement: trunkMeasurement,
-      treeBounds: treeBoundsNormalized,
-    );
-  }
-
-  _MaskBounds? _findMaskBounds(List<List<bool>> mask) {
-    var minX = 1 << 30;
-    var minY = 1 << 30;
-    var maxX = -1;
-    var maxY = -1;
-
-    for (var y = 0; y < mask.length; y++) {
-      for (var x = 0; x < mask[y].length; x++) {
-        if (!mask[y][x]) continue;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-
-    if (maxX < 0 || maxY < 0) return null;
-    return _MaskBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY);
-  }
-
-  _RowSpan? _findRowSpanAt(List<List<bool>> mask, int y) {
-    if (y < 0 || y >= mask.length) return null;
-    int rowMinX = -1;
-    int rowMaxX = -1;
-    for (var x = 0; x < mask[y].length; x++) {
-      if (!mask[y][x]) continue;
-      rowMinX = rowMinX < 0 ? x : math.min(rowMinX, x);
-      rowMaxX = math.max(rowMaxX, x);
-    }
-    if (rowMinX < 0 || rowMaxX < rowMinX) return null;
-    return _RowSpan(
-      minX: rowMinX,
-      maxX: rowMaxX,
-      centerX: (rowMinX + rowMaxX) / 2.0,
-    );
-  }
-
-  _RowSpan? _findNearestRowSpan(
-    List<List<bool>> mask,
-    int startY,
-    int minY,
-    int maxY,
-    int maxOffset,
-  ) {
-    for (var offset = 0; offset <= maxOffset; offset++) {
-      final upY = startY - offset;
-      if (upY >= minY) {
-        final span = _findRowSpanAt(mask, upY);
-        if (span != null) return span;
-      }
-      final downY = startY + offset;
-      if (downY <= maxY) {
-        final span = _findRowSpanAt(mask, downY);
-        if (span != null) return span;
-      }
-    }
-    return null;
-  }
-
-  List<_Detection> _filterRootsByTreeBounds(
-    List<_Detection> roots,
-    _Detection tree,
-    double measuredTrunkWidth,
-    double guideLineY,
-  ) {
-    if (roots.isEmpty) return roots;
-    final corridorHalfWidth = math.min(
-      tree.width * 0.35,
-      measuredTrunkWidth * 3.5,
-    );
-    final minX = tree.centerX - corridorHalfWidth;
-    final maxX = tree.centerX + corridorHalfWidth;
-    final minY = math.max(tree.bottom + (tree.height * 0.02), guideLineY);
-    final filtered = roots
-        .where((root) {
-          if (_overlapRatio(root, tree) > 0.25) return false;
-          final cx = root.centerX;
-          final cy = root.centerY;
-          return cx >= minX && cx <= maxX && cy >= minY;
-        })
-        .toList(growable: false);
-    return filtered.isEmpty ? roots : filtered;
-  }
-
-  List<_RootComponent> _filterRootComponentsByTreeBounds(
-    List<_RootComponent> components,
-    _MaskBounds treeBounds,
-  ) {
-    if (components.isEmpty) return components;
-    final marginX = treeBounds.width * 0.18;
-    final minX = treeBounds.minX - marginX;
-    final maxX = treeBounds.maxX + marginX;
-    final marginY = treeBounds.height * 0.12;
-    final minY = treeBounds.maxY - marginY;
-    final filtered = components
-        .where((component) {
-          final cx = component.centerX;
-          final cy = component.centerY;
-          return cx >= minX && cx <= maxX && cy >= minY;
-        })
-        .toList(growable: false);
-    return filtered.isEmpty ? components : filtered;
-  }
-
-  double _overlapRatio(_Detection a, _Detection b) {
-    final interLeft = math.max(a.left, b.left);
-    final interTop = math.max(a.top, b.top);
-    final interRight = math.min(a.right, b.right);
-    final interBottom = math.min(a.bottom, b.bottom);
-    final interW = math.max(0.0, interRight - interLeft);
-    final interH = math.max(0.0, interBottom - interTop);
-    final interArea = interW * interH;
-    if (interArea <= 0) return 0;
-    if (a.area <= 0) return 0;
-    return interArea / a.area;
-  }
-
-  List<_Detection> _rootsForSelectedTree(
-    List<_Detection> roots,
-    List<_Detection> trees,
-    _Detection selectedTree,
-  ) {
-    if (roots.isEmpty || trees.length <= 1) return roots;
-    final assigned = <_Detection>[];
-    for (final root in roots) {
-      _Detection nearest = trees.first;
-      var nearestDistance = (root.centerX - nearest.centerX).abs();
-      for (final tree in trees.skip(1)) {
-        final distance = (root.centerX - tree.centerX).abs();
-        if (distance < nearestDistance) {
-          nearest = tree;
-          nearestDistance = distance;
-        }
-      }
-      if (identical(nearest, selectedTree)) {
-        assigned.add(root);
-      }
-    }
-    return assigned.isEmpty ? roots : assigned;
-  }
-
-  List<_RootComponent> _extractRootComponents(List<List<bool>> rootMask) {
-    if (rootMask.isEmpty || rootMask.first.isEmpty) return const [];
-    final h = rootMask.length;
-    final w = rootMask.first.length;
-    final visited = List.generate(
-      h,
-      (_) => List<bool>.filled(w, false, growable: false),
-      growable: false,
-    );
-    final components = <_RootComponent>[];
-
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if (!rootMask[y][x] || visited[y][x]) continue;
-
-        final queue = <_Point>[_Point(x, y)];
-        visited[y][x] = true;
-        var qIndex = 0;
-
-        var pixels = 0;
-        var sumX = 0.0;
-        var sumY = 0.0;
-        var minX = x;
-        var maxX = x;
-        var minY = y;
-        var maxY = y;
-
-        while (qIndex < queue.length) {
-          final point = queue[qIndex++];
-          pixels++;
-          sumX += point.x;
-          sumY += point.y;
-          if (point.x < minX) minX = point.x;
-          if (point.x > maxX) maxX = point.x;
-          if (point.y < minY) minY = point.y;
-          if (point.y > maxY) maxY = point.y;
-
-          for (var dy = -1; dy <= 1; dy++) {
-            for (var dx = -1; dx <= 1; dx++) {
-              if (dx == 0 && dy == 0) continue;
-              final nx = point.x + dx;
-              final ny = point.y + dy;
-              if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-              if (visited[ny][nx] || !rootMask[ny][nx]) continue;
-              visited[ny][nx] = true;
-              queue.add(_Point(nx, ny));
-            }
-          }
-        }
-
-        if (pixels < 12) continue;
-        components.add(
-          _RootComponent(
-            centerX: sumX / pixels,
-            centerY: sumY / pixels,
-            width: (maxX - minX + 1).toDouble(),
-            area: pixels,
-            minX: minX.toDouble(),
-            minY: minY.toDouble(),
-            maxX: maxX.toDouble(),
-            maxY: maxY.toDouble(),
-          ),
-        );
-      }
-    }
-
-    components.sort((a, b) => b.area.compareTo(a.area));
-    return components.take(48).toList(growable: false);
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1445,26 +789,52 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   Widget _buildScannerHud() {
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
         child: Column(
           children: [
             Row(
               children: [
                 _buildStatusChip(
-                  icon: Icons.blur_on_rounded,
-                  label: _isModelReady
-                      ? 'Model Ready'
-                      : (_modelInitError == null
-                            ? 'Model Loading'
-                            : 'Model Error'),
-                  glow: caribbeanGreen,
+                  icon: _isCapturing
+                      ? Icons.camera
+                      : (_isRealtimeAssessment
+                          ? Icons.sensors
+                          : Icons.check_circle),
+                  label: _isCapturing
+                      ? 'Processing'
+                      : (_isRealtimeAssessment ? 'Assessing' : 'Ready'),
+                  glow: _isCapturing
+                      ? const Color(0xFFFFA34D)
+                      : (_isRealtimeAssessment
+                          ? caribbeanGreen
+                          : caribbeanGreen),
+                  trailing: (_isCapturing || _isRealtimeAssessment)
+                      ? const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              antiFlashWhite,
+                            ),
+                          ),
+                        )
+                      : null,
                 ),
                 const Spacer(),
                 _buildStatusChip(
-                  icon: _isCapturing ? Icons.camera : Icons.check_circle,
-                  label: _isCapturing ? 'Analyzing' : 'Ready',
-                  glow: _isCapturing ? const Color(0xFFFFA34D) : caribbeanGreen,
-                  trailing: _isCapturing
+                  icon: _detectorError != null
+                      ? Icons.error_outline
+                      : (_isDetectorReady ? Icons.memory : Icons.hourglass_top),
+                  label: _detectorError != null
+                      ? 'Model Error'
+                      : (_isDetectorReady ? 'Model Ready' : 'Model Loading'),
+                  glow: _detectorError != null
+                      ? Colors.redAccent
+                      : (_isDetectorReady
+                          ? caribbeanGreen
+                          : const Color(0xFFFFA34D)),
+                  trailing: (!_isDetectorReady && _detectorError == null)
                       ? const SizedBox(
                           width: 12,
                           height: 12,
@@ -1479,9 +849,20 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                 ),
               ],
             ),
-            const Spacer(),
-            _buildFrameGuide(),
-            const Spacer(),
+            const SizedBox(height: 12),
+            Expanded(
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: AnimatedOpacity(
+                    opacity: _isRealtimeAssessment ? 0.0 : 1.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: _buildFrameGuide(),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             _buildGuidancePanel(),
           ],
         ),
@@ -1538,39 +919,32 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     return SizedBox(
       width: frameWidth,
       height: frameHeight,
-      child: Stack(
-        children: [
-          Align(
-            child: Container(
-              key: _frameGuideInnerKey,
-              width: innerWidth,
-              height: innerHeight,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(
-                  color: antiFlashWhite.withValues(alpha: 0.2),
-                  width: 1.2,
-                ),
+      child: Center(
+        child: SizedBox(
+          key: _frameGuideInnerKey,
+          width: innerWidth,
+          height: innerHeight,
+          child: Stack(
+            children: [
+              Align(
+                alignment: Alignment.topLeft,
+                child: _frameCorner(top: true, left: true),
               ),
-            ),
+              Align(
+                alignment: Alignment.topRight,
+                child: _frameCorner(top: true, left: false),
+              ),
+              Align(
+                alignment: Alignment.bottomLeft,
+                child: _frameCorner(top: false, left: true),
+              ),
+              Align(
+                alignment: Alignment.bottomRight,
+                child: _frameCorner(top: false, left: false),
+              ),
+            ],
           ),
-          Align(
-            alignment: Alignment.topLeft,
-            child: _frameCorner(top: true, left: true),
-          ),
-          Align(
-            alignment: Alignment.topRight,
-            child: _frameCorner(top: true, left: false),
-          ),
-          Align(
-            alignment: Alignment.bottomLeft,
-            child: _frameCorner(top: false, left: true),
-          ),
-          Align(
-            alignment: Alignment.bottomRight,
-            child: _frameCorner(top: false, left: false),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1611,7 +985,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   }
 
   Widget _buildGuidancePanel() {
-    final canUpload = !_isCapturing;
+    final canUpload = !_isCapturing && !_isRealtimeAssessment;
+    final liveLabel = _liveAssessment?.label ??
+        (_isDetectorReady ? 'Scanning...' : 'Model Loading');
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -1624,48 +1000,141 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
-            'Field Guidance',
-            style: TextStyle(
-              color: antiFlashWhite,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            '1) Keep the trunk base fully visible.\n2) Hold steady and tap the center shutter button.\n3) Re-capture if roots are partially blocked.',
-            style: TextStyle(color: antiFlashWhite, fontSize: 12, height: 1.4),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: canUpload ? _handleUploadPhoto : null,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: antiFlashWhite,
-                backgroundColor: darkGreen.withValues(alpha: 0.45),
-                side: BorderSide(
-                  color: caribbeanGreen.withValues(alpha: 0.5),
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+          if (!_isRealtimeAssessment) ...[
+            const Text(
+              'Field Guidance',
+              style: TextStyle(
+                color: antiFlashWhite,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
               ),
-              icon: const Icon(Icons.photo_library_rounded, size: 18),
-              label: Text(canUpload ? 'Upload Photo' : 'Processing...'),
             ),
-          ),
+            const SizedBox(height: 6),
+          ],
+          if (_isRealtimeAssessment) ...[
+            _buildQualityMeter(),
+            const SizedBox(height: 8),
+            Text(
+              _liveAssessmentSummary(),
+              style: const TextStyle(
+                color: antiFlashWhite,
+                fontSize: 12,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Live Assessment',
+              style: TextStyle(
+                color: antiFlashWhite,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              liveLabel,
+              style: const TextStyle(
+                color: antiFlashWhite,
+                fontSize: 12,
+                height: 1.3,
+              ),
+            ),
+          ] else ...[
+            const Text(
+              'Place the main trunk and its roots inside the target box, then tap capture. Re-capture if roots are blocked.',
+              style: TextStyle(color: antiFlashWhite, fontSize: 12, height: 1.4),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Hold the shutter to start live assessment. Hold again to stop.',
+              style: TextStyle(
+                color: antiFlashWhite,
+                fontSize: 12,
+                height: 1.3,
+              ),
+            ),
+          ],
+          if (!_isRealtimeAssessment) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: canUpload ? _handleUploadPhoto : null,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: antiFlashWhite,
+                  backgroundColor: darkGreen.withValues(alpha: 0.45),
+                  side: BorderSide(
+                    color: caribbeanGreen.withValues(alpha: 0.5),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.photo_library_rounded, size: 18),
+                label: Text(canUpload ? 'Upload Photo' : 'Processing...'),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
+  String _liveAssessmentSummary() {
+    final assessment = _liveAssessment;
+    if (assessment == null) {
+      return 'Assessing root structure... Keep the main trunk and roots inside the target box to refine stability and storm resistance.';
+    }
+
+    final stormCategory = switch (assessment) {
+      StabilityAssessment.high => 'Signal No. 1–2',
+      StabilityAssessment.moderate => 'Tropical Storm',
+      StabilityAssessment.low => 'Tropical Depression',
+    };
+
+    return 'Root structure acts as an anchor by distributing load and gripping sediment. ${assessment.label} indicates $stormCategory resistance.';
+  }
+
+  Widget _buildQualityMeter() {
+    final qualityScore = (_liveQualityScore ?? 0).clamp(0.0, 1.0);
+    final qualityPercent = (qualityScore * 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Spacer(),
+            Text(
+              '$qualityPercent%',
+              style: const TextStyle(
+                color: antiFlashWhite,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: qualityScore,
+            minHeight: 8,
+            backgroundColor: antiFlashWhite.withValues(alpha: 0.2),
+            valueColor: const AlwaysStoppedAnimation<Color>(caribbeanGreen),
+          ),
+        ),
+      ],
+    );
+  }
   void _cacheFrameRectIfPossible() {
     final frameContext = _frameGuideInnerKey.currentContext;
     final rootRenderObject = context.findRenderObject();
@@ -1679,6 +1148,272 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     _lastFrameRectInViewport =
         (frameGlobalTopLeft - rootGlobalTopLeft) & frameRenderObject.size;
     _lastViewportSize = rootRenderObject.size;
+  }
+
+  Rect? _previewCropRectForFrameGuide({
+    required double previewWidth,
+    required double previewHeight,
+  }) {
+    _cacheFrameRectIfPossible();
+    final frameRectInViewport = _lastFrameRectInViewport;
+    final viewportSize = _lastViewportSize;
+    if (frameRectInViewport == null || viewportSize == null) return null;
+    if (viewportSize.width <= 0 || viewportSize.height <= 0) return null;
+    if (previewWidth <= 0 || previewHeight <= 0) return null;
+
+    final scale = math.max(
+      viewportSize.width / previewWidth,
+      viewportSize.height / previewHeight,
+    );
+    final displayedWidth = previewWidth * scale;
+    final displayedHeight = previewHeight * scale;
+    final offsetX = (viewportSize.width - displayedWidth) / 2;
+    final offsetY = (viewportSize.height - displayedHeight) / 2;
+
+    final previewCropRect = Rect.fromLTRB(
+      ((frameRectInViewport.left - offsetX) / scale).clamp(0.0, previewWidth),
+      ((frameRectInViewport.top - offsetY) / scale).clamp(0.0, previewHeight),
+      ((frameRectInViewport.right - offsetX) / scale).clamp(0.0, previewWidth),
+      ((frameRectInViewport.bottom - offsetY) / scale).clamp(
+        0.0,
+        previewHeight,
+      ),
+    );
+    if (previewCropRect.width <= 1 || previewCropRect.height <= 1) {
+      return null;
+    }
+    return previewCropRect;
+  }
+
+  Rect? _normalizedCropRectForFrameGuide({
+    required double previewWidth,
+    required double previewHeight,
+  }) {
+    var normalizedWidth = previewWidth;
+    var normalizedHeight = previewHeight;
+    if (previewWidth > previewHeight) {
+      normalizedWidth = previewHeight;
+      normalizedHeight = previewWidth;
+    }
+    final rect = _previewCropRectForFrameGuide(
+      previewWidth: normalizedWidth,
+      previewHeight: normalizedHeight,
+    );
+    if (rect == null || normalizedWidth == 0 || normalizedHeight == 0) {
+      return null;
+    }
+    return Rect.fromLTRB(
+      rect.left / normalizedWidth,
+      rect.top / normalizedHeight,
+      rect.right / normalizedWidth,
+      rect.bottom / normalizedHeight,
+    );
+  }
+
+  void _updateQualityMetrics(CameraImage image, Rect? normalizedCrop) {
+    if (!_isRealtimeAssessment) return;
+    if (image.planes.isEmpty) return;
+    final yPlane = image.planes[0];
+    final variance = _computeLaplacianVariance(
+      bytes: yPlane.bytes,
+      width: image.width,
+      height: image.height,
+      rowStride: yPlane.bytesPerRow,
+      normalizedCrop: normalizedCrop,
+    );
+    final edgeMean = _computeEdgeMean(
+      bytes: yPlane.bytes,
+      width: image.width,
+      height: image.height,
+      rowStride: yPlane.bytesPerRow,
+      normalizedCrop: normalizedCrop,
+    );
+    final sharpnessScore = _scoreFromRange(
+      variance,
+      _sharpnessLowVariance,
+      _sharpnessHighVariance,
+    );
+    final framingScore = _scoreFromRange(
+      edgeMean,
+      _framingLowEdge,
+      _framingHighEdge,
+    );
+    final confidenceScore = (_liveConfidence ?? 0).clamp(0.0, 1.0);
+    final qualityScore = _combinedQualityScore(
+      confidenceScore: confidenceScore,
+      sharpnessScore: sharpnessScore,
+      framingScore: framingScore,
+    );
+
+    if (mounted) {
+      setState(() {
+        _liveSharpnessScore = sharpnessScore;
+        _liveFramingScore = framingScore;
+        _liveQualityScore = qualityScore;
+      });
+    } else {
+      _liveSharpnessScore = sharpnessScore;
+      _liveFramingScore = framingScore;
+      _liveQualityScore = qualityScore;
+    }
+  }
+
+  double _combinedQualityScore({
+    required double confidenceScore,
+    required double sharpnessScore,
+    required double framingScore,
+  }) {
+    final clampedConfidence = confidenceScore.clamp(0.0, 1.0);
+    final clampedSharpness = sharpnessScore.clamp(0.0, 1.0);
+    final clampedFraming = framingScore.clamp(0.0, 1.0);
+    return (clampedConfidence + clampedSharpness + clampedFraming) / 3;
+  }
+
+  double _scoreFromRange(double value, double low, double high) {
+    if (high <= low) return 0;
+    return ((value - low) / (high - low)).clamp(0.0, 1.0);
+  }
+
+  double _computeLaplacianVariance({
+    required Uint8List bytes,
+    required int width,
+    required int height,
+    required int rowStride,
+    Rect? normalizedCrop,
+    int step = 4,
+  }) {
+    if (width < 3 || height < 3) return 0;
+    var left = 1;
+    var top = 1;
+    var right = width - 2;
+    var bottom = height - 2;
+
+    if (normalizedCrop != null) {
+      left = (normalizedCrop.left * width).round().clamp(1, width - 2);
+      top = (normalizedCrop.top * height).round().clamp(1, height - 2);
+      right = (normalizedCrop.right * width).round().clamp(1, width - 2);
+      bottom = (normalizedCrop.bottom * height).round().clamp(1, height - 2);
+    }
+
+    if (right <= left || bottom <= top) return 0;
+
+    double sum = 0;
+    double sumSq = 0;
+    int count = 0;
+
+    for (int y = top; y <= bottom; y += step) {
+      final row = y * rowStride;
+      for (int x = left; x <= right; x += step) {
+        final idx = row + x;
+        final center = bytes[idx];
+        final laplacian = bytes[idx - 1] +
+            bytes[idx + 1] +
+            bytes[idx - rowStride] +
+            bytes[idx + rowStride] -
+            (4 * center);
+        sum += laplacian;
+        sumSq += laplacian * laplacian;
+        count++;
+      }
+    }
+
+    if (count == 0) return 0;
+    final mean = sum / count;
+    final variance = (sumSq / count) - (mean * mean);
+    return variance.isFinite ? variance : 0;
+  }
+
+  double _computeEdgeMean({
+    required Uint8List bytes,
+    required int width,
+    required int height,
+    required int rowStride,
+    Rect? normalizedCrop,
+    int step = 4,
+  }) {
+    if (width < 3 || height < 3) return 0;
+    var left = 1;
+    var top = 1;
+    var right = width - 2;
+    var bottom = height - 2;
+
+    if (normalizedCrop != null) {
+      left = (normalizedCrop.left * width).round().clamp(1, width - 2);
+      top = (normalizedCrop.top * height).round().clamp(1, height - 2);
+      right = (normalizedCrop.right * width).round().clamp(1, width - 2);
+      bottom = (normalizedCrop.bottom * height).round().clamp(1, height - 2);
+    }
+
+    if (right <= left || bottom <= top) return 0;
+
+    double sum = 0;
+    int count = 0;
+
+    for (int y = top; y <= bottom; y += step) {
+      final row = y * rowStride;
+      for (int x = left; x <= right; x += step) {
+        final idx = row + x;
+        final center = bytes[idx];
+        final diff = (center - bytes[idx - 1]).abs() +
+            (center - bytes[idx + 1]).abs() +
+            (center - bytes[idx - rowStride]).abs() +
+            (center - bytes[idx + rowStride]).abs();
+        sum += diff / 4;
+        count++;
+      }
+    }
+
+    if (count == 0) return 0;
+    final mean = sum / count;
+    return mean.isFinite ? mean : 0;
+  }
+
+  void _handleCameraImage(CameraImage image) {
+    if (!_isRealtimeAssessment || _isCapturing) return;
+    if (!_isLiveIsolateReady || _liveSendPort == null) return;
+    if (image.planes.length < 3) return;
+    if (_isRealtimeProcessing) return;
+    final now = DateTime.now();
+    if (now.difference(_lastRealtimeRun) < _realtimeInterval) return;
+    _lastRealtimeRun = now;
+    _isRealtimeProcessing = true;
+
+    try {
+      final normalizedCrop = _normalizedCropRectForFrameGuide(
+        previewWidth: image.width.toDouble(),
+        previewHeight: image.height.toDouble(),
+      );
+      _updateQualityMetrics(image, normalizedCrop);
+      final requestId = ++_liveRequestId;
+      _pendingLiveRequestId = requestId;
+      _liveSendPort?.send({
+        'type': _liveIsolateProcess,
+        'requestId': requestId,
+        'width': image.width,
+        'height': image.height,
+        'yRowStride': image.planes[0].bytesPerRow,
+        'uvRowStride': image.planes[1].bytesPerRow,
+        'uvPixelStride': image.planes[1].bytesPerPixel ?? 1,
+        'bytesY':
+            TransferableTypedData.fromList([image.planes[0].bytes]),
+        'bytesU':
+            TransferableTypedData.fromList([image.planes[1].bytes]),
+        'bytesV':
+            TransferableTypedData.fromList([image.planes[2].bytes]),
+        'crop': normalizedCrop == null
+            ? null
+            : {
+                'left': normalizedCrop.left,
+                'top': normalizedCrop.top,
+                'right': normalizedCrop.right,
+                'bottom': normalizedCrop.bottom,
+              },
+        'maxDimension': _liveProcessingMaxDimension,
+      });
+    } catch (e) {
+      _isRealtimeProcessing = false;
+      debugPrint('Live assessment frame enqueue failed: $e');
+    }
   }
 
   Widget _buildCameraPreview() {
@@ -1702,8 +1437,65 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _startRealtimeAssessment() async {
+    if (_isRealtimeAssessment) return;
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) return;
+    await _ensureLiveIsolateReady();
+    if (!_isLiveIsolateReady) {
+      if (!mounted) return;
+      _showTopNotification('Live assessment failed to initialize.');
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isRealtimeAssessment = true;
+        _liveAssessment = null;
+        _liveConfidence = null;
+        _liveSharpnessScore = null;
+        _liveFramingScore = null;
+        _liveQualityScore = null;
+      });
+    } else {
+      _isRealtimeAssessment = true;
+    }
+
+    if (controller.value.isStreamingImages) return;
+    try {
+      await controller.startImageStream(_handleCameraImage);
+    } on CameraException catch (e) {
+      if (!mounted) return;
+      setState(() => _isRealtimeAssessment = false);
+      _showTopNotification(
+        'Live assessment failed: ${e.description ?? e.code}',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isRealtimeAssessment = false);
+      _showTopNotification('Live assessment failed to start.');
+    }
+  }
+
+  void _stopRealtimeAssessment() {
+    if (!_isRealtimeAssessment) return;
+    _isRealtimeAssessment = false;
+    _isRealtimeProcessing = false;
+    _liveSharpnessScore = null;
+    _liveFramingScore = null;
+    _liveQualityScore = null;
+    if (mounted) {
+      setState(() {});
+    }
+    final controller = _cameraController;
+    if (controller == null) return;
+    if (!controller.value.isStreamingImages) return;
+    unawaited(controller.stopImageStream().catchError((_) {}));
+  }
+
   Future<void> _captureShutter() async {
     final controller = _cameraController;
+    if (_isRealtimeAssessment) return;
     if (_isCapturing || controller == null || !controller.value.isInitialized) {
       return;
     }
@@ -1714,7 +1506,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       final picture = await controller.takePicture();
       final croppedImagePath = await _cropCapturedImageToFrame(picture.path);
       if (!mounted) return;
-      await _runModelInferenceOnCapture(croppedImagePath);
+      await _storeDetectedImageResult(croppedImagePath);
       if (!mounted) return;
       widget.onScanCompleted?.call();
     } on CameraException catch (e) {
@@ -1729,7 +1521,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   }
 
   Future<void> _handleUploadPhoto() async {
-    if (_isCapturing) return;
+    if (_isCapturing || _isRealtimeAssessment) return;
 
     XFile? picked;
     try {
@@ -1748,7 +1540,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
     setState(() => _isCapturing = true);
     try {
-      await _runModelInferenceOnCapture(picked.path);
+      await _storeDetectedImageResult(picked.path);
       if (!mounted) return;
       widget.onScanCompleted?.call();
     } finally {
@@ -1763,55 +1555,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     final previewSize = controller.value.previewSize;
     if (previewSize == null) return imagePath;
 
-    final frameContext = _frameGuideInnerKey.currentContext;
-    final rootRenderObject = context.findRenderObject();
-    final frameRenderObject = frameContext?.findRenderObject();
-
-    Rect? frameRectInViewport;
-    Size? viewportSize;
-    if (rootRenderObject is RenderBox && frameRenderObject is RenderBox) {
-      final frameGlobalTopLeft = frameRenderObject.localToGlobal(Offset.zero);
-      final rootGlobalTopLeft = rootRenderObject.localToGlobal(Offset.zero);
-      frameRectInViewport =
-          (frameGlobalTopLeft - rootGlobalTopLeft) & frameRenderObject.size;
-      viewportSize = rootRenderObject.size;
-      _lastFrameRectInViewport = frameRectInViewport;
-      _lastViewportSize = viewportSize;
-    } else {
-      frameRectInViewport = _lastFrameRectInViewport;
-      viewportSize = _lastViewportSize;
-    }
-
-    if (frameRectInViewport == null || viewportSize == null) {
-      return imagePath;
-    }
-    if (viewportSize.width <= 0 || viewportSize.height <= 0) return imagePath;
-
     final previewWidth = previewSize.height;
     final previewHeight = previewSize.width;
-    if (previewWidth <= 0 || previewHeight <= 0) return imagePath;
-
-    final scale = math.max(
-      viewportSize.width / previewWidth,
-      viewportSize.height / previewHeight,
+    final previewCropRect = _previewCropRectForFrameGuide(
+      previewWidth: previewWidth,
+      previewHeight: previewHeight,
     );
-    final displayedWidth = previewWidth * scale;
-    final displayedHeight = previewHeight * scale;
-    final offsetX = (viewportSize.width - displayedWidth) / 2;
-    final offsetY = (viewportSize.height - displayedHeight) / 2;
-
-    final previewCropRect = Rect.fromLTRB(
-      ((frameRectInViewport.left - offsetX) / scale).clamp(0.0, previewWidth),
-      ((frameRectInViewport.top - offsetY) / scale).clamp(0.0, previewHeight),
-      ((frameRectInViewport.right - offsetX) / scale).clamp(0.0, previewWidth),
-      ((frameRectInViewport.bottom - offsetY) / scale).clamp(
-        0.0,
-        previewHeight,
-      ),
-    );
-    if (previewCropRect.width <= 1 || previewCropRect.height <= 1) {
-      return imagePath;
-    }
+    if (previewCropRect == null) return imagePath;
 
     try {
       final sourceBytes = await File(imagePath).readAsBytes();
@@ -1959,137 +1709,4 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       },
     );
   }
-}
-
-class _ParsedMasks {
-  final List<List<bool>> treeMask;
-  final List<List<bool>> rootMask;
-  final double? predictionConfidence;
-
-  const _ParsedMasks({
-    required this.treeMask,
-    required this.rootMask,
-    this.predictionConfidence,
-  });
-}
-
-class _MaskBounds {
-  final int minX;
-  final int minY;
-  final int maxX;
-  final int maxY;
-
-  const _MaskBounds({
-    required this.minX,
-    required this.minY,
-    required this.maxX,
-    required this.maxY,
-  });
-
-  int get width => maxX - minX + 1;
-  int get height => maxY - minY + 1;
-
-  double get centerX => (minX + maxX) / 2.0;
-}
-
-class _RootComponent {
-  final double centerX;
-  final double centerY;
-  final double width;
-  final int area;
-  final double minX;
-  final double minY;
-  final double maxX;
-  final double maxY;
-
-  const _RootComponent({
-    required this.centerX,
-    required this.centerY,
-    required this.width,
-    required this.area,
-    required this.minX,
-    required this.minY,
-    required this.maxX,
-    required this.maxY,
-  });
-}
-
-class _Point {
-  final int x;
-  final int y;
-
-  const _Point(this.x, this.y);
-}
-
-class _RowSpan {
-  final int minX;
-  final int maxX;
-  final double centerX;
-
-  const _RowSpan({
-    required this.minX,
-    required this.maxX,
-    required this.centerX,
-  });
-
-  int get width => maxX - minX + 1;
-}
-
-class _InstanceOutput {
-  final List<dynamic> data;
-  final int channels;
-  final int predictions;
-  final bool channelFirst;
-
-  const _InstanceOutput({
-    required this.data,
-    required this.channels,
-    required this.predictions,
-    required this.channelFirst,
-  });
-
-  num valueAt(int predictionIndex, int channelIndex) {
-    if (channelFirst) {
-      return ((data[channelIndex] as List)[predictionIndex] as num);
-    }
-    return ((data[predictionIndex] as List)[channelIndex] as num);
-  }
-}
-
-class _InstanceLayout {
-  final bool hasObjectness;
-  final int classStart;
-
-  const _InstanceLayout({
-    required this.hasObjectness,
-    required this.classStart,
-  });
-}
-
-class _Detection {
-  final int classId;
-  final double score;
-  final double left;
-  final double top;
-  final double right;
-  final double bottom;
-
-  const _Detection({
-    required this.classId,
-    required this.score,
-    required this.left,
-    required this.top,
-    required this.right,
-    required this.bottom,
-  });
-
-  double get width => (right - left).abs();
-
-  double get height => (bottom - top).abs();
-
-  double get centerX => (left + right) / 2.0;
-
-  double get centerY => (top + bottom) / 2.0;
-
-  double get area => width * height;
 }

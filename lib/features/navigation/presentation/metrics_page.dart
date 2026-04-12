@@ -329,6 +329,9 @@ class _MetricsPageState extends State<MetricsPage> {
                         _AverageStabilityGaugeCard(
                           recentScanCount: recentScanCount,
                           averageStability: averageStability,
+                          lowCount: lowCount,
+                          moderateCount: moderateCount,
+                          highCount: highCount,
                         ),
                         const SizedBox(height: 14),
                         _StabilityBreakdownCard(
@@ -930,22 +933,45 @@ class _HeroSummaryCard extends StatelessWidget {
 class _AverageStabilityGaugeCard extends StatelessWidget {
   final int recentScanCount;
   final double averageStability;
+  final int lowCount;
+  final int moderateCount;
+  final int highCount;
 
   const _AverageStabilityGaugeCard({
     required this.recentScanCount,
     required this.averageStability,
+    required this.lowCount,
+    required this.moderateCount,
+    required this.highCount,
   });
 
   @override
   Widget build(BuildContext context) {
     final hasData = recentScanCount > 0;
-    final averageLabel = hasData ? averageStability.toStringAsFixed(2) : '--';
-    final statusLabel = hasData
-        ? _statusLabel(averageStability)
-        : 'No data yet';
-    final statusColor = hasData
-        ? _statusColor(averageStability)
-        : MetricsPage.antiFlashWhite.withValues(alpha: 0.6);
+
+    final majorityCount = hasData 
+        ? [lowCount, moderateCount, highCount].reduce(math.max) 
+        : 0;
+    final majorityRatio = hasData ? majorityCount / recentScanCount : 0.0;
+
+    final averageLabel = hasData
+        ? '${(majorityRatio * 100).toStringAsFixed(0)}%'
+        : '--';
+
+    StabilityAssessment? majorityAssessment;
+    if (hasData) {
+      if (lowCount >= moderateCount && lowCount >= highCount) {
+        majorityAssessment = StabilityAssessment.low;
+      } else if (moderateCount >= highCount) {
+        majorityAssessment = StabilityAssessment.moderate;
+      } else {
+        majorityAssessment = StabilityAssessment.high;
+      }
+    }
+
+    final statusLabel = hasData ? '${majorityAssessment!.label} Majority' : 'No data yet';
+    final statusColor = hasData ? _statusColorForAssessment(majorityAssessment!) : MetricsPage.antiFlashWhite.withValues(alpha: 0.6);
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -977,29 +1003,28 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 32),
           _AverageStabilityGauge(
-            value: hasData ? averageStability : 0,
+            value: majorityRatio,
             valueLabel: averageLabel,
             caption: '',
             statusLabel: statusLabel,
             statusColor: statusColor,
+            lowCount: lowCount,
+            moderateCount: moderateCount,
+            highCount: highCount,
           ),
         ],
       ),
     );
   }
 
-  String _statusLabel(double value) {
-    if (value >= 0.75) return 'High stability';
-    if (value >= 0.50) return 'Moderate stability';
-    return 'Low stability';
-  }
-
-  Color _statusColor(double value) {
-    if (value >= 0.75) return MetricsPage.caribbeanGreen;
-    if (value >= 0.50) return const Color(0xFFF59E0B);
-    return const Color(0xFFEF4444);
+  Color _statusColorForAssessment(StabilityAssessment assessment) {
+    return switch (assessment) {
+      StabilityAssessment.high => MetricsPage.caribbeanGreen,
+      StabilityAssessment.moderate => const Color(0xFFF59E0B),
+      StabilityAssessment.low => const Color(0xFFEF4444),
+    };
   }
 }
 
@@ -1149,6 +1174,9 @@ class _AverageStabilityGauge extends StatelessWidget {
   final String caption;
   final String statusLabel;
   final Color statusColor;
+  final int lowCount;
+  final int moderateCount;
+  final int highCount;
 
   const _AverageStabilityGauge({
     required this.value,
@@ -1156,6 +1184,9 @@ class _AverageStabilityGauge extends StatelessWidget {
     required this.caption,
     required this.statusLabel,
     required this.statusColor,
+    required this.lowCount,
+    required this.moderateCount,
+    required this.highCount,
   });
 
   @override
@@ -1163,7 +1194,7 @@ class _AverageStabilityGauge extends StatelessWidget {
     return Column(
       children: [
         SizedBox(
-          height: 140,
+          height: 165,
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -1173,11 +1204,14 @@ class _AverageStabilityGauge extends StatelessWidget {
                     value: value,
                     maxValue: maxValue,
                     progressColor: statusColor,
+                    lowCount: lowCount,
+                    moderateCount: moderateCount,
+                    highCount: highCount,
                   ),
                 ),
               ),
               Align(
-                alignment: const Alignment(0, 0.42),
+                alignment: const Alignment(0, 0.6),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1185,7 +1219,7 @@ class _AverageStabilityGauge extends StatelessWidget {
                       valueLabel,
                       style: const TextStyle(
                         color: MetricsPage.antiFlashWhite,
-                        fontSize: 26,
+                        fontSize: 42,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.2,
                       ),
@@ -1223,20 +1257,20 @@ class _AverageStabilityGauge extends StatelessWidget {
         const Column(
           children: [
             _GaugeLegendItem(
-              label: 'Low Stability (0.00–0.49)',
-              color: Color(0xFFEF4444),
+              label: 'High Stability',
+              color: MetricsPage.caribbeanGreen,
               alignment: Alignment.centerLeft,
             ),
             SizedBox(height: 6),
             _GaugeLegendItem(
-              label: 'Moderate Stability (0.50–0.74)',
+              label: 'Moderate Stability',
               color: Color(0xFFF59E0B),
               alignment: Alignment.centerLeft,
             ),
             SizedBox(height: 6),
             _GaugeLegendItem(
-              label: 'High Stability (0.75–1.00)',
-              color: MetricsPage.caribbeanGreen,
+              label: 'Low Stability',
+              color: Color(0xFFEF4444),
               alignment: Alignment.centerLeft,
             ),
           ],
@@ -1250,18 +1284,17 @@ class _AverageStabilityGaugePainter extends CustomPainter {
   final double value;
   final double maxValue;
   final Color progressColor;
-
-  static const List<double> _stabilityStops = <double>[
-    0.0,
-    0.5,
-    0.75,
-    1.0,
-  ];
+  final int lowCount;
+  final int moderateCount;
+  final int highCount;
 
   const _AverageStabilityGaugePainter({
     required this.value,
     required this.maxValue,
     required this.progressColor,
+    required this.lowCount,
+    required this.moderateCount,
+    required this.highCount,
   });
 
   @override
@@ -1276,6 +1309,19 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     final radius = math.min(size.width / 2, center.dy) - trackThickness;
     if (radius <= 0) return;
 
+    final labelStyle = TextStyle(
+      color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
+      fontSize: 10,
+      fontWeight: FontWeight.w700,
+      shadows: [
+        Shadow(
+          color: Colors.black.withValues(alpha: 0.55),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    );
+
     const startAngle = math.pi;
     const sweepAngle = math.pi;
 
@@ -1284,6 +1330,28 @@ class _AverageStabilityGaugePainter extends CustomPainter {
       ..strokeWidth = trackThickness
       ..strokeCap = StrokeCap.round
       ..color = MetricsPage.antiFlashWhite.withValues(alpha: 0.22);
+
+    final total = lowCount + moderateCount + highCount;
+    final List<double> stabilityStops;
+    final List<String> stabilityLabels;
+
+    if (total == 0) {
+      stabilityStops = [0.0, 0.25, 0.5, 1.0];
+      stabilityLabels = ['0.00', '0.50', '0.75', '1.00'];
+    } else {
+      stabilityStops = [
+        0.0,
+        highCount / total,
+        (highCount + moderateCount) / total,
+        1.0,
+      ];
+      stabilityLabels = [
+        '0',
+        '$highCount',
+        '${highCount + moderateCount}',
+        '$total',
+      ];
+    }
 
     final arcRect = Rect.fromCircle(center: center, radius: radius);
     canvas.drawArc(arcRect, startAngle, sweepAngle, false, trackPaint);
@@ -1297,9 +1365,9 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     var currentAngle = startAngle;
     const scaleGap = 0.095;
     final scaleSegments = <(double, Color)>[
-      (_stabilityStops[1] - _stabilityStops[0], const Color(0xFFEF4444)),
-      (_stabilityStops[2] - _stabilityStops[1], const Color(0xFFF59E0B)),
-      (_stabilityStops[3] - _stabilityStops[2], MetricsPage.caribbeanGreen),
+      (stabilityStops[1] - stabilityStops[0], MetricsPage.caribbeanGreen),
+      (stabilityStops[2] - stabilityStops[1], const Color(0xFFF59E0B)),
+      (stabilityStops[3] - stabilityStops[2], const Color(0xFFEF4444)),
     ];
     final sweepSign = sweepAngle.sign == 0 ? 1.0 : sweepAngle.sign;
     for (var index = 0; index < scaleSegments.length; index++) {
@@ -1324,6 +1392,38 @@ class _AverageStabilityGaugePainter extends CustomPainter {
         false,
         scalePaint,
       );
+
+      if (portion > 0.02) {
+        final middleAngle = currentAngle + (fullSweep / 2);
+        final countLabel = switch (index) {
+          0 => '$highCount',
+          1 => '$moderateCount',
+          2 => '$lowCount',
+          _ => '',
+        };
+
+        final segmentColor = segment.$2;
+        final countPainter = TextPainter(
+          text: TextSpan(
+            text: countLabel,
+            style: labelStyle.copyWith(
+              color: segmentColor,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+              shadows: [],
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final countRadius = scaleRadius + 15;
+        final countOffset = Offset(
+          center.dx + countRadius * math.cos(middleAngle) - countPainter.width / 2,
+          center.dy + countRadius * math.sin(middleAngle) - countPainter.height / 2,
+        );
+        countPainter.paint(canvas, countOffset);
+      }
+
       currentAngle += fullSweep;
     }
 
@@ -1351,45 +1451,16 @@ class _AverageStabilityGaugePainter extends CustomPainter {
       ..drawCircle(progressEnd, 7, markerFill)
       ..drawCircle(progressEnd, 7, markerBorder);
 
-    final labelStyle = TextStyle(
-      color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
-      fontSize: 10,
-      fontWeight: FontWeight.w700,
-      shadows: [
-        Shadow(
-          color: Colors.black.withValues(alpha: 0.55),
-          blurRadius: 8,
-          offset: const Offset(0, 2),
-        ),
-      ],
-    );
-    final labelRadius = scaleRadius + 16;
-    for (final stop in _stabilityStops) {
-      final labelValue = maxValue * stop;
-      final ratio = stop.clamp(0.0, 1.0);
-      final angle = startAngle + sweepAngle * ratio;
-      final label = (maxValue <= 1.0)
-          ? labelValue.toStringAsFixed(2)
-          : (labelValue % 1 == 0
-                ? labelValue.toStringAsFixed(0)
-                : labelValue.toStringAsFixed(1));
-      final textPainter = TextPainter(
-        text: TextSpan(text: label, style: labelStyle),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      final textOffset = Offset(
-        center.dx + labelRadius * math.cos(angle) - textPainter.width / 2,
-        center.dy + labelRadius * math.sin(angle) - textPainter.height / 2,
-      );
-      textPainter.paint(canvas, textOffset);
-    }
   }
 
   @override
   bool shouldRepaint(covariant _AverageStabilityGaugePainter oldDelegate) {
     return oldDelegate.value != value ||
         oldDelegate.maxValue != maxValue ||
-        oldDelegate.progressColor != progressColor;
+        oldDelegate.progressColor != progressColor ||
+        oldDelegate.lowCount != lowCount ||
+        oldDelegate.moderateCount != moderateCount ||
+        oldDelegate.highCount != highCount;
   }
 }
 

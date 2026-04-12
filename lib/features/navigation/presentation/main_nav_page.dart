@@ -35,6 +35,8 @@ class _MainNavPageState extends State<MainNavPage> {
   int _selectedIndex = 0;
   final ScannerPageController _scannerController = ScannerPageController();
   final ValueNotifier<List<RecentTreeScan>> _recentScans = ValueNotifier([]);
+  final ValueNotifier<RecentScanNotice?> _recentScanNotice =
+      ValueNotifier(null);
 
   // Pages to switch between
   late final List<Widget> _pages = [
@@ -45,6 +47,7 @@ class _MainNavPageState extends State<MainNavPage> {
     ),
     RecentScanPage(
       scansListenable: _recentScans,
+      noticeListenable: _recentScanNotice,
       onSaveScan: _saveRecentScan,
       onDeleteScan: _deleteRecentScan,
       onOpenExportPath: _openExportPath,
@@ -58,28 +61,68 @@ class _MainNavPageState extends State<MainNavPage> {
     _loadRecentScans();
   }
 
+  void _setSelectedIndex(int index) {
+    if (_selectedIndex == index) return;
+    if (_selectedIndex == 1 && index != 1) {
+      _scannerController.stopRealtimeAssessment();
+    }
+    setState(() => _selectedIndex = index);
+  }
+
   void _handleScannerFabTap() {
     if (_selectedIndex == 1) {
       _scannerController.triggerShutter();
       return;
     }
-    setState(() => _selectedIndex = 1);
+    _setSelectedIndex(1);
   }
 
   void _handleRescanRequested() {
     if (!mounted) return;
-    setState(() => _selectedIndex = 1);
+    _setSelectedIndex(1);
+  }
+
+  void _handleScannerHoldStart() {
+    if (!mounted) return;
+    if (_selectedIndex != 1) {
+      _setSelectedIndex(1);
+    }
+    if (_scannerController.isRealtimeAssessment) {
+      _scannerController.stopRealtimeAssessment();
+    } else {
+      _scannerController.startRealtimeAssessment();
+    }
+  }
+
+  void _handleScannerHoldEnd() {
+    // Long-press toggles realtime; release does not change state.
   }
 
   void _handleScanCompleted() {
     unawaited(_storeLatestMeasuredTree());
     if (!mounted) return;
-    setState(() => _selectedIndex = 2);
+    _setSelectedIndex(2);
   }
 
   Future<void> _storeLatestMeasuredTree() async {
     final measuredResult = _scannerController.consumeLatestMeasuredTreeResult();
     if (measuredResult == null) return;
+
+    if (measuredResult.outcome == ScanOutcome.noMangroveDetected) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _recentScanNotice.value = RecentScanNotice(
+          id: DateTime.now().millisecondsSinceEpoch,
+          message: 'No mangroves detected. Try a clearer scan.',
+          kind: RecentScanNoticeKind.error,
+        );
+      });
+      await _appendActivityLogEntry({
+        'event': 'scan_no_mangrove_detected',
+        'scannedAt': DateTime.now().toIso8601String(),
+      });
+      return;
+    }
 
     final timestamp = DateTime.now();
     const treeId = 'Tree #1';
@@ -95,13 +138,8 @@ class _MainNavPageState extends State<MainNavPage> {
       tree: measuredResult.tree,
       metersPerPixel: measuredResult.metersPerPixel,
       predictionConfidence: measuredResult.predictionConfidence,
+      predictedAssessment: measuredResult.predictedAssessment,
       capturedImagePath: capturedImagePath,
-      rootMaskBytes: measuredResult.rootMaskBytes,
-      rootMaskWidth: measuredResult.rootMaskWidth,
-      rootMaskHeight: measuredResult.rootMaskHeight,
-      trunkMaskBytes: measuredResult.trunkMaskBytes,
-      trunkMaskWidth: measuredResult.trunkMaskWidth,
-      trunkMaskHeight: measuredResult.trunkMaskHeight,
     );
 
     final updated = [
@@ -659,6 +697,7 @@ class _MainNavPageState extends State<MainNavPage> {
   void dispose() {
     _scannerController.dispose();
     _recentScans.dispose();
+    _recentScanNotice.dispose();
     super.dispose();
   }
 
@@ -710,7 +749,7 @@ class _MainNavPageState extends State<MainNavPage> {
                           unselectedColor: antiFlashWhite.withValues(
                             alpha: 0.58,
                           ),
-                          onTap: () => setState(() => _selectedIndex = 0),
+                          onTap: () => _setSelectedIndex(0),
                         ),
                         const SizedBox(width: 70),
                         _NavItem(
@@ -720,7 +759,7 @@ class _MainNavPageState extends State<MainNavPage> {
                           unselectedColor: antiFlashWhite.withValues(
                             alpha: 0.58,
                           ),
-                          onTap: () => setState(() => _selectedIndex = 2),
+                          onTap: () => _setSelectedIndex(2),
                         ),
                       ],
                     ),
@@ -736,6 +775,8 @@ class _MainNavPageState extends State<MainNavPage> {
                 baseColor: bangladeshGreen,
                 iconColor: antiFlashWhite,
                 onTap: _handleScannerFabTap,
+                onHoldStart: _handleScannerHoldStart,
+                onHoldEnd: _handleScannerHoldEnd,
               ),
             ),
           ],
@@ -751,6 +792,8 @@ class _ScannerFab extends StatefulWidget {
   final Color baseColor;
   final Color iconColor;
   final VoidCallback onTap;
+  final VoidCallback? onHoldStart;
+  final VoidCallback? onHoldEnd;
 
   const _ScannerFab({
     required this.isScannerActive,
@@ -758,6 +801,8 @@ class _ScannerFab extends StatefulWidget {
     required this.baseColor,
     required this.iconColor,
     required this.onTap,
+    this.onHoldStart,
+    this.onHoldEnd,
   });
 
   @override
@@ -767,30 +812,53 @@ class _ScannerFab extends StatefulWidget {
 class _ScannerFabState extends State<_ScannerFab> {
   Timer? _pressTimer;
   bool _isShutterPressed = false;
-  bool _didTriggerOnTapDown = false;
+  bool _isLongPressing = false;
 
-  void _handleTap({required bool immediate}) {
-    if (widget.isScannerActive) {
-      if (!immediate && _didTriggerOnTapDown) {
-        _didTriggerOnTapDown = false;
-        return;
-      }
-      if (immediate) {
-        _didTriggerOnTapDown = true;
-      }
-      _pressTimer?.cancel();
-      setState(() => _isShutterPressed = true);
-      _pressTimer = Timer(const Duration(milliseconds: 120), () {
-        if (!mounted) return;
-        setState(() => _isShutterPressed = false);
-      });
-    }
+  void _handleTap() {
+    if (_isLongPressing) return;
     widget.onTap();
   }
 
   void _handleTapDown(TapDownDetails details) {
-    if (!widget.isScannerActive) return;
-    _handleTap(immediate: true);
+    _pressTimer?.cancel();
+    if (mounted) {
+      setState(() => _isShutterPressed = true);
+    }
+  }
+
+  void _handleTapUp(TapUpDetails details) {
+    if (_isLongPressing) return;
+    _pressTimer?.cancel();
+    _pressTimer = Timer(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      setState(() => _isShutterPressed = false);
+    });
+  }
+
+  void _handleTapCancel() {
+    if (_isLongPressing) return;
+    _pressTimer?.cancel();
+    if (mounted) {
+      setState(() => _isShutterPressed = false);
+    }
+  }
+
+  void _handleLongPressStart(LongPressStartDetails details) {
+    _pressTimer?.cancel();
+    _isLongPressing = true;
+    if (mounted) {
+      setState(() => _isShutterPressed = true);
+    }
+    widget.onHoldStart?.call();
+  }
+
+  void _handleLongPressEnd(LongPressEndDetails details) {
+    _pressTimer?.cancel();
+    _isLongPressing = false;
+    if (mounted) {
+      setState(() => _isShutterPressed = false);
+    }
+    widget.onHoldEnd?.call();
   }
 
   @override
@@ -799,7 +867,7 @@ class _ScannerFabState extends State<_ScannerFab> {
     if (!widget.isScannerActive && _isShutterPressed) {
       _pressTimer?.cancel();
       _isShutterPressed = false;
-      _didTriggerOnTapDown = false;
+      _isLongPressing = false;
     }
   }
 
@@ -813,10 +881,16 @@ class _ScannerFabState extends State<_ScannerFab> {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: widget.isScannerActive ? 'Capture shutter' : 'Open scanner',
+      label: widget.isScannerActive
+          ? 'Capture shutter, hold to toggle live assessment'
+          : 'Open scanner',
       child: GestureDetector(
         onTapDown: _handleTapDown,
-        onTap: () => _handleTap(immediate: false),
+        onTapUp: _handleTapUp,
+        onTapCancel: _handleTapCancel,
+        onTap: _handleTap,
+        onLongPressStart: _handleLongPressStart,
+        onLongPressEnd: _handleLongPressEnd,
         behavior: HitTestBehavior.opaque,
         child: AnimatedScale(
           duration: const Duration(milliseconds: 110),
