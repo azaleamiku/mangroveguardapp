@@ -48,9 +48,7 @@ class _MainNavPageState extends State<MainNavPage> {
     RecentScanPage(
       scansListenable: _recentScans,
       noticeListenable: _recentScanNotice,
-      onSaveScan: _saveRecentScan,
       onDeleteScan: _deleteRecentScan,
-      onOpenExportPath: _openExportPath,
       onRescan: _handleRescanRequested,
     ),
   ];

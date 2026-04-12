@@ -663,14 +663,6 @@ class _AboutAppSheet extends StatelessWidget {
                                           value: 'Local',
                                         ),
                                       ),
-                                      SizedBox(width: 10),
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.picture_as_pdf_rounded,
-                                          label: 'Reports',
-                                          value: 'PDF',
-                                        ),
-                                      ),
                                     ],
                                   ),
                                 ],

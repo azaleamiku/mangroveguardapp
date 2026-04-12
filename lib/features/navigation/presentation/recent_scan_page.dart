@@ -36,39 +36,55 @@ String _stabilityLabel(StabilityAssessment assessment) {
   return assessment.label;
 }
 
-String _stormCategory(StabilityAssessment assessment) {
+String _recentScanSummary(StabilityAssessment assessment) {
   switch (assessment) {
     case StabilityAssessment.high:
-      return 'Signal No. 1-2';
+      return 'This mangrove shows High Stability. It acts as a primary defense line, capable of absorbing heavy wave energy and resisting gale-force winds. Its deep, interlocking root system makes it highly unlikely to uproot during a storm. This dense underground network anchors the tree firmly while dissipating the force of powerful surges to protect the coastline.';
     case StabilityAssessment.moderate:
-      return 'Tropical Storm';
+      return 'This mangrove shows Moderate Stability. While it offers decent protection, it may suffer branch breakage or partial root loosening during a strong storm. It can handle moderate winds, but it needs surrounding support to stay upright in a typhoon. Its structural resilience depends heavily on the presence of neighboring trees to help buffer high-velocity gusts.';
     case StabilityAssessment.low:
-      return 'Tropical Depression';
+      return 'This mangrove has Low Stability. It provides minimal protection against storm surges and is at high risk of being uprooted by strong winds. In its current state, it may not survive a major weather event and could even become floating debris. The lack of a developed root base means it cannot withstand significant environmental pressure or effectively grip the shifting soil.';
   }
 }
 
-String _recentScanSummary(StabilityAssessment assessment) {
-  final stormCategory = _stormCategory(assessment);
-  return 'Based on the detection, the root structure acts as an anchor by '
-      'distributing load and gripping sediment. ${assessment.label} indicates '
-      '$stormCategory resistance for the recent scan.';
+List<String> _stabilityRecommendations(StabilityAssessment assessment) {
+  switch (assessment) {
+    case StabilityAssessment.high:
+      return [
+        'Prioritize for Conservation: Designate these areas as "no-touch" zones or core protected areas to serve as a seed source for surrounding regions.',
+        'Eco-Tourism Potential: Use these sites for educational boardwalks or research, as the trees are resilient enough to handle light human infrastructure.',
+        'Baseline Monitoring: Establish these zones as the "Gold Standard" for measuring the health and growth rates of less stable areas.',
+      ];
+    case StabilityAssessment.moderate:
+      return [
+        'Pollution Monitoring: Track heavy metal or chemical levels in the water, as chronic exposure can weaken the wood’s density and make the "moderate" branches more prone to snapping.',
+        'Debris Clearing: Schedule regular community clean-ups to remove large trash items trapped in the roots, which can cause physical abrasions and invite rot in otherwise healthy trees.',
+        'Infill Planting: Introduce saplings in the gaps between existing trees to increase the overall density and provide the "surrounding support" needed during typhoons.',
+        'Erosion Control: Install temporary bamboo breakwaters or wave-attenuators seaward of these zones to reduce the physical stress on loosening roots.',
+        'Routine Maintenance: Conduct periodic checks after minor storms to prune broken branches that could become "projectiles" or cause further damage to the trunk.',
+      ];
+    case StabilityAssessment.low:
+      return [
+        'Pollution Mitigation: Implement strict waste management and net barriers in nearby residential areas to prevent plastic debris from entangling and suffocating fragile young roots.',
+        'Relocation Strategy: Consider transplanting these individuals to more sheltered nurseries if the current site suffers from high water toxicity or heavy human encroachment that prevents natural growth.',
+        'Water Quality Remediation: Address upstream runoff or sewage discharge that may be weakening the trees\' health and preventing the development of a sturdy, anchoring root system.',
+        'Zoning and Buffers: Establish "restricted entry" fences to prevent human trampling and illegal harvesting, which further destabilizes the already loose substrate.',
+        'Hazard Mitigation: Prioritize removal or reinforcement if they are near docks, as their high risk of becoming floating debris poses a threat to local maritime safety during surges.',
+      ];
+  }
 }
 
 class RecentScanPage extends StatefulWidget {
   final ValueListenable<List<RecentTreeScan>> scansListenable;
   final ValueListenable<RecentScanNotice?>? noticeListenable;
-  final Future<String?> Function(int index)? onSaveScan;
   final Future<void> Function(int index)? onDeleteScan;
-  final Future<bool> Function(String pdfPath)? onOpenExportPath;
   final VoidCallback? onRescan;
 
   const RecentScanPage({
     super.key,
     required this.scansListenable,
     this.noticeListenable,
-    this.onSaveScan,
     this.onDeleteScan,
-    this.onOpenExportPath,
     this.onRescan,
   });
 
@@ -144,49 +160,6 @@ class _RecentScanPageState extends State<RecentScanPage> {
     }
   }
 
-  Future<void> _handleSaveScan(int index) async {
-    final saveCallback = widget.onSaveScan;
-    if (saveCallback == null) return;
-
-    final exportedPdfPath = await saveCallback(index);
-    if (!mounted) return;
-    final filename = exportedPdfPath?.split('/').last;
-    if (filename == null) {
-      _showNotice(
-        message: 'PDF export failed. Try a full app restart.',
-        kind: _NoticeKind.error,
-      );
-      return;
-    }
-
-    final safePath = exportedPdfPath!;
-    _showNotice(
-      message: 'Saved to Downloads/MangroveGuard • $filename',
-      kind: _NoticeKind.success,
-      actionLabel: 'Open',
-      onAction: () async {
-        final openCallback = widget.onOpenExportPath;
-        if (openCallback == null) return;
-        try {
-          final opened = await openCallback(safePath);
-          if (!mounted) return;
-          if (!opened) {
-            _showNotice(
-              message: 'Unable to open the PDF. Try from Downloads.',
-              kind: _NoticeKind.error,
-            );
-          }
-        } catch (_) {
-          if (!mounted) return;
-          _showNotice(
-            message: 'Unable to open the PDF. Try from Downloads.',
-            kind: _NoticeKind.error,
-          );
-        }
-      },
-    );
-  }
-
   void _handleRescan() {
     final callback = widget.onRescan;
     if (callback == null) return;
@@ -218,32 +191,6 @@ class _RecentScanPageState extends State<RecentScanPage> {
     return completer.future;
   }
 
-  List<Rect> _normalizedRootRects(MangroveTree tree) {
-    final rects = <Rect>[];
-    for (final root in tree.roots) {
-      final left = root.normalizedLeft;
-      final top = root.normalizedTop;
-      final right = root.normalizedRight;
-      final bottom = root.normalizedBottom;
-      if (left == null || top == null || right == null || bottom == null) {
-        continue;
-      }
-      final clampedLeft = left.clamp(0.0, 1.0);
-      final clampedTop = top.clamp(0.0, 1.0);
-      final clampedRight = right.clamp(0.0, 1.0);
-      final clampedBottom = bottom.clamp(0.0, 1.0);
-      rects.add(
-        Rect.fromLTRB(
-          math.min(clampedLeft, clampedRight),
-          math.min(clampedTop, clampedBottom),
-          math.max(clampedLeft, clampedRight),
-          math.max(clampedTop, clampedBottom),
-        ),
-      );
-    }
-    return rects;
-  }
-
   List<Rect> _normalizedMangroveRects(MangroveTree tree) {
     final bounds = tree.treeBounds;
     if (bounds != null) {
@@ -260,27 +207,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
         ),
       ];
     }
-
-    final rootRects = _normalizedRootRects(tree);
-    if (rootRects.isEmpty) return const [];
-    var minL = 1.0;
-    var minT = 1.0;
-    var maxR = 0.0;
-    var maxB = 0.0;
-    for (final rect in rootRects) {
-      minL = math.min(minL, rect.left);
-      minT = math.min(minT, rect.top);
-      maxR = math.max(maxR, rect.right);
-      maxB = math.max(maxB, rect.bottom);
-    }
-    return [
-      Rect.fromLTRB(
-        minL.clamp(0.0, 1.0),
-        minT.clamp(0.0, 1.0),
-        maxR.clamp(0.0, 1.0),
-        maxB.clamp(0.0, 1.0),
-      ),
-    ];
+    return const [];
   }
 
   void _showNotice({
@@ -491,8 +418,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
             final imagePath = scan.capturedImagePath?.trim();
             final hasImage = imagePath != null && imagePath.isNotEmpty;
             final statusColor = _assessmentColor(scan.assessment);
-            final stabilityRatio = scan.stabilityScore.clamp(0.0, 1.0);
-            final photoBorderWidth = 1.5 + ((1.0 - stabilityRatio) * 3.5);
+            const photoBorderWidth = 3.0;
             final photoBorderColor = statusColor.withValues(alpha: 0.75);
             final topInset = MediaQuery.paddingOf(context).top;
             const extraTopPadding = 30.0;
@@ -769,73 +695,46 @@ class _RecentScanPageState extends State<RecentScanPage> {
                             height: 1.45,
                           ),
                         ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Intervention Protocols',
+                          style: TextStyle(
+                            color: antiFlashWhite,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        ..._stabilityRecommendations(scan.assessment)
+                            .map((rec) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text('• ',
+                                          style: TextStyle(
+                                              color: statusColor,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16)),
+                                      Expanded(
+                                        child: Text(
+                                          rec,
+                                          style: TextStyle(
+                                            color: antiFlashWhite.withValues(
+                                                alpha: 0.8),
+                                            fontSize: 12,
+                                            height: 1.4,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )),
                         const SizedBox(height: 18),
                         Row(
                           children: [
-                            Expanded(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Color(0xFF064E3B),
-                                      Color(0xFF10B981),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: const Color(
-                                      0xFF86EFAC,
-                                    ).withValues(alpha: 0.34),
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(
-                                        0xFF10B981,
-                                      ).withValues(alpha: 0.24),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: FilledButton(
-                                    onPressed: () => _handleSaveScan(0),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      shadowColor: Colors.transparent,
-                                      foregroundColor: antiFlashWhite,
-                                      alignment: Alignment.center,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 12,
-                                      ),
-                                      shape: const RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.zero,
-                                      ),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    child: const Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      mainAxisSize: MainAxisSize.max,
-                                      children: [
-                                        Icon(
-                                          Icons.picture_as_pdf_rounded,
-                                          size: 18,
-                                        ),
-                                        SizedBox(width: 8),
-                                        Text('Export'),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
                             Expanded(
                               child: DecoratedBox(
                                 decoration: BoxDecoration(
@@ -1317,8 +1216,8 @@ class RecentTreeScan {
   double get trunkWidthCentimeters => trunkWidthMeters * 100;
   double get rootSpreadCentimeters => rootSpreadMeters * 100;
   double get stabilityIndex => tree.stabilityIndex;
-  double get stabilityScore => tree.stabilityScore;
-  double get symmetryScore => tree.symmetryScore;
+  double get stabilityScore => _assessmentScore(assessment);
+  double get symmetryScore => _assessmentScore(assessment);
   double get rootCoverageRatio => tree.stabilityMetrics.rootCoverageRatio;
   StabilityAssessment get assessment => predictedAssessment ?? tree.assessment;
 
@@ -1359,49 +1258,14 @@ class RecentTreeScan {
             'right': tree.treeBounds!.right,
             'bottom': tree.treeBounds!.bottom,
           },
-        'roots': tree.roots
-            .map(
-              (root) => {
-                'dx': root.position.dx,
-                'dy': root.position.dy,
-                'length': root.length,
-                'angle': root.angle,
-                if (root.normalizedLeft != null)
-                  'normalizedLeft': root.normalizedLeft,
-                if (root.normalizedTop != null)
-                  'normalizedTop': root.normalizedTop,
-                if (root.normalizedRight != null)
-                  'normalizedRight': root.normalizedRight,
-                if (root.normalizedBottom != null)
-                  'normalizedBottom': root.normalizedBottom,
-              },
-            )
-            .toList(growable: false),
+        'roots': const [],
       },
     };
   }
 
   factory RecentTreeScan.fromJson(Map<String, dynamic> json) {
     final treeMap = (json['tree'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final rootsRaw = (treeMap['roots'] as List?) ?? const [];
-    final roots = rootsRaw
-        .whereType<Map>()
-        .map((rootMap) {
-          final typed = rootMap.cast<String, dynamic>();
-          return Root(
-            position: Offset(
-              (typed['dx'] as num?)?.toDouble() ?? 0,
-              (typed['dy'] as num?)?.toDouble() ?? 0,
-            ),
-            length: (typed['length'] as num?)?.toDouble() ?? 0,
-            angle: (typed['angle'] as num?)?.toDouble() ?? 0,
-            normalizedLeft: (typed['normalizedLeft'] as num?)?.toDouble(),
-            normalizedTop: (typed['normalizedTop'] as num?)?.toDouble(),
-            normalizedRight: (typed['normalizedRight'] as num?)?.toDouble(),
-            normalizedBottom: (typed['normalizedBottom'] as num?)?.toDouble(),
-          );
-        })
-        .toList(growable: false);
+    final roots = const <Root>[];
 
     final trunkMeasurementRaw = (treeMap['trunkMeasurement'] as Map?)
         ?.cast<String, dynamic>();
@@ -1444,7 +1308,7 @@ class RecentTreeScan {
     StabilityAssessment? predictedAssessment;
     if (predictedAssessmentRaw != null) {
       for (final assessment in StabilityAssessment.values) {
-        if (assessment.name == predictedAssessmentRaw) {
+        if (assessment.name.toLowerCase() == predictedAssessmentRaw.toLowerCase()) {
           predictedAssessment = assessment;
           break;
         }

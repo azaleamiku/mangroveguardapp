@@ -8,10 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../../data/mangrove_detector.dart';
 import '../../models/mangrove_tree.dart';
-
 
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
@@ -23,12 +21,6 @@ const String _liveIsolateProcess = 'process';
 const String _liveIsolateResult = 'result';
 const String _liveIsolateError = 'error';
 const String _liveIsolateStop = 'stop';
-
-const String _stillIsolateReady = 'still_ready';
-const String _stillIsolateProcess = 'still_process';
-const String _stillIsolateResult = 'still_result';
-const String _stillIsolateError = 'still_error';
-const String _stillIsolateStop = 'still_stop';
 
 int _clampByte(num value) {
   if (value < 0) return 0;
@@ -106,69 +98,6 @@ Rect? _cropRectFromNormalized({
     cropRight.toDouble(),
     cropBottom.toDouble(),
   );
-}
-
-void _stillAssessmentIsolate(Map<String, Object?> config) async {
-  final sendPort = config['sendPort'] as SendPort;
-  final modelData = config['modelData'] as TransferableTypedData;
-  final modelBytes = modelData.materialize().asUint8List();
-
-  MangroveDetector detector;
-  try {
-    detector = await MangroveDetector.createFromBuffer(modelBytes);
-  } catch (e) {
-    sendPort.send({'type': _stillIsolateError, 'error': e.toString()});
-    return;
-  }
-
-  final receivePort = ReceivePort();
-  sendPort.send({'type': _stillIsolateReady, 'sendPort': receivePort.sendPort});
-
-  await for (final message in receivePort) {
-    if (message is! Map<String, Object?>) continue;
-    final type = message['type'];
-    if (type == _stillIsolateStop) {
-      break;
-    }
-    if (type != _stillIsolateProcess) continue;
-
-    final requestId = message['requestId'] as int?;
-    try {
-      final imageBytes = (message['imageBytes'] as TransferableTypedData).materialize().asUint8List();
-      final img.Image? image = img.decodeImage(imageBytes);
-      if (image == null) {
-        sendPort.send({'type': _stillIsolateError, 'requestId': requestId, 'error': 'Failed to decode image'});
-        continue;
-      }
-      final detection = await detector.detectFromImage(image);
-      final trunkWidth = detection.tree.trunkWidthAtBranchPoint;
-      final confidence = detection.predictionConfidence;
-      final assessmentName = detection.predictedAssessment?.name ?? '';
-      final bounds = detection.tree.treeBounds;
-      sendPort.send({
-        'type': _stillIsolateResult,
-        'requestId': requestId,
-        'treeTrunkWidth': trunkWidth,
-        'confidence': confidence,
-        'assessmentName': assessmentName,
-        'treeBounds': bounds == null ? null : {
-          'left': bounds.left,
-          'top': bounds.top,
-          'right': bounds.right,
-          'bottom': bounds.bottom,
-        },
-      });
-    } catch (e) {
-      sendPort.send({
-        'type': _stillIsolateError,
-        'requestId': requestId,
-        'error': e.toString(),
-      });
-    }
-  }
-
-  detector.dispose();
-  receivePort.close();
 }
 
 void _liveAssessmentIsolate(Map<String, Object?> config) async {
@@ -249,12 +178,12 @@ void _liveAssessmentIsolate(Map<String, Object?> config) async {
         'requestId': requestId,
         'assessment': detection.predictedAssessment?.name,
         'confidence': detection.predictionConfidence,
-        'bounds': detection.tree.treeBounds == null ? null : {
-          'left': detection.tree.treeBounds!.left,
-          'top': detection.tree.treeBounds!.top,
-          'right': detection.tree.treeBounds!.right,
-          'bottom': detection.tree.treeBounds!.bottom,
-        },
+        'boundingBox': detection.boundingBox != null ? {
+          'left': detection.boundingBox!.left,
+          'top': detection.boundingBox!.top,
+          'right': detection.boundingBox!.right,
+          'bottom': detection.boundingBox!.bottom,
+        } : null,
       });
     } catch (e) {
       sendPort.send({
@@ -369,7 +298,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   bool _isInitializing = true;
   bool _isCapturing = false;
   String? _cameraError;
-  PermissionStatus? _cameraPermissionStatus;
   MangroveDetector? _detector;
   Future<MangroveDetector?>? _detectorFuture;
   bool _isDetectorReady = false;
@@ -385,10 +313,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   DateTime _lastRealtimeRun = DateTime.fromMillisecondsSinceEpoch(0);
   StabilityAssessment? _liveAssessment;
   double? _liveConfidence;
-  TreeBounds? _liveTreeBounds;
   double? _liveSharpnessScore;
   double? _liveFramingScore;
   double? _liveQualityScore;
+  Rect? _liveBoundingBox;
   Isolate? _liveIsolate;
   ReceivePort? _liveReceivePort;
   SendPort? _liveSendPort;
@@ -398,21 +326,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   int _liveRequestId = 0;
   int _pendingLiveRequestId = 0;
   Uint8List? _liveModelBytes;
-  
-  // Still isolate for fast photo processing
-  Isolate? _stillIsolate;
-  ReceivePort? _stillReceivePort;
-  SendPort? _stillSendPort;
-  bool _isStillIsolateReady = false;
-  bool _isStillIsolateStarting = false;
-  Completer<void>? _stillReadyCompleter;
-  Uint8List? _stillModelBytes;
-  bool _isStillProcessing = false;
-  int _stillRequestId = 0;
-  int _pendingStillRequestId = 0;
-  
-  bool _isCameraInitInProgress = false;
-
 
   @override
   void initState() {
@@ -437,30 +350,17 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
   }
 
-@override
+  @override
   void dispose() {
     widget.controller?.stopRealtimeAssessment();
     widget.controller?.removeListener(_handleControllerSignal);
     WidgetsBinding.instance.removeObserver(this);
     _stopRealtimeAssessment();
     _disposeLiveIsolate();
-    _disposeStillIsolate();
-    _safeDisposeCamera();
+    _cameraController?.dispose();
     _detector?.dispose();
     super.dispose();
   }
-
-  Future<void> _safeDisposeCamera() async {
-    final controller = _cameraController;
-    _cameraController = null;
-    if (controller == null) return;
-    try {
-      await controller.dispose();
-    } catch (e) {
-      debugPrint('Camera dispose safe-fail: $e');
-    }
-  }
-
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -480,191 +380,20 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
-Future<void> _scheduleCameraInit() async {
-  if (!mounted || _isCameraInitInProgress) return;
-  _isCameraInitInProgress = true;
-  try {
+  void _scheduleCameraInit() {
+    if (!mounted) return;
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
-    
-    // Request camera permission first
-    final permissionStatus = await Permission.camera.request();
-    _cameraPermissionStatus = permissionStatus;
-      if (!permissionStatus.isGranted) {
-        if (mounted) {
-          setState(() {
-            _cameraError = permissionStatus.isDenied 
-                ? 'Camera permission required. Please grant access.' 
-                : 'Camera access permanently denied. Enable in Settings.';
-          });
-        }
-        return;
-      }
-    
     unawaited(_ensureLiveIsolateReady());
-    // Longer cold-start delay to avoid race conditions
-    await Future.delayed(const Duration(milliseconds: 500));
-    await _initCamera();
-  } finally {
-    _isCameraInitInProgress = false;
-  }
-}
-
-Future<void> _ensureStillIsolateReady() async {
-  if (_isStillIsolateReady) return;
-  if (_isStillIsolateStarting) {
-    final completer = _stillReadyCompleter;
-    if (completer != null) await completer.future;
-    return;
+    _initCamera();
   }
 
-  _isStillIsolateStarting = true;
-  _stillReadyCompleter = Completer<void>();
-  _stillModelBytes ??= await MangroveDetector.loadModelBytes();
-  
-  _stillReceivePort ??= ReceivePort();
-  _stillReceivePort!.listen(_handleStillIsolateMessage);
+  Future<void> _initCamera() async {
+    setState(() {
+      _isInitializing = true;
+      _cameraError = null;
+    });
 
-    _stillIsolate = await Isolate.spawn(
-      _stillAssessmentIsolate,
-    {
-      'sendPort': _stillReceivePort!.sendPort,
-      'modelData': TransferableTypedData.fromList([_stillModelBytes!]),
-    },
-    debugName: 'still-assessment',
-  );
-  
-  await _stillReadyCompleter!.future.timeout(
-    const Duration(seconds: 3),
-    onTimeout: () {
-      final completer = _stillReadyCompleter;
-      if (completer != null && !completer.isCompleted) completer.complete();
-    },
-  );
-  _isStillIsolateStarting = false;
-}
-
-void _handleStillIsolateMessage(dynamic message) {
-  if (message is! Map) return;
-  final type = message['type'];
-  if (type == _stillIsolateReady) {
-    _stillSendPort = message['sendPort'] as SendPort?;
-    _isStillIsolateReady = _stillSendPort != null;
-    final completer = _stillReadyCompleter;
-    if (completer != null && !completer.isCompleted) {
-      completer.complete();
-    }
-    return;
-  }
-  if (type == _stillIsolateResult) {
-    final requestId = message['requestId'] as int?;
-    if (requestId != _pendingStillRequestId) return;
-    _isStillProcessing = false;
-    if (mounted) setState(() => _isCapturing = false);
-    
-    final trunkWidth = (message['treeTrunkWidth'] as num?)?.toDouble() ?? 0.0;
-    final confidence = message['confidence'] as double?;
-    final assessmentName = message['assessmentName'] as String?;
-    final boundsData = message['treeBounds'] as Map?;
-    
-    StabilityAssessment? assessment;
-    if (assessmentName != null && assessmentName.isNotEmpty) {
-      try {
-        assessment = StabilityAssessment.values.byName(assessmentName);
-      } catch (_) {}
-    }
-    
-    TreeBounds? bounds;
-    if (boundsData != null) {
-      bounds = TreeBounds(
-        left: (boundsData['left'] as num).toDouble(),
-        top: (boundsData['top'] as num).toDouble(),
-        right: (boundsData['right'] as num).toDouble(),
-        bottom: (boundsData['bottom'] as num).toDouble(),
-      );
-    }
-    
-    final tree = MangroveTree(
-      trunkWidthAtBranchPoint: trunkWidth,
-      roots: const [],
-      treeBounds: bounds,
-    );
-    
-    widget.controller?.setLatestMeasuredTree(
-      tree: tree,
-      metersPerPixel: _defaultMetersPerPixel,
-      predictionConfidence: confidence,
-      capturedImagePath: _currentStillImagePath,
-      outcome: confidence != null && confidence >= _minPredictionConfidence 
-        ? ScanOutcome.detected 
-        : ScanOutcome.noMangroveDetected,
-      predictedAssessment: assessment,
-    );
-    widget.onScanCompleted?.call();
-    return;
-  }
-  if (type == _stillIsolateError) {
-    _isStillProcessing = false;
-    debugPrint('Still isolate error: ${message['error']}');
-  }
-}
-
-String? _currentStillImagePath;
-
-/// Resize image to max dimension for fast inference (5s → <1s).
-Future<Uint8List> _resizeImageForInference(String imagePath, {int maxDimension = 512}) async {
-  final bytes = await File(imagePath).readAsBytes();
-  final image = img.decodeImage(bytes);
-  if (image == null) return bytes; // Fallback
-
-  final scale = math.max(1, (math.max(image.width, image.height) / maxDimension).round());
-  final resized = img.copyResize(image, width: (image.width / scale).round(), height: (image.height / scale).round());
-
-  // PNG lossless for model input
-  return Uint8List.fromList(img.encodePng(resized));
-}
-
-Future<void> _processStillImage(String imagePath) async {
-  _currentStillImagePath = imagePath;
-  await _ensureStillIsolateReady();
-  if (!_isStillIsolateReady || _stillSendPort == null) {
-    if (mounted) setState(() => _isCapturing = false);
-    _storeCapturedImageResult(imagePath);
-    widget.onScanCompleted?.call();
-    return;
-  }
-  
-  if (_isStillProcessing) return;
-  _isStillProcessing = true;
-  
-  final resizedBytes = await _resizeImageForInference(imagePath);
-  final requestId = ++_stillRequestId;
-  _pendingStillRequestId = requestId;
-  
-  _stillSendPort!.send({
-    'type': _stillIsolateProcess,
-    'requestId': requestId,
-    'imageBytes': TransferableTypedData.fromList([resizedBytes]),
-  });
-
-  // Reduced timeout with faster input
-  await Future.delayed(const Duration(seconds: 4));
-  if (_isStillProcessing && mounted) {
-    setState(() => _isCapturing = false);
-    _isStillProcessing = false;
-    widget.onScanCompleted?.call();
-  }
-}
-
-Future<void> _initCamera() async {
-  // Removed _isInitializing setState; UI shows immediately with status chips
-  _cameraError = null;
-
-  const maxRetries = 3;
-  var retryCount = 0;
-  var lastError = '';
-
-  while (retryCount < maxRetries) {
     try {
       _cameras = await availableCameras();
       if (_cameras.isEmpty) {
@@ -698,32 +427,22 @@ Future<void> _initCamera() async {
 
       await _cameraController?.dispose();
       _cameraController = controller;
-      // No _isInitializing set; status chips handle ready state
+      setState(() => _isInitializing = false);
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
       }
-      return;  // Success, exit retry loop
     } on CameraException catch (e) {
-      lastError = 'Camera error: ${e.code} - ${e.description}';
-      debugPrint('Camera init attempt ${retryCount + 1} failed: $lastError');
-    } catch (e, stackTrace) {
-      lastError = 'Init error: $e';
-      debugPrint('Camera init attempt ${retryCount + 1} failed: $lastError\n$stackTrace');
-    }
-
-    retryCount++;
-    if (retryCount < maxRetries) {
-      final delay = Duration(milliseconds: 100 * (1 << (retryCount - 1)));
-      await Future.delayed(delay);
+      setState(() {
+        _cameraError = 'Camera error: ${e.description ?? e.code}';
+        _isInitializing = false;
+      });
+    } catch (_) {
+      setState(() {
+        _cameraError = 'Unable to initialize camera.';
+        _isInitializing = false;
+      });
     }
   }
-
-  // All retries failed
-  setState(() {
-    _cameraError = lastError.isEmpty ? 'Unable to initialize camera after $maxRetries attempts.' : lastError;
-    _isInitializing = false;
-  });
-}
 
   Future<void> _initDetector() async {
     setState(() {
@@ -830,24 +549,6 @@ Future<void> _initCamera() async {
     _liveIsolate = null;
   }
 
-  void _disposeStillIsolate() {
-    _isStillIsolateReady = false;
-    _isStillIsolateStarting = false;
-    final completer = _stillReadyCompleter;
-    if (completer != null && !completer.isCompleted) {
-      completer.complete();
-    }
-    _stillReadyCompleter = null;
-    try {
-      _stillSendPort?.send({'type': _stillIsolateStop});
-    } catch (_) {}
-    _stillReceivePort?.close();
-    _stillReceivePort = null;
-    _stillSendPort = null;
-    _stillIsolate?.kill(priority: Isolate.immediate);
-    _stillIsolate = null;
-  }
-
   void _handleLiveIsolateMessage(dynamic message) {
     if (message is! Map) return;
     final type = message['type'];
@@ -872,24 +573,29 @@ Future<void> _initCamera() async {
       }
       final assessmentName = message['assessment'] as String?;
       final confidence = message['confidence'] as double?;
-      final assessment = assessmentName != null
+      
+      // Apply threshold to real-time results
+      final bool isConfident = confidence != null && confidence >= _minPredictionConfidence;
+      final assessment = (assessmentName != null && isConfident)
           ? StabilityAssessment.values.byName(assessmentName)
           : null;
-      final boundsMap = message['bounds'] as Map?;
-      TreeBounds? bounds;
-      if (boundsMap != null) {
-        bounds = TreeBounds(
-          left: (boundsMap['left'] as num).toDouble(),
-          top: (boundsMap['top'] as num).toDouble(),
-          right: (boundsMap['right'] as num).toDouble(),
-          bottom: (boundsMap['bottom'] as num).toDouble(),
+
+      final bboxMap = message['boundingBox'] as Map<Object?, Object?>?;
+      Rect? boundingBox;
+      if (bboxMap != null && isConfident) {
+        boundingBox = Rect.fromLTRB(
+          (bboxMap['left'] as num).toDouble(),
+          (bboxMap['top'] as num).toDouble(),
+          (bboxMap['right'] as num).toDouble(),
+          (bboxMap['bottom'] as num).toDouble(),
         );
       }
+
       if (mounted) {
         setState(() {
           _liveAssessment = assessment;
           _liveConfidence = confidence;
-          _liveTreeBounds = bounds;
+          _liveBoundingBox = boundingBox;
           _liveQualityScore = _combinedQualityScore(
             confidenceScore: confidence ?? 0,
             sharpnessScore: _liveSharpnessScore ?? 0,
@@ -899,7 +605,7 @@ Future<void> _initCamera() async {
       } else {
         _liveAssessment = assessment;
         _liveConfidence = confidence;
-        _liveTreeBounds = bounds;
+        _liveBoundingBox = boundingBox;
         _liveQualityScore = _combinedQualityScore(
           confidenceScore: confidence ?? 0,
           sharpnessScore: _liveSharpnessScore ?? 0,
@@ -971,12 +677,63 @@ Future<void> _initCamera() async {
     );
   }
 
+  Future<void> _storeDetectedImageResult(String imagePath) async {
+    final detector = await _ensureDetector();
+    if (detector == null) {
+      _storeCapturedImageResult(imagePath);
+      return;
+    }
+
+    try {
+      final detection = await detector.detect(imagePath);
+      final confidence = detection.predictionConfidence;
+      final isConfident =
+          confidence != null && confidence >= _minPredictionConfidence;
+      final predictedAssessment = detection.predictedAssessment;
+      widget.controller?.setLatestMeasuredTree(
+        tree: detection.tree,
+        metersPerPixel: _defaultMetersPerPixel,
+        predictionConfidence: confidence,
+        capturedImagePath: imagePath,
+        outcome: predictedAssessment != null && isConfident
+            ? ScanOutcome.detected
+            : ScanOutcome.noMangroveDetected,
+        predictedAssessment: predictedAssessment,
+      );
+    } catch (e) {
+      debugPrint('Detector failed: $e');
+      _storeCapturedImageResult(imagePath);
+      if (!mounted) return;
+      _showTopNotification('Detection failed. Saved photo only.');
+    }
+  }
+
+
   @override
   Widget build(BuildContext context) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _cacheFrameRectIfPossible();
     });
+
+    if (_isInitializing) {
+      return const Scaffold(
+        backgroundColor: richBlack,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: caribbeanGreen),
+              SizedBox(height: 20),
+              Text(
+                'Initializing Scanner...',
+                style: TextStyle(color: antiFlashWhite, fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     if (_cameraError != null) {
       return Scaffold(
@@ -1048,6 +805,7 @@ Future<void> _initCamera() async {
             ),
           ),
           _buildScannerHud(),
+          if (_isRealtimeAssessment) _buildBoundingBoxOverlay(),
         ],
       ),
     );
@@ -1067,13 +825,11 @@ Future<void> _initCamera() async {
                       : (_isRealtimeAssessment
                           ? Icons.sensors
                           : Icons.check_circle),
-                  label: _isCapturing
-                      ? 'Processing'
-                      : (_isRealtimeAssessment ? 'Assessing' : 'Ready'),
+                  label: _isRealtimeAssessment ? 'Assessing' : 'Ready',
                   glow: _isCapturing
                       ? const Color(0xFFFFA34D)
                       : (_isRealtimeAssessment
-                          ? caribbeanGreen
+                          ? const Color(0xFF56E0D4)
                           : caribbeanGreen),
                   trailing: (_isCapturing || _isRealtimeAssessment)
                       ? const SizedBox(
@@ -1119,9 +875,20 @@ Future<void> _initCamera() async {
             const SizedBox(height: 12),
             Expanded(
               child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: _buildFrameGuide(),
+                child: AspectRatio(
+                  aspectRatio: 0.85,
+                  child: Container(
+                    key: _frameGuideInnerKey,
+                    decoration: !_isRealtimeAssessment
+                        ? BoxDecoration(
+                            border: Border.all(
+                              color: caribbeanGreen.withValues(alpha: 0.22),
+                              width: 2,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          )
+                        : null,
+                  ),
                 ),
               ),
             ),
@@ -1173,60 +940,8 @@ Future<void> _initCamera() async {
     );
   }
 
-  Color _getAssessmentColor(StabilityAssessment? assessment) {
-    if (assessment == null) return caribbeanGreen;
-    switch (assessment) {
-      case StabilityAssessment.high:
-        return caribbeanGreen;
-      case StabilityAssessment.moderate:
-        return const Color(0xFFF59E0B);
-      case StabilityAssessment.low:
-        return const Color(0xFFEF4444);
-    }
-  }
-
-  Widget _buildFrameGuide() {
-    final size = MediaQuery.sizeOf(context);
-    final frameWidth = (size.width * 0.82).clamp(280.0, 340.0).toDouble();
-    final frameHeight = (size.height * 0.5).clamp(320.0, 420.0).toDouble();
-    final innerWidth = (frameWidth - 30).clamp(250.0, 305.0).toDouble();
-    final innerHeight = (frameHeight - 28).clamp(290.0, 385.0).toDouble();
-    return SizedBox(
-      width: frameWidth,
-      height: frameHeight,
-      child: Center(
-        child: SizedBox(
-          key: _frameGuideInnerKey,
-          width: innerWidth,
-          height: innerHeight,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 250),
-                  opacity:
-                      (_isRealtimeAssessment && _liveTreeBounds != null)
-                          ? 1.0
-                          : 0.0,
-                  child: CustomPaint(
-                    painter: _LiveDetectionPainter(
-                      bounds: _liveTreeBounds,
-                      color: _getAssessmentColor(_liveAssessment),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildGuidancePanel() {
     final canUpload = !_isCapturing && !_isRealtimeAssessment;
-    final liveLabel = _liveAssessment?.label ??
-        (_isDetectorReady ? 'Scanning...' : 'Model Loading');
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -1239,51 +954,62 @@ Future<void> _initCamera() async {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (!_isRealtimeAssessment) ...[
-            const Text(
-              'Field Guidance',
-              style: TextStyle(
-                color: antiFlashWhite,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.4,
-              ),
+          Text(
+            _isRealtimeAssessment ? 'Live Assessment' : 'Field Guidance',
+            style: const TextStyle(
+              color: antiFlashWhite,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.4,
             ),
-            const SizedBox(height: 6),
-          ],
+          ),
+          const SizedBox(height: 6),
           if (_isRealtimeAssessment) ...[
-            _buildQualityMeter(),
-            const SizedBox(height: 8),
             Text(
-              _liveAssessmentSummary(),
-              style: const TextStyle(
-                color: antiFlashWhite,
-                fontSize: 12,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Live Assessment',
+              _liveAssessment != null
+                  ? '${_liveAssessment!.name.toUpperCase()} STABILITY DETECTED'
+                  : (_isDetectorReady ? 'SCANNING FOR MANGROVES...' : 'MODEL LOADING...'),
               style: TextStyle(
-                color: antiFlashWhite,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.2,
+                color: _liveAssessment == StabilityAssessment.high
+                    ? caribbeanGreen
+                    : _liveAssessment == StabilityAssessment.moderate
+                        ? const Color(0xFFFFA34D)
+                        : _liveAssessment == StabilityAssessment.low
+                            ? Colors.redAccent
+                            : antiFlashWhite.withValues(alpha: 0.7),
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              liveLabel,
-              style: const TextStyle(
-                color: antiFlashWhite,
-                fontSize: 12,
-                height: 1.3,
-              ),
-            ),
+            const SizedBox(height: 8),
+            Builder(builder: (context) {
+              String description;
+              switch (_liveAssessment) {
+                case StabilityAssessment.high:
+                  description = "This mangrove shows High Stability. It acts as a primary defense line, capable of absorbing heavy wave energy and resisting gale-force winds. Its deep, interlocking root system makes it highly unlikely to uproot during a storm.";
+                  break;
+                case StabilityAssessment.moderate:
+                  description = "This mangrove shows Moderate Stability. While it offers decent protection, it may suffer branch breakage or partial root loosening during a strong storm. It can handle moderate winds, but it needs surrounding support to stay upright in a typhoon.";
+                  break;
+                case StabilityAssessment.low:
+                  description = "This mangrove has Low Stability. It provides minimal protection against storm surges and is at high risk of being uprooted by strong winds. In its current state, it may not survive a major weather event and could even become floating debris.";
+                  break;
+                default:
+                  description = _isDetectorReady ? 'Scanning for mangroves...' : 'Model Loading...';
+              }
+              return Text(
+                description,
+                style: const TextStyle(
+                  color: antiFlashWhite,
+                  fontSize: 12,
+                  height: 1.4,
+                ),
+              );
+            }),
           ] else ...[
             const Text(
-              'Place the main trunk and its roots in frame, then tap capture. Re-capture if roots are blocked.',
+              '1) Position the tree within the frame, capturing from the roots up to the visible trunk.\n2) Keep steady and tap or hold the shutter button.\n3) Re-capture if any part of the tree (roots or trunk) is cut off.',
               style: TextStyle(color: antiFlashWhite, fontSize: 12, height: 1.4),
             ),
             const SizedBox(height: 10),
@@ -1317,7 +1043,7 @@ Future<void> _initCamera() async {
                   ),
                 ),
                 icon: const Icon(Icons.photo_library_rounded, size: 18),
-                label: Text(canUpload ? 'Upload Photo' : 'Processing...'),
+                label: const Text('Upload Photo'),
               ),
             ),
           ],
@@ -1326,56 +1052,58 @@ Future<void> _initCamera() async {
     );
   }
 
-  String _liveAssessmentSummary() {
-    final assessment = _liveAssessment;
-    if (assessment == null) {
-      return 'Assessing root structure... Keep the main trunk and roots centered to refine stability and storm resistance.';
+  Widget _buildBoundingBoxOverlay() {
+    final bbox = _liveBoundingBox;
+    final frameRect = _lastFrameRectInViewport;
+    if (bbox == null || frameRect == null) return const SizedBox.shrink();
+
+    final left = frameRect.left + bbox.left * frameRect.width;
+    final top = frameRect.top + bbox.top * frameRect.height;
+    final width = bbox.width * frameRect.width;
+    final height = bbox.height * frameRect.height;
+
+    Color boxColor;
+    switch (_liveAssessment) {
+      case StabilityAssessment.high:
+        boxColor = caribbeanGreen;
+        break;
+      case StabilityAssessment.moderate:
+        boxColor = const Color(0xFFFFA34D); // Orange
+        break;
+      case StabilityAssessment.low:
+        boxColor = Colors.redAccent;
+        break;
+      default:
+        boxColor = caribbeanGreen;
     }
 
-    final stormCategory = switch (assessment!) {
-      StabilityAssessment.high => 'Signal No. 1–2',
-      StabilityAssessment.moderate => 'Tropical Storm',
-      StabilityAssessment.low => 'Tropical Depression',
-    };
-
-    return 'Root structure acts as an anchor by distributing load and gripping sediment. ${assessment!.label} indicates $stormCategory resistance.';
-  }
-
-  Widget _buildQualityMeter() {
-    final qualityScore = (_liveQualityScore ?? 0).clamp(0.0, 1.0);
-    final qualityPercent = (qualityScore * 100).round();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Spacer(),
-            Text(
-              '$qualityPercent%',
-              style: const TextStyle(
-                color: antiFlashWhite,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.2,
-              ),
+    return Positioned(
+      left: left,
+      top: top,
+      width: width,
+      height: height,
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: boxColor, width: 2.5),
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [
+            BoxShadow(
+              color: boxColor.withValues(alpha: 0.3),
+              blurRadius: 10,
+              spreadRadius: 1,
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            value: qualityScore,
-            minHeight: 8,
-            backgroundColor: antiFlashWhite.withValues(alpha: 0.2),
-            valueColor: const AlwaysStoppedAnimation<Color>(caribbeanGreen),
-          ),
-        ),
-      ],
+      ),
     );
   }
+
+  String _formatPercent(double? value) {
+    if (value == null) return '--';
+    return '${(value.clamp(0.0, 1.0) * 100).round()}%';
+  }
+
   void _cacheFrameRectIfPossible() {
-    if (!mounted) return;
     final frameContext = _frameGuideInnerKey.currentContext;
     final rootRenderObject = context.findRenderObject();
     final frameRenderObject = frameContext?.findRenderObject();
@@ -1388,7 +1116,6 @@ Future<void> _initCamera() async {
     _lastFrameRectInViewport =
         (frameGlobalTopLeft - rootGlobalTopLeft) & frameRenderObject.size;
     _lastViewportSize = rootRenderObject.size;
-    if (mounted) setState(() {});
   }
 
   Rect? _previewCropRectForFrameGuide({
@@ -1697,7 +1424,7 @@ Future<void> _initCamera() async {
         _liveSharpnessScore = null;
         _liveFramingScore = null;
         _liveQualityScore = null;
-        _liveTreeBounds = null;
+        _liveBoundingBox = null;
       });
     } else {
       _isRealtimeAssessment = true;
@@ -1726,7 +1453,7 @@ Future<void> _initCamera() async {
     _liveSharpnessScore = null;
     _liveFramingScore = null;
     _liveQualityScore = null;
-    _liveTreeBounds = null;
+    _liveBoundingBox = null;
     if (mounted) {
       setState(() {});
     }
@@ -1736,56 +1463,60 @@ Future<void> _initCamera() async {
     unawaited(controller.stopImageStream().catchError((_) {}));
   }
 
-Future<void> _captureShutter() async {
-  final controller = _cameraController;
-  if (_isRealtimeAssessment) return;
-  if (_isCapturing || controller == null || !controller.value.isInitialized) {
-    return;
-  }
-  if (controller.value.isTakingPicture) return;
+  Future<void> _captureShutter() async {
+    final controller = _cameraController;
+    if (_isRealtimeAssessment) return;
+    if (_isCapturing || controller == null || !controller.value.isInitialized) {
+      return;
+    }
+    if (controller.value.isTakingPicture) return;
 
-  setState(() => _isCapturing = true);
-  try {
-    final picture = await controller.takePicture();
-    final croppedImagePath = await _cropCapturedImageToFrame(picture.path);
-    if (!mounted) return;
-    await _processStillImage(croppedImagePath);
-  } on CameraException catch (e) {
-    if (!mounted) return;
-    _showTopNotification('Capture failed: ${e.description ?? e.code}');
-    setState(() => _isCapturing = false);
-  } catch (e) {
-    if (!mounted) return;
-    _showTopNotification('Capture error: $e');
-    setState(() => _isCapturing = false);
-  }
-}
-
-Future<void> _handleUploadPhoto() async {
-  if (_isCapturing || _isRealtimeAssessment) return;
-
-  XFile? picked;
-  try {
-    picked = await _imagePicker.pickImage(source: ImageSource.gallery);
-  } on PlatformException catch (e) {
-    _showTopNotification(
-      'Photo picker failed: ${e.message ?? e.code}',
-    );
-    return;
-  } catch (_) {
-    _showTopNotification('Photo picker failed.');
-    return;
+    setState(() => _isCapturing = true);
+    try {
+      final picture = await controller.takePicture();
+      final croppedImagePath = await _cropCapturedImageToFrame(picture.path);
+      if (!mounted) return;
+      await _storeDetectedImageResult(croppedImagePath);
+      if (!mounted) return;
+      widget.onScanCompleted?.call();
+    } on CameraException catch (e) {
+      if (!mounted) return;
+      _showTopNotification('Capture failed: ${e.description ?? e.code}');
+    } catch (_) {
+      if (!mounted) return;
+      _showTopNotification('Unexpected scanner error.');
+    } finally {
+      if (mounted) setState(() => _isCapturing = false);
+    }
   }
 
-  if (!mounted || picked == null) return;
+  Future<void> _handleUploadPhoto() async {
+    if (_isCapturing || _isRealtimeAssessment) return;
 
-  setState(() => _isCapturing = true);
-  try {
-    await _processStillImage(picked.path);
-  } finally {
-    if (mounted) setState(() => _isCapturing = false);
+    XFile? picked;
+    try {
+      picked = await _imagePicker.pickImage(source: ImageSource.gallery);
+    } on PlatformException catch (e) {
+      _showTopNotification(
+        'Photo picker failed: ${e.message ?? e.code}',
+      );
+      return;
+    } catch (_) {
+      _showTopNotification('Photo picker failed.');
+      return;
+    }
+
+    if (!mounted || picked == null) return;
+
+    setState(() => _isCapturing = true);
+    try {
+      await _storeDetectedImageResult(picked.path);
+      if (!mounted) return;
+      widget.onScanCompleted?.call();
+    } finally {
+      if (mounted) setState(() => _isCapturing = false);
+    }
   }
-}
 
   Future<String> _cropCapturedImageToFrame(String imagePath) async {
     final controller = _cameraController;
@@ -1834,7 +1565,7 @@ Future<void> _handleUploadPhoto() async {
       final cropHeight = cropBottom - cropTop;
       if (cropWidth <= 1 || cropHeight <= 1) return imagePath;
 
-      var cropped = img.copyCrop(
+      final cropped = img.copyCrop(
         oriented,
         x: cropLeft,
         y: cropTop,
@@ -1842,20 +1573,17 @@ Future<void> _handleUploadPhoto() async {
         height: cropHeight,
       );
 
-      // Resize cropped for fast inference + smaller storage
-      final maxDim = 512;
-      final scale = math.max(1, math.max(cropped.width, cropped.height) ~/ maxDim);
-      cropped = img.copyResize(cropped, width: (cropped.width ~/ scale), height: (cropped.height ~/ scale));
-
       final extension = _fileExtension(imagePath);
       final croppedPath = imagePath.replaceFirst(
         RegExp(r'\.[^.]+$'),
         '_grid$extension',
       );
-      await File(croppedPath).writeAsBytes(img.encodeJpg(cropped, quality: 95), flush: true);
+      await File(
+        croppedPath,
+      ).writeAsBytes(img.encodeJpg(cropped, quality: 95), flush: true);
       return croppedPath;
     } catch (e) {
-      debugPrint('Failed to crop/resize capture: $e');
+      debugPrint('Failed to crop capture to frame guide: $e');
       return imagePath;
     }
   }
@@ -1950,55 +1678,5 @@ Future<void> _handleUploadPhoto() async {
         );
       },
     );
-  }
-}
-
-class _LiveDetectionPainter extends CustomPainter {
-  final TreeBounds? bounds;
-  final Color color;
-
-  _LiveDetectionPainter({required this.bounds, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final b = bounds;
-    if (b == null) return;
-
-    final scaled = Rect.fromLTRB(
-      b.left * size.width,
-      b.top * size.height,
-      b.right * size.width,
-      b.bottom * size.height,
-    );
-
-    const stroke = 2.0;
-
-    final outlinePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke
-      ..color = color.withValues(alpha: 0.85)
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final fillPaint = Paint()
-      ..style = PaintingStyle.fill
-      ..color = color.withValues(alpha: 0.12);
-
-    final glowPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = stroke * 3
-      ..color = color.withValues(alpha: 0.25)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-
-    final rrect = RRect.fromRectAndRadius(scaled, const Radius.circular(14));
-
-    canvas.drawRRect(rrect, fillPaint);
-    canvas.drawRRect(rrect, glowPaint);
-    canvas.drawRRect(rrect, outlinePaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _LiveDetectionPainter oldDelegate) {
-    return oldDelegate.bounds != bounds || oldDelegate.color != color;
   }
 }

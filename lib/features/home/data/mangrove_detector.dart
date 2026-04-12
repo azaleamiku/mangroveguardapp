@@ -12,18 +12,23 @@ class MangroveDetectionResult {
   final MangroveTree tree;
   final double? predictionConfidence;
   final StabilityAssessment? predictedAssessment;
+  final TreeBounds? boundingBox;
 
   const MangroveDetectionResult({
     required this.tree,
     this.predictionConfidence,
     this.predictedAssessment,
+    this.boundingBox,
   });
 }
 
 class MangroveDetector {
   static const String _modelAssetPath = 'assets/models/mangroveModel.tflite';
   static const String modelAssetPath = _modelAssetPath;
-  // Update this order to match the class order used during training/export.
+  /// Model Class Mapping:
+  /// 0: high_stability
+  /// 1: low_stability
+  /// 2: moderate_stability
   static const List<StabilityAssessment> _classOrder = [
     StabilityAssessment.high,
     StabilityAssessment.low,
@@ -142,6 +147,7 @@ class MangroveDetector {
         tree: tree,
         predictionConfidence: detection.confidence,
         predictedAssessment: assessment,
+        boundingBox: detection.bounds,
       );
     }
 
@@ -394,10 +400,12 @@ class MangroveDetector {
       height = height / _inputHeight;
     }
 
-    final left = (centerX - width / 2).clamp(0.0, 1.0);
-    final right = (centerX + width / 2).clamp(0.0, 1.0);
-    final top = (centerY - height / 2).clamp(0.0, 1.0);
-    final bottom = (centerY + height / 2).clamp(0.0, 1.0);
+    // Make the bounding box slightly wider (left to right).
+    final left = (centerX - width / 1.7).clamp(0.0, 1.0);
+    final right = (centerX + width / 1.7).clamp(0.0, 1.0);
+    // Make the bounding box higher (taller) by extending the top boundary further up.
+    final top = (centerY - height / 1.4).clamp(0.0, 1.0);
+    final bottom = (centerY + height / 2.0).clamp(0.0, 1.0);
 
     return TreeBounds(
       left: math.min(left, right),
