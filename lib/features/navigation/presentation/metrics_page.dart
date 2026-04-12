@@ -1204,23 +1204,15 @@ class _AverageStabilityGaugePainter extends CustomPainter {
 
     final total = lowCount + moderateCount + highCount;
     final List<double> stabilityStops;
-    final List<String> stabilityLabels;
 
     if (total == 0) {
       stabilityStops = [0.0, 0.25, 0.5, 1.0];
-      stabilityLabels = ['0.00', '0.50', '0.75', '1.00'];
     } else {
       stabilityStops = [
         0.0,
         highCount / total,
         (highCount + moderateCount) / total,
         1.0,
-      ];
-      stabilityLabels = [
-        '0',
-        '$highCount',
-        '${highCount + moderateCount}',
-        '$total',
       ];
     }
 
@@ -1332,48 +1324,6 @@ class _AverageStabilityGaugePainter extends CustomPainter {
         oldDelegate.lowCount != lowCount ||
         oldDelegate.moderateCount != moderateCount ||
         oldDelegate.highCount != highCount;
-  }
-}
-
-class _GaugeLegendItem extends StatelessWidget {
-  final String label;
-  final Color color;
-  final Alignment alignment;
-
-  const _GaugeLegendItem({
-    required this.label,
-    required this.color,
-    required this.alignment,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: alignment,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

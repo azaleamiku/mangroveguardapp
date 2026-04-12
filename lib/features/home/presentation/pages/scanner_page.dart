@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -315,7 +314,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   double? _liveConfidence;
   double? _liveSharpnessScore;
   double? _liveFramingScore;
-  double? _liveQualityScore;
   Rect? _liveBoundingBox;
   Isolate? _liveIsolate;
   ReceivePort? _liveReceivePort;
@@ -596,21 +594,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
           _liveAssessment = assessment;
           _liveConfidence = confidence;
           _liveBoundingBox = boundingBox;
-          _liveQualityScore = _combinedQualityScore(
-            confidenceScore: confidence ?? 0,
-            sharpnessScore: _liveSharpnessScore ?? 0,
-            framingScore: _liveFramingScore ?? 0,
-          );
         });
       } else {
         _liveAssessment = assessment;
         _liveConfidence = confidence;
         _liveBoundingBox = boundingBox;
-        _liveQualityScore = _combinedQualityScore(
-          confidenceScore: confidence ?? 0,
-          sharpnessScore: _liveSharpnessScore ?? 0,
-          framingScore: _liveFramingScore ?? 0,
-        );
       }
       _isRealtimeProcessing = false;
       return;
@@ -1098,11 +1086,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     );
   }
 
-  String _formatPercent(double? value) {
-    if (value == null) return '--';
-    return '${(value.clamp(0.0, 1.0) * 100).round()}%';
-  }
-
   void _cacheFrameRectIfPossible() {
     final frameContext = _frameGuideInnerKey.currentContext;
     final rootRenderObject = context.findRenderObject();
@@ -1207,34 +1190,16 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       _framingHighEdge,
     );
     final confidenceScore = (_liveConfidence ?? 0).clamp(0.0, 1.0);
-    final qualityScore = _combinedQualityScore(
-      confidenceScore: confidenceScore,
-      sharpnessScore: sharpnessScore,
-      framingScore: framingScore,
-    );
 
     if (mounted) {
       setState(() {
         _liveSharpnessScore = sharpnessScore;
         _liveFramingScore = framingScore;
-        _liveQualityScore = qualityScore;
       });
     } else {
       _liveSharpnessScore = sharpnessScore;
       _liveFramingScore = framingScore;
-      _liveQualityScore = qualityScore;
     }
-  }
-
-  double _combinedQualityScore({
-    required double confidenceScore,
-    required double sharpnessScore,
-    required double framingScore,
-  }) {
-    final clampedConfidence = confidenceScore.clamp(0.0, 1.0);
-    final clampedSharpness = sharpnessScore.clamp(0.0, 1.0);
-    final clampedFraming = framingScore.clamp(0.0, 1.0);
-    return (clampedConfidence + clampedSharpness + clampedFraming) / 3;
   }
 
   double _scoreFromRange(double value, double low, double high) {
@@ -1423,7 +1388,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         _liveConfidence = null;
         _liveSharpnessScore = null;
         _liveFramingScore = null;
-        _liveQualityScore = null;
         _liveBoundingBox = null;
       });
     } else {
@@ -1452,7 +1416,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     _isRealtimeProcessing = false;
     _liveSharpnessScore = null;
     _liveFramingScore = null;
-    _liveQualityScore = null;
     _liveBoundingBox = null;
     if (mounted) {
       setState(() {});
