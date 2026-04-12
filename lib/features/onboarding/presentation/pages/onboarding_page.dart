@@ -252,7 +252,7 @@ class _HeaderRow extends StatelessWidget {
               border: Border.all(color: caribbeanGreen.withOpacity(0.4)),
             ),
             child: Text(
-              'RESEARCH BUILD',
+              'LIVE BUILD',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: caribbeanGreen,
                     fontWeight: FontWeight.w600,
@@ -275,7 +275,7 @@ class _HeroCopy extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Scan, measure, and safeguard the mangrove frontier.',
+          'Live scan mangroves for instant stability insights.',
           style: textTheme.displaySmall?.copyWith(
             color: antiFlashWhite,
             fontWeight: FontWeight.w700,
@@ -285,7 +285,7 @@ class _HeroCopy extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Text(
-          'Mangrove Guard blends machine vision with field workflows so your crew can capture reliable trunk and root data in minutes, even in challenging terrain.',
+          'Realtime AI analyzes root structure and stability directly through your camera, with privacy-focused local processing and live metrics.',
           style: textTheme.bodyLarge?.copyWith(
             color: antiFlashWhite.withOpacity(0.78),
             height: 1.5,
@@ -296,9 +296,9 @@ class _HeroCopy extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: const [
-            _TagPill(label: 'Guided capture'),
-            _TagPill(label: 'Confidence scoring'),
-            _TagPill(label: 'Exportable reports'),
+            _TagPill(label: 'Live Assessment'),
+            _TagPill(label: 'Stability Metrics'),
+            _TagPill(label: 'Recent Scans'),
           ],
         ),
       ],
@@ -354,7 +354,7 @@ class _HeroVisual extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       _SignalPill(
-                        label: 'Live Scan',
+                        label: 'Live Analysis',
                         color: caribbeanGreen,
                       ),
                       Icon(
@@ -366,7 +366,7 @@ class _HeroVisual extends StatelessWidget {
                   ),
                   const Spacer(),
                   Text(
-                    'Alignment check active',
+                    'Live assessment active',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           color: antiFlashWhite,
                           fontWeight: FontWeight.w600,
@@ -374,7 +374,7 @@ class _HeroVisual extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Instantly score trunk and root stability with on-device segmentation.',
+                    'Realtime root analysis and stability scoring via camera feed.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: antiFlashWhite.withOpacity(0.7),
                           height: 1.4,
@@ -400,22 +400,27 @@ class _FeatureGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final cards = [
       const _FeatureCard(
-        title: 'Capture once, measure twice',
+        title: 'Live Camera Assessment',
         description:
-            'Use the guided scan flow to lock alignment and keep trunk data consistent.',
-        icon: Icons.center_focus_strong,
+            'Tap shutter for photo capture & analysis, hold for realtime root analysis & stability scoring.\n\n*App will request camera permission on first scan.*',
+        icon: Icons.videocam,
       ),
       const _FeatureCard(
-        title: 'Model confidence on every scan',
-        description:
-            'See a reliability score before you finalize the assessment report.',
-        icon: Icons.analytics_outlined,
+        title: 'Permissions Note',
+        description: 'Camera access required for mangrove scanning. Grant permission when prompted for best experience.',
+        icon: Icons.security,
       ),
       const _FeatureCard(
-        title: 'Export field-ready summaries',
+        title: 'Stability Gauge',
         description:
-            'Generate PDFs for teams, NGOs, or regulatory submissions in seconds.',
-        icon: Icons.description_outlined,
+            'Live metrics dashboard shows average stability from your recent scans.',
+        icon: Icons.analytics,
+      ),
+      const _FeatureCard(
+        title: 'Recent Scans History',
+        description:
+            'View overlays, summaries, and rescan from your scan history anytime.',
+        icon: Icons.history,
       ),
     ];
 
@@ -530,7 +535,7 @@ class _CallToAction extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Start a quick scan or explore recent reports. Move at your own pace as you get set up.',
+            'Hold shutter for live analysis or jump to recent scans & metrics. Move at your own pace.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: antiFlashWhite.withOpacity(0.72),
                   height: 1.4,
@@ -723,22 +728,22 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
 
   final List<_WalkthroughStep> _steps = const [
     _WalkthroughStep(
-      title: 'Frame the canopy',
+      title: 'Hold for Live Assessment',
       description:
-          'Use the alignment guide to center trunk and root zones before you capture.',
-      icon: Icons.filter_center_focus,
+'Tap shutter to capture photo for analysis, hold for live realtime root analysis & stability scoring.',
+      icon: Icons.videocam,
     ),
     _WalkthroughStep(
-      title: 'Review confidence',
+      title: 'Check Stability Gauge',
       description:
-          'We show an on-device confidence score so you know the scan is reliable.',
-      icon: Icons.verified_outlined,
+          'Live dashboard shows average stability and breakdown from your scans.',
+      icon: Icons.analytics,
     ),
     _WalkthroughStep(
-      title: 'Share field reports',
+      title: 'View Recent Scans',
       description:
-          'Export a PDF summary the moment you finish a site assessment.',
-      icon: Icons.description_outlined,
+          'Access history with overlays, summaries, and quick rescan options.',
+      icon: Icons.history,
     ),
   ];
 

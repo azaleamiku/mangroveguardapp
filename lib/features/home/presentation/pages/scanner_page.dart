@@ -8,8 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../data/mangrove_detector.dart';
 import '../../models/mangrove_tree.dart';
+
 
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
@@ -298,6 +300,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   bool _isInitializing = true;
   bool _isCapturing = false;
   String? _cameraError;
+  PermissionStatus? _cameraPermissionStatus;
   MangroveDetector? _detector;
   Future<MangroveDetector?>? _detectorFuture;
   bool _isDetectorReady = false;
@@ -326,6 +329,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   int _liveRequestId = 0;
   int _pendingLiveRequestId = 0;
   Uint8List? _liveModelBytes;
+  bool _isCameraInitInProgress = false;
+
 
   @override
   void initState() {
@@ -357,10 +362,22 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _stopRealtimeAssessment();
     _disposeLiveIsolate();
-    _cameraController?.dispose();
+    _safeDisposeCamera();
     _detector?.dispose();
     super.dispose();
   }
+
+  Future<void> _safeDisposeCamera() async {
+    final controller = _cameraController;
+    _cameraController = null;
+    if (controller == null) return;
+    try {
+      await controller.dispose();
+    } catch (e) {
+      debugPrint('Camera dispose safe-fail: $e');
+    }
+  }
+
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -380,20 +397,48 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
-  void _scheduleCameraInit() {
-    if (!mounted) return;
+Future<void> _scheduleCameraInit() async {
+  if (!mounted || _isCameraInitInProgress) return;
+  _isCameraInitInProgress = true;
+  try {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
+    
+    // Request camera permission first
+    final permissionStatus = await Permission.camera.request();
+    _cameraPermissionStatus = permissionStatus;
+    if (!permissionStatus.isGranted) {
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          _cameraError = permissionStatus.isDenied 
+              ? 'Camera permission required. Please grant access.' 
+              : 'Camera access permanently denied. Enable in Settings.';
+        });
+      }
+      return;
+    }
+    
     unawaited(_ensureLiveIsolateReady());
-    _initCamera();
+    // Longer cold-start delay to avoid race conditions
+    await Future.delayed(const Duration(milliseconds: 500));
+    await _initCamera();
+  } finally {
+    _isCameraInitInProgress = false;
   }
+}
 
-  Future<void> _initCamera() async {
-    setState(() {
-      _isInitializing = true;
-      _cameraError = null;
-    });
+Future<void> _initCamera() async {
+  setState(() {
+    _isInitializing = true;
+    _cameraError = null;
+  });
 
+  const maxRetries = 3;
+  var retryCount = 0;
+  var lastError = '';
+
+  while (retryCount < maxRetries) {
     try {
       _cameras = await availableCameras();
       if (_cameras.isEmpty) {
@@ -431,18 +476,28 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
       }
+      return;  // Success, exit retry loop
     } on CameraException catch (e) {
-      setState(() {
-        _cameraError = 'Camera error: ${e.description ?? e.code}';
-        _isInitializing = false;
-      });
-    } catch (_) {
-      setState(() {
-        _cameraError = 'Unable to initialize camera.';
-        _isInitializing = false;
-      });
+      lastError = 'Camera error: ${e.code} - ${e.description}';
+      debugPrint('Camera init attempt ${retryCount + 1} failed: $lastError');
+    } catch (e, stackTrace) {
+      lastError = 'Init error: $e';
+      debugPrint('Camera init attempt ${retryCount + 1} failed: $lastError\n$stackTrace');
+    }
+
+    retryCount++;
+    if (retryCount < maxRetries) {
+      final delay = Duration(milliseconds: 100 * (1 << (retryCount - 1)));
+      await Future.delayed(delay);
     }
   }
+
+  // All retries failed
+  setState(() {
+    _cameraError = lastError.isEmpty ? 'Unable to initialize camera after $maxRetries attempts.' : lastError;
+    _isInitializing = false;
+  });
+}
 
   Future<void> _initDetector() async {
     setState(() {
