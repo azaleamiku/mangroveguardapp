@@ -178,6 +178,12 @@ void _liveAssessmentIsolate(Map<String, Object?> config) async {
         'requestId': requestId,
         'assessment': detection.predictedAssessment?.name,
         'confidence': detection.predictionConfidence,
+        'bounds': detection.tree.treeBounds == null ? null : {
+          'left': detection.tree.treeBounds!.left,
+          'top': detection.tree.treeBounds!.top,
+          'right': detection.tree.treeBounds!.right,
+          'bottom': detection.tree.treeBounds!.bottom,
+        },
       });
     } catch (e) {
       sendPort.send({
@@ -307,6 +313,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   DateTime _lastRealtimeRun = DateTime.fromMillisecondsSinceEpoch(0);
   StabilityAssessment? _liveAssessment;
   double? _liveConfidence;
+  TreeBounds? _liveTreeBounds;
   double? _liveSharpnessScore;
   double? _liveFramingScore;
   double? _liveQualityScore;
@@ -569,10 +576,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       final assessment = assessmentName != null
           ? StabilityAssessment.values.byName(assessmentName)
           : null;
+      final boundsMap = message['bounds'] as Map?;
+      TreeBounds? bounds;
+      if (boundsMap != null) {
+        bounds = TreeBounds(
+          left: (boundsMap['left'] as num).toDouble(),
+          top: (boundsMap['top'] as num).toDouble(),
+          right: (boundsMap['right'] as num).toDouble(),
+          bottom: (boundsMap['bottom'] as num).toDouble(),
+        );
+      }
       if (mounted) {
         setState(() {
           _liveAssessment = assessment;
           _liveConfidence = confidence;
+          _liveTreeBounds = bounds;
           _liveQualityScore = _combinedQualityScore(
             confidenceScore: confidence ?? 0,
             sharpnessScore: _liveSharpnessScore ?? 0,
@@ -582,6 +600,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       } else {
         _liveAssessment = assessment;
         _liveConfidence = confidence;
+        _liveTreeBounds = bounds;
         _liveQualityScore = _combinedQualityScore(
           confidenceScore: confidence ?? 0,
           sharpnessScore: _liveSharpnessScore ?? 0,
@@ -854,11 +873,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
               child: Center(
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
-                  child: AnimatedOpacity(
-                    opacity: _isRealtimeAssessment ? 0.0 : 1.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: _buildFrameGuide(),
-                  ),
+                  child: _buildFrameGuide(),
                 ),
               ),
             ),
@@ -910,6 +925,18 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     );
   }
 
+  Color _getAssessmentColor(StabilityAssessment? assessment) {
+    if (assessment == null) return caribbeanGreen;
+    switch (assessment) {
+      case StabilityAssessment.high:
+        return caribbeanGreen;
+      case StabilityAssessment.moderate:
+        return const Color(0xFFF59E0B);
+      case StabilityAssessment.low:
+        return const Color(0xFFEF4444);
+    }
+  }
+
   Widget _buildFrameGuide() {
     final size = MediaQuery.sizeOf(context);
     final frameWidth = (size.width * 0.82).clamp(280.0, 340.0).toDouble();
@@ -926,59 +953,23 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
           height: innerHeight,
           child: Stack(
             children: [
-              Align(
-                alignment: Alignment.topLeft,
-                child: _frameCorner(top: true, left: true),
-              ),
-              Align(
-                alignment: Alignment.topRight,
-                child: _frameCorner(top: true, left: false),
-              ),
-              Align(
-                alignment: Alignment.bottomLeft,
-                child: _frameCorner(top: false, left: true),
-              ),
-              Align(
-                alignment: Alignment.bottomRight,
-                child: _frameCorner(top: false, left: false),
+              Positioned.fill(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 250),
+                  opacity:
+                      (_isRealtimeAssessment && _liveTreeBounds != null)
+                          ? 1.0
+                          : 0.0,
+                  child: CustomPaint(
+                    painter: _LiveDetectionPainter(
+                      bounds: _liveTreeBounds,
+                      color: _getAssessmentColor(_liveAssessment),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _frameCorner({required bool top, required bool left}) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        border: Border(
-          top: top
-              ? BorderSide(
-                  color: caribbeanGreen.withValues(alpha: 0.95),
-                  width: 3,
-                )
-              : BorderSide.none,
-          bottom: !top
-              ? BorderSide(
-                  color: caribbeanGreen.withValues(alpha: 0.95),
-                  width: 3,
-                )
-              : BorderSide.none,
-          left: left
-              ? BorderSide(
-                  color: caribbeanGreen.withValues(alpha: 0.95),
-                  width: 3,
-                )
-              : BorderSide.none,
-          right: !left
-              ? BorderSide(
-                  color: caribbeanGreen.withValues(alpha: 0.95),
-                  width: 3,
-                )
-              : BorderSide.none,
         ),
       ),
     );
@@ -1044,7 +1035,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
             ),
           ] else ...[
             const Text(
-              'Place the main trunk and its roots inside the target box, then tap capture. Re-capture if roots are blocked.',
+              'Place the main trunk and its roots in frame, then tap capture. Re-capture if roots are blocked.',
               style: TextStyle(color: antiFlashWhite, fontSize: 12, height: 1.4),
             ),
             const SizedBox(height: 10),
@@ -1090,16 +1081,16 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   String _liveAssessmentSummary() {
     final assessment = _liveAssessment;
     if (assessment == null) {
-      return 'Assessing root structure... Keep the main trunk and roots inside the target box to refine stability and storm resistance.';
+      return 'Assessing root structure... Keep the main trunk and roots centered to refine stability and storm resistance.';
     }
 
-    final stormCategory = switch (assessment) {
+    final stormCategory = switch (assessment!) {
       StabilityAssessment.high => 'Signal No. 1–2',
       StabilityAssessment.moderate => 'Tropical Storm',
       StabilityAssessment.low => 'Tropical Depression',
     };
 
-    return 'Root structure acts as an anchor by distributing load and gripping sediment. ${assessment.label} indicates $stormCategory resistance.';
+    return 'Root structure acts as an anchor by distributing load and gripping sediment. ${assessment!.label} indicates $stormCategory resistance.';
   }
 
   Widget _buildQualityMeter() {
@@ -1456,6 +1447,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         _liveSharpnessScore = null;
         _liveFramingScore = null;
         _liveQualityScore = null;
+        _liveTreeBounds = null;
       });
     } else {
       _isRealtimeAssessment = true;
@@ -1484,6 +1476,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     _liveSharpnessScore = null;
     _liveFramingScore = null;
     _liveQualityScore = null;
+    _liveTreeBounds = null;
     if (mounted) {
       setState(() {});
     }
@@ -1708,5 +1701,55 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         );
       },
     );
+  }
+}
+
+class _LiveDetectionPainter extends CustomPainter {
+  final TreeBounds? bounds;
+  final Color color;
+
+  _LiveDetectionPainter({required this.bounds, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final b = bounds;
+    if (b == null) return;
+
+    final scaled = Rect.fromLTRB(
+      b.left * size.width,
+      b.top * size.height,
+      b.right * size.width,
+      b.bottom * size.height,
+    );
+
+    const stroke = 2.0;
+
+    final outlinePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke
+      ..color = color.withValues(alpha: 0.85)
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final fillPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = color.withValues(alpha: 0.12);
+
+    final glowPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke * 3
+      ..color = color.withValues(alpha: 0.25)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+
+    final rrect = RRect.fromRectAndRadius(scaled, const Radius.circular(14));
+
+    canvas.drawRRect(rrect, fillPaint);
+    canvas.drawRRect(rrect, glowPaint);
+    canvas.drawRRect(rrect, outlinePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _LiveDetectionPainter oldDelegate) {
+    return oldDelegate.bounds != bounds || oldDelegate.color != color;
   }
 }

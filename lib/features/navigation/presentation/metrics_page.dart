@@ -677,106 +677,7 @@ class _AboutAppSheet extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 10,
-                              ),
-                              decoration: BoxDecoration(
-                                color: MetricsPage.darkGreen.withValues(
-                                  alpha: 0.9,
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: MetricsPage.bangladeshGreen.withValues(
-                                    alpha: 0.9,
-                                  ),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Stability Score (S)',
-                                    style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
-                                          .withValues(alpha: 0.9),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: 0.2,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'S is a weighted score from 0 to 1 computed from root count, density, spread, coverage, symmetry, and thickness proxy. Higher scores indicate stronger structural stability.',
-                                    style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
-                                          .withValues(alpha: 0.82),
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.35,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 8,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withValues(
-                                        alpha: 0.28,
-                                      ),
-                                      borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: MetricsPage.bangladeshGreen
-                                            .withValues(alpha: 0.6),
-                                      ),
-                                    ),
-                                    child: const Text(
-                                      'S = 0.20RC + 0.15RD + 0.20RS + 0.15RCR + 0.20SS + 0.10RT',
-                                      style: TextStyle(
-                                        color: MetricsPage.antiFlashWhite,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: 0.2,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Row(
-                                    children: const [
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.trending_down_rounded,
-                                          label: 'Low',
-                                          value: '0.00–0.49',
-                                        ),
-                                      ),
-                                      SizedBox(width: 10),
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.trending_flat_rounded,
-                                          label: 'Moderate',
-                                          value: '0.50–0.74',
-                                        ),
-                                      ),
-                                      SizedBox(width: 10),
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.trending_up_rounded,
-                                          label: 'High',
-                                          value: '0.75–1.00',
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 6),
+
                             Text(
                               'Built and maintained by the Mangrove Guard team.',
                               style: TextStyle(
@@ -1252,28 +1153,6 @@ class _AverageStabilityGauge extends StatelessWidget {
             fontWeight: FontWeight.w800,
             letterSpacing: 0.2,
           ),
-        ),
-        const SizedBox(height: 8),
-        const Column(
-          children: [
-            _GaugeLegendItem(
-              label: 'High Stability',
-              color: MetricsPage.caribbeanGreen,
-              alignment: Alignment.centerLeft,
-            ),
-            SizedBox(height: 6),
-            _GaugeLegendItem(
-              label: 'Moderate Stability',
-              color: Color(0xFFF59E0B),
-              alignment: Alignment.centerLeft,
-            ),
-            SizedBox(height: 6),
-            _GaugeLegendItem(
-              label: 'Low Stability',
-              color: Color(0xFFEF4444),
-              alignment: Alignment.centerLeft,
-            ),
-          ],
         ),
       ],
     );

@@ -82,11 +82,9 @@ class _MainNavPageState extends State<MainNavPage> {
     _setSelectedIndex(1);
   }
 
-  void _handleScannerHoldStart() {
+void _handleScannerHoldStart() {
     if (!mounted) return;
-    if (_selectedIndex != 1) {
-      _setSelectedIndex(1);
-    }
+    if (_selectedIndex != 1) return;  // Ignore long press if not on scanner tab
     if (_scannerController.isRealtimeAssessment) {
       _scannerController.stopRealtimeAssessment();
     } else {
@@ -767,16 +765,22 @@ class _MainNavPageState extends State<MainNavPage> {
                 ),
               ),
             ),
-            Positioned(
+Positioned(
               top: 0,
-              child: _ScannerFab(
-                isScannerActive: _selectedIndex == 1,
-                selectedColor: caribbeanGreen,
-                baseColor: bangladeshGreen,
-                iconColor: antiFlashWhite,
-                onTap: _handleScannerFabTap,
-                onHoldStart: _handleScannerHoldStart,
-                onHoldEnd: _handleScannerHoldEnd,
+              child: AnimatedBuilder(
+                animation: _scannerController,
+                builder: (context, child) {
+                  return _ScannerFab(
+                    isScannerActive: _selectedIndex == 1,
+                    showLiveAnimation: _scannerController.isRealtimeAssessment,
+                    selectedColor: caribbeanGreen,
+                    baseColor: bangladeshGreen,
+                    iconColor: antiFlashWhite,
+                    onTap: _handleScannerFabTap,
+                    onHoldStart: _handleScannerHoldStart,
+                    onHoldEnd: _handleScannerHoldEnd,
+                  );
+                },
               ),
             ),
           ],
@@ -793,10 +797,12 @@ class _ScannerFab extends StatefulWidget {
   final Color iconColor;
   final VoidCallback onTap;
   final VoidCallback? onHoldStart;
-  final VoidCallback? onHoldEnd;
+final VoidCallback? onHoldEnd;
+  final bool showLiveAnimation;
 
-  const _ScannerFab({
+const _ScannerFab({
     required this.isScannerActive,
+    required this.showLiveAnimation,
     required this.selectedColor,
     required this.baseColor,
     required this.iconColor,
@@ -1020,46 +1026,175 @@ class _ScannerFabState extends State<_ScannerFab> {
   }
 }
 
-class _ShutterVisual extends StatelessWidget {
+class _ShutterVisual extends StatefulWidget {
   final Color iconColor;
 
   const _ShutterVisual({required this.iconColor});
 
+@override
+  State<_ShutterVisual> createState() => _ShutterVisualState();
+}
+
+class _ShutterVisualState extends State<_ShutterVisual>
+    with TickerProviderStateMixin {
+  late AnimationController _pulseController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _glowAnimation;
+  late Animation<double> _ringScale1;
+  late Animation<double> _ringAlpha1;
+  late Animation<double> _ringScale2;
+  late Animation<double> _ringAlpha2;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    )..repeat();
+
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    _glowAnimation = Tween<double>(begin: 0.2, end: 0.5).animate(
+      CurvedAnimation(
+        parent: _pulseController,
+        curve: const Interval(0.0, 0.6, curve: Curves.easeInOut),
+      ),
+    );
+
+    // Radar ring 1
+    _ringScale1 = Tween<double>(begin: 0.6, end: 1.6).animate(
+      CurvedAnimation(
+        parent: _pulseController,
+        curve: const Interval(0.0, 0.8, curve: Curves.easeOutBack),
+      ),
+    );
+    _ringAlpha1 = Tween<double>(begin: 0.6, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _pulseController,
+        curve: const Interval(0.0, 0.8, curve: Curves.easeOut),
+      ),
+    );
+
+// Radar ring 2 (delayed)
+    _ringScale2 = Tween<double>(begin: 0.6, end: 1.6).animate(
+      CurvedAnimation(
+        parent: _pulseController,
+        curve: const Interval(0.5, 1.0, curve: Curves.easeOutBack),
+      ),
+    );
+    _ringAlpha2 = Tween<double>(begin: 0.6, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _pulseController,
+        curve: const Interval(0.5, 1.0, curve: Curves.easeOut),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      key: const ValueKey('shutter'),
-      width: 46,
-      height: 46,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.black.withValues(alpha: 0.22),
-              border: Border.all(
-                color: iconColor.withValues(alpha: 0.82),
-                width: 1.8,
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        final parentFab = context.findAncestorWidgetOfExactType<_ScannerFab>();
+        final isLive = parentFab?.showLiveAnimation ?? false;
+        return SizedBox(
+          key: const ValueKey('shutter'),
+          width: 46,
+          height: 46,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              // Radar pulse rings (live only)
+              if (isLive) ...[
+                // Outer ring
+                Positioned.fill(
+                  child: Transform.scale(
+                    scale: _ringScale2.value,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFF00DF81).withValues(
+                            alpha: _ringAlpha2.value,
+                          ),
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // Inner ring
+                Positioned.fill(
+                  child: Transform.scale(
+                    scale: _ringScale1.value,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFF00DF81).withValues(
+                            alpha: _ringAlpha1.value * 0.7,
+                          ),
+                          width: 1.0,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              // Core button with subtle pulse
+              AnimatedScale(
+                scale: isLive ? _scaleAnimation.value : 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.black.withValues(alpha: 0.22),
+                    border: Border.all(
+                      color: widget.iconColor.withValues(alpha: 0.82),
+                      width: 1.8,
+                    ),
+                    boxShadow: isLive
+                        ? [
+                            BoxShadow(
+                              color: const Color(0xFF00DF81).withValues(
+                                alpha: _glowAnimation.value * 0.6,
+                              ),
+                              blurRadius: 12 + (_glowAnimation.value * 12),
+                              spreadRadius: 1,
+                            ),
+                          ]
+                        : null,
+                  ),
+                ),
               ),
-            ),
-          ),
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFFF1F7F6),
-              border: Border.all(
-                color: Colors.black.withValues(alpha: 0.2),
-                width: 1.2,
+              // Center shutter circle
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFFF1F7F6),
+                  border: Border.all(
+                    color: Colors.black.withValues(alpha: 0.2),
+                    width: 1.2,
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
