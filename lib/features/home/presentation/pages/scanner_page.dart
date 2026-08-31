@@ -8,8 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../data/mangrove_detector.dart';
-import '../../models/mangrove_tree.dart';
+import 'package:mangroveguardapp/features/home/data/mangrove_detector.dart';
+import 'package:mangroveguardapp/features/home/models/mangrove_tree.dart';
 
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
@@ -716,7 +716,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
   void _storeCapturedImageResult(String imagePath) {
     widget.controller?.setLatestMeasuredTree(
-      tree: MangroveTree(
+      tree: const MangroveTree(
         trunkWidthAtBranchPoint: 0,
       ),
       metersPerPixel: _defaultMetersPerPixel,
@@ -755,7 +755,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       _showTopNotification('Detection failed. Saved photo only.');
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -1280,7 +1279,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       _framingLowEdge,
       _framingHighEdge,
     );
-    final confidenceScore = (_liveConfidence ?? 0).clamp(0.0, 1.0);
 
     if (mounted) {
       setState(() {

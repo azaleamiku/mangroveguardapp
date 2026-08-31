@@ -265,7 +265,6 @@ class MangroveDetector {
     }
   }
 
-
   _DetectionPrediction? _extractBestPrediction(_OutputBundle outputs) {
     final meta = outputs.meta.firstWhere(
       (tensor) =>
