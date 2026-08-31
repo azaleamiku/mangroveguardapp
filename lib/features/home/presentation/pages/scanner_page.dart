@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../data/mangrove_detector.dart';
 import '../../models/mangrove_tree.dart';
 
@@ -20,6 +21,13 @@ const String _liveIsolateProcess = 'process';
 const String _liveIsolateResult = 'result';
 const String _liveIsolateError = 'error';
 const String _liveIsolateStop = 'stop';
+
+ImageFormatGroup? resolveCameraFormatGroup({required bool isAndroid}) {
+  if (isAndroid) {
+    return null;
+  }
+  return ImageFormatGroup.bgra8888;
+}
 
 int _clampByte(num value) {
   if (value < 0) return 0;
@@ -275,8 +283,14 @@ enum ScanOutcome {
 class ScannerPage extends StatefulWidget {
   final ScannerPageController? controller;
   final VoidCallback? onScanCompleted;
+  final bool isActive;
 
-  const ScannerPage({super.key, this.controller, this.onScanCompleted});
+  const ScannerPage({
+    super.key,
+    this.controller,
+    this.onScanCompleted,
+    this.isActive = true,
+  });
 
   @override
   State<ScannerPage> createState() => _ScannerPageState();
@@ -340,12 +354,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   @override
   void didUpdateWidget(covariant ScannerPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.controller == widget.controller) return;
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller?.removeListener(_handleControllerSignal);
+      widget.controller?.addListener(_handleControllerSignal);
+      _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
+      _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
+    }
 
-    oldWidget.controller?.removeListener(_handleControllerSignal);
-    widget.controller?.addListener(_handleControllerSignal);
-    _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
-    _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
+    if (widget.isActive &&
+        (!oldWidget.isActive ||
+            _cameraController == null ||
+            !_cameraController!.value.isInitialized)) {
+      if (!_isInitializing) {
+        _scheduleCameraInit();
+      }
+    }
   }
 
   @override
@@ -367,8 +390,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       return;
     }
 
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused ||
+    // Only dispose the camera when the app is paused/backgrounded or detached.
+    // Do NOT dispose on AppLifecycleState.inactive (e.g. system permission dialogs).
+    if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       widget.controller?.stopRealtimeAssessment();
       _stopRealtimeAssessment();
@@ -381,20 +405,43 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   void _scheduleCameraInit() {
     if (!mounted) return;
     final lifecycle = WidgetsBinding.instance.lifecycleState;
-    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
+    if (lifecycle == AppLifecycleState.paused ||
+        lifecycle == AppLifecycleState.detached) {
+      return;
+    }
     unawaited(_ensureLiveIsolateReady());
     _initCamera();
   }
 
   Future<void> _initCamera() async {
+    if (!mounted) return;
     setState(() {
       _isInitializing = true;
       _cameraError = null;
     });
 
     try {
+      // 1. Explicitly check and request camera permissions first.
+      var status = await Permission.camera.status;
+      if (!status.isGranted) {
+        status = await Permission.camera.request();
+      }
+
+      if (!status.isGranted) {
+        if (!mounted) return;
+        setState(() {
+          _cameraError = status.isPermanentlyDenied
+              ? 'Camera permission is permanently denied. Please enable camera access in app settings.'
+              : 'Camera permission is required to scan mangroves.';
+          _isInitializing = false;
+        });
+        return;
+      }
+
+      // 2. Query available cameras.
       _cameras = await availableCameras();
       if (_cameras.isEmpty) {
+        if (!mounted) return;
         setState(() {
           _cameraError = 'No camera available on this device.';
           _isInitializing = false;
@@ -411,30 +458,44 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         selectedCamera,
         ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420,
+        imageFormatGroup: resolveCameraFormatGroup(
+          isAndroid: Platform.isAndroid,
+        ),
       );
 
       await controller.initialize();
       await _configureCameraForFastCapture(controller);
 
-      if (!mounted ||
-          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      final currentLifecycle = WidgetsBinding.instance.lifecycleState;
+      if (currentLifecycle == AppLifecycleState.paused ||
+          currentLifecycle == AppLifecycleState.detached) {
         await controller.dispose();
         return;
       }
 
       await _cameraController?.dispose();
       _cameraController = controller;
-      setState(() => _isInitializing = false);
+      setState(() {
+        _isInitializing = false;
+        _cameraError = null;
+      });
+
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
       }
     } on CameraException catch (e) {
+      if (!mounted) return;
       setState(() {
         _cameraError = 'Camera error: ${e.description ?? e.code}';
         _isInitializing = false;
       });
-    } catch (_) {
+    } catch (e) {
+      if (!mounted) return;
       setState(() {
         _cameraError = 'Unable to initialize camera.';
         _isInitializing = false;
@@ -657,7 +718,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     widget.controller?.setLatestMeasuredTree(
       tree: MangroveTree(
         trunkWidthAtBranchPoint: 0,
-        roots: const <Root>[],
       ),
       metersPerPixel: _defaultMetersPerPixel,
       capturedImagePath: imagePath,
@@ -724,6 +784,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
 
     if (_cameraError != null) {
+      final isPermanentlyDenied =
+          _cameraError!.contains('permanently denied') ||
+          _cameraError!.contains('app settings');
       return Scaffold(
         backgroundColor: richBlack,
         body: Center(
@@ -735,23 +798,51 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                 const Icon(
                   Icons.videocam_off,
                   color: Colors.redAccent,
-                  size: 36,
+                  size: 40,
                 ),
                 const SizedBox(height: 12),
                 Text(
                   _cameraError!,
-                  style: const TextStyle(color: antiFlashWhite),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: antiFlashWhite, fontSize: 15),
                 ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: _initCamera,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: caribbeanGreen,
-                  ),
-                  child: const Text(
-                    'Retry',
-                    style: TextStyle(color: richBlack),
-                  ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    ElevatedButton(
+                      onPressed: _initCamera,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: caribbeanGreen,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                      ),
+                      child: const Text(
+                        'Retry',
+                        style: TextStyle(
+                          color: richBlack,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (isPermanentlyDenied)
+                      OutlinedButton(
+                        onPressed: () => openAppSettings(),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: antiFlashWhite,
+                          side: const BorderSide(color: caribbeanGreen),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                        ),
+                        child: const Text('Open Settings'),
+                      ),
+                  ],
                 ),
               ],
             ),

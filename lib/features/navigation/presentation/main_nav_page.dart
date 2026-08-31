@@ -38,12 +38,12 @@ class _MainNavPageState extends State<MainNavPage> {
   final ValueNotifier<RecentScanNotice?> _recentScanNotice =
       ValueNotifier(null);
 
-  // Pages to switch between
-  late final List<Widget> _pages = [
+  List<Widget> _buildPages() => [
     MetricsPage(scansListenable: _recentScans),
     ScannerPage(
       controller: _scannerController,
       onScanCompleted: _handleScanCompleted,
+      isActive: _selectedIndex == 1,
     ),
     RecentScanPage(
       scansListenable: _recentScans,
@@ -157,8 +157,6 @@ void _handleScannerHoldStart() {
       'event': 'scan_completed',
       'treeId': newScan.treeId,
       'scannedAt': newScan.scannedAt.toIso8601String(),
-      'rootCount': newScan.rootCount,
-      'stabilityScore': newScan.stabilityScore,
       'assessment': _assessmentLabel(newScan),
       if (newScan.predictionConfidence != null)
         'predictionConfidence': newScan.predictionConfidence,
@@ -301,19 +299,6 @@ void _handleScannerHoldStart() {
       final capturedImageBytes = await _readCapturedImageBytes(
         scan.capturedImagePath,
       );
-      final hasRootOverlayData = scan.tree.roots.any(
-        (root) =>
-            root.normalizedLeft != null &&
-            root.normalizedTop != null &&
-            root.normalizedRight != null &&
-            root.normalizedBottom != null,
-      );
-      final highlightedImageBytes = capturedImageBytes == null
-          ? null
-          : await _buildRootHighlightImage(
-              scan: scan,
-              sourceBytes: capturedImageBytes,
-            );
       final pdf = pw.Document();
       final pdfTheme = await _loadPdfTheme();
       final generatedAt = DateTime.now();
@@ -326,46 +311,38 @@ void _handleScannerHoldStart() {
           build: (context) {
             final content = <pw.Widget>[
               pw.Text(
-                'Mangrove Guard Scan Report',
+                'Tree Assessment Report',
                 style: pw.TextStyle(
-                  fontSize: 20,
+                  fontSize: 24,
                   fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.teal900,
+                  color: const PdfColor.fromInt(0xFF1E523A), // darkGreen
                 ),
               ),
-              pw.SizedBox(height: 10),
-              pw.Text(
-                'Scanned at: ${_formatTimestamp(scan.scannedAt)}',
-                style: const pw.TextStyle(fontSize: 11),
-              ),
-              pw.Text(
-                'Report generated: ${_formatTimestamp(generatedAt)}',
-                style: const pw.TextStyle(fontSize: 11),
-              ),
               pw.SizedBox(height: 16),
+              pw.Text(
+                'Tree ID: ${scan.treeId}',
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.grey700,
+                ),
+              ),
+              pw.Text(
+                'Scanned On: ${scan.scannedAt.year}-${scan.scannedAt.month.toString().padLeft(2, '0')}-${scan.scannedAt.day.toString().padLeft(2, '0')} '
+                '${scan.scannedAt.hour.toString().padLeft(2, '0')}:${scan.scannedAt.minute.toString().padLeft(2, '0')}',
+                style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600),
+              ),
+              pw.SizedBox(height: 20),
               pw.Table(
                 border: pw.TableBorder.all(
-                  color: PdfColors.grey400,
-                  width: 0.8,
+                  color: PdfColors.grey300,
+                  width: 0.5,
                 ),
                 columnWidths: const {
                   0: pw.FlexColumnWidth(2.2),
                   1: pw.FlexColumnWidth(2.8),
                 },
                 children: [
-                  _buildPdfMetricRow('Detected Roots', '${scan.rootCount}'),
-                  _buildPdfMetricRow(
-                    'Root Spread',
-                    '${scan.rootSpreadCentimeters.toStringAsFixed(1)} cm',
-                  ),
-                  _buildPdfMetricRow(
-                    'Symmetry Score',
-                    scan.symmetryScore.toStringAsFixed(2),
-                  ),
-                  _buildPdfMetricRow(
-                    'Stability Score (S)',
-                    scan.stabilityScore.toStringAsFixed(2),
-                  ),
                   if (scan.predictionConfidence != null)
                     _buildPdfMetricRow(
                       'AI Confidence',
@@ -381,15 +358,13 @@ void _handleScannerHoldStart() {
               ),
             ];
 
-            if (highlightedImageBytes != null) {
-              final image = pw.MemoryImage(highlightedImageBytes);
+            if (capturedImageBytes != null) {
+              final image = pw.MemoryImage(capturedImageBytes);
               content
                 ..add(pw.SizedBox(height: 16))
                 ..add(
                   pw.Text(
-                    hasRootOverlayData
-                        ? 'Captured Image (detected mangrove roots highlighted)'
-                        : 'Captured Image',
+                    'Captured Image',
                     style: pw.TextStyle(
                       fontSize: 13,
                       fontWeight: pw.FontWeight.bold,
@@ -486,73 +461,7 @@ void _handleScannerHoldStart() {
     }
   }
 
-  Future<Uint8List?> _buildRootHighlightImage({
-    required RecentTreeScan scan,
-    required Uint8List sourceBytes,
-  }) async {
-    try {
-      final decoded = img.decodeImage(sourceBytes);
-      if (decoded == null) return sourceBytes;
 
-      final width = decoded.width > 1800 ? 1800 : decoded.width;
-      final working = decoded.width > width
-          ? img.copyResize(decoded, width: width)
-          : img.Image.from(decoded);
-      final roots = scan.tree.roots;
-      if (roots.isEmpty) return Uint8List.fromList(img.encodeJpg(working));
-
-      final rootColor = img.ColorRgb8(0, 223, 129);
-      final hasNormalizedBoxes = roots.any(
-        (root) =>
-            root.normalizedLeft != null &&
-            root.normalizedTop != null &&
-            root.normalizedRight != null &&
-            root.normalizedBottom != null,
-      );
-
-      if (!hasNormalizedBoxes) {
-        // Legacy scans without normalized detection bounds are left unmodified.
-        return sourceBytes;
-      }
-
-      for (final root in roots) {
-        final left = root.normalizedLeft;
-        final top = root.normalizedTop;
-        final right = root.normalizedRight;
-        final bottom = root.normalizedBottom;
-        if (left == null || top == null || right == null || bottom == null) {
-          continue;
-        }
-
-        final x1 = (left.clamp(0.0, 1.0) * (working.width - 1)).round();
-        final y1 = (top.clamp(0.0, 1.0) * (working.height - 1)).round();
-        final x2 = (right.clamp(0.0, 1.0) * (working.width - 1)).round();
-        final y2 = (bottom.clamp(0.0, 1.0) * (working.height - 1)).round();
-
-        img.drawRect(
-          working,
-          x1: x1,
-          y1: y1,
-          x2: x2,
-          y2: y2,
-          color: rootColor,
-          thickness: 3,
-        );
-        img.fillCircle(
-          working,
-          x: ((x1 + x2) / 2).round(),
-          y: ((y1 + y2) / 2).round(),
-          radius: 3,
-          color: rootColor,
-        );
-      }
-
-      return Uint8List.fromList(img.encodeJpg(working, quality: 92));
-    } catch (e) {
-      debugPrint('Failed to render root highlight image: $e');
-      return sourceBytes;
-    }
-  }
 
   Future<Directory> _resolveStorageRootDirectory() async {
     try {
@@ -702,7 +611,7 @@ void _handleScannerHoldStart() {
     return Scaffold(
       extendBody: true,
       // IndexedStack prevents the AR camera from "restarting" every time you switch tabs
-      body: IndexedStack(index: _selectedIndex, children: _pages),
+      body: IndexedStack(index: _selectedIndex, children: _buildPages()),
       // Glassmorphic Floating Dock Navigation Bar
       bottomNavigationBar: SizedBox(
         height: 112,

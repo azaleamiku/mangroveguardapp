@@ -533,7 +533,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                       mangroveRects.isNotEmpty)
                                                     CustomPaint(
                                                       painter:
-                                                          _RootHighlightPainter(
+                                                          _TreeHighlightPainter(
                                                             rects:
                                                                 mangroveRects,
                                                             color:
@@ -820,11 +820,11 @@ double _scannerFrameAspectForSize(Size size) {
   return innerWidth / innerHeight;
 }
 
-class _RootHighlightPainter extends CustomPainter {
+class _TreeHighlightPainter extends CustomPainter {
   final List<Rect> rects;
   final Color color;
 
-  const _RootHighlightPainter({required this.rects, required this.color});
+  const _TreeHighlightPainter({required this.rects, required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -923,7 +923,7 @@ class _RootHighlightPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _RootHighlightPainter oldDelegate) {
+  bool shouldRepaint(covariant _TreeHighlightPainter oldDelegate) {
     return oldDelegate.color != color || !listEquals(oldDelegate.rects, rects);
   }
 }
@@ -1209,27 +1209,10 @@ class RecentTreeScan {
     this.capturedImagePath,
   });
 
-  int get rootCount => tree.roots.length;
   double get trunkWidthMeters => tree.trunkWidthPixels * metersPerPixel;
-  double get rootSpreadMeters => tree.rootSpreadPixels * metersPerPixel;
   double get trunkWidthCentimeters => trunkWidthMeters * 100;
-  double get rootSpreadCentimeters => rootSpreadMeters * 100;
-  double get stabilityIndex => tree.stabilityIndex;
-  double get stabilityScore => _assessmentScore(assessment);
-  double get symmetryScore => _assessmentScore(assessment);
-  double get rootCoverageRatio => tree.stabilityMetrics.rootCoverageRatio;
-  StabilityAssessment get assessment => predictedAssessment ?? tree.assessment;
-
-  static double _assessmentScore(StabilityAssessment assessment) {
-    switch (assessment) {
-      case StabilityAssessment.high:
-        return 1.0;
-      case StabilityAssessment.moderate:
-        return 0.5;
-      case StabilityAssessment.low:
-        return 0.0;
-    }
-  }
+  StabilityAssessment get assessment =>
+      predictedAssessment ?? StabilityAssessment.low;
 
   Map<String, dynamic> toJson() {
     return {
@@ -1257,14 +1240,12 @@ class RecentTreeScan {
             'right': tree.treeBounds!.right,
             'bottom': tree.treeBounds!.bottom,
           },
-        'roots': const [],
       },
     };
   }
 
   factory RecentTreeScan.fromJson(Map<String, dynamic> json) {
     final treeMap = (json['tree'] as Map?)?.cast<String, dynamic>() ?? const {};
-    final roots = const <Root>[];
 
     final trunkMeasurementRaw = (treeMap['trunkMeasurement'] as Map?)
         ?.cast<String, dynamic>();
@@ -1331,7 +1312,6 @@ class RecentTreeScan {
       tree: MangroveTree(
         trunkWidthAtBranchPoint:
             (treeMap['trunkWidthAtBranchPoint'] as num?)?.toDouble() ?? 0,
-        roots: roots,
         trunkMeasurement: trunkMeasurement,
         treeBounds: treeBounds,
       ),

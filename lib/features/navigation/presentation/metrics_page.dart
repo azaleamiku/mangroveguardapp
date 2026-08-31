@@ -281,13 +281,11 @@ class _MetricsPageState extends State<MetricsPage> {
             const extraTopPadding = 30.0;
             final contentTopPadding = topInset + extraTopPadding;
 
-            var stabilitySum = 0.0;
             var highCount = 0;
             var moderateCount = 0;
             var lowCount = 0;
 
             for (final scan in scans) {
-              stabilitySum += scan.stabilityScore;
               switch (scan.assessment) {
                 case StabilityAssessment.high:
                   highCount++;
@@ -301,9 +299,6 @@ class _MetricsPageState extends State<MetricsPage> {
               }
             }
 
-            final averageStability = recentScanCount == 0
-                ? 0.0
-                : (stabilitySum / recentScanCount).clamp(0.0, 1.0);
             final weeklyBuckets = _buildWeeklyScanBuckets(scans);
 
             return NotificationListener<ScrollNotification>(
@@ -328,7 +323,6 @@ class _MetricsPageState extends State<MetricsPage> {
                         const SizedBox(height: 14),
                         _AverageStabilityGaugeCard(
                           recentScanCount: recentScanCount,
-                          averageStability: averageStability,
                           lowCount: lowCount,
                           moderateCount: moderateCount,
                           highCount: highCount,
@@ -636,7 +630,7 @@ class _AboutAppSheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device instance segmentation for real-time tree analysis. By extracting root geometry and computing a weighted stability score, the system evaluates structural stability directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
+                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device object detection for real-time mangrove tree analysis. The system evaluates structural stability into High, Moderate, or Low categories directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
                                     style: TextStyle(
                                       color: MetricsPage.antiFlashWhite
                                           .withValues(alpha: 0.82),
@@ -825,14 +819,12 @@ class _HeroSummaryCard extends StatelessWidget {
 
 class _AverageStabilityGaugeCard extends StatelessWidget {
   final int recentScanCount;
-  final double averageStability;
   final int lowCount;
   final int moderateCount;
   final int highCount;
 
   const _AverageStabilityGaugeCard({
     required this.recentScanCount,
-    required this.averageStability,
     required this.lowCount,
     required this.moderateCount,
     required this.highCount,
