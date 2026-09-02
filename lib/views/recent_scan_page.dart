@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../../home/models/mangrove_tree.dart';
+import '../models/mangrove_tree.dart';
 
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
@@ -264,11 +264,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        _noticeIcon(kind),
-                        color: accentColor,
-                        size: 20,
-                      ),
+                      Icon(_noticeIcon(kind), color: accentColor, size: 20),
                       const SizedBox(width: 10),
                       Flexible(
                         child: Text(
@@ -466,86 +462,94 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                         ? FutureBuilder<Size?>(
                                             future: _loadImageSize(imagePath),
                                             builder: (context, snapshot) {
-                                          final imageSize = snapshot.data;
-                                          if (imageSize == null) {
-                                            return Image.file(
-                                              File(imagePath),
-                                              fit: BoxFit.cover,
-                                              width: double.infinity,
-                                              height: double.infinity,
-                                              errorBuilder:
-                                                  (context, error, stackTrace) {
-                                                    return Container(
-                                                      color: darkGreen
-                                                          .withValues(
-                                                            alpha: 0.55,
-                                                          ),
-                                                      child: const Center(
-                                                        child: Icon(
-                                                          Icons
-                                                              .broken_image_rounded,
-                                                          color: antiFlashWhite,
-                                                          size: 36,
-                                                        ),
-                                                      ),
-                                                    );
-                                                  },
-                                            );
-                                          }
-
-                                          return FittedBox(
-                                            fit: BoxFit.cover,
-                                            alignment: Alignment.center,
-                                            child: SizedBox(
-                                              width: imageSize.width,
-                                              height: imageSize.height,
-                                              child: Stack(
-                                                fit: StackFit.expand,
-                                                children: [
-                                                  Image.file(
-                                                    File(imagePath),
-                                                    fit: BoxFit.fill,
-                                                    width: imageSize.width,
-                                                    height: imageSize.height,
-                                                    errorBuilder: (
-                                                      context,
-                                                      error,
-                                                      stackTrace,
-                                                    ) {
-                                                      return Container(
-                                                        color: darkGreen
-                                                            .withValues(
-                                                              alpha: 0.55,
+                                              final imageSize = snapshot.data;
+                                              if (imageSize == null) {
+                                                return Image.file(
+                                                  File(imagePath),
+                                                  fit: BoxFit.cover,
+                                                  width: double.infinity,
+                                                  height: double.infinity,
+                                                  errorBuilder:
+                                                      (
+                                                        context,
+                                                        error,
+                                                        stackTrace,
+                                                      ) {
+                                                        return Container(
+                                                          color: darkGreen
+                                                              .withValues(
+                                                                alpha: 0.55,
+                                                              ),
+                                                          child: const Center(
+                                                            child: Icon(
+                                                              Icons
+                                                                  .broken_image_rounded,
+                                                              color:
+                                                                  antiFlashWhite,
+                                                              size: 36,
                                                             ),
-                                                        child: const Center(
-                                                          child: Icon(
-                                                            Icons
-                                                                .broken_image_rounded,
-                                                            color:
-                                                                antiFlashWhite,
-                                                            size: 36,
                                                           ),
-                                                        ),
-                                                      );
-                                                    },
-                                                  ),
-                                                  if (showHighlights &&
-                                                      mangroveRects.isNotEmpty)
-                                                    CustomPaint(
-                                                      painter:
-                                                          _TreeHighlightPainter(
+                                                        );
+                                                      },
+                                                );
+                                              }
+
+                                              return FittedBox(
+                                                fit: BoxFit.cover,
+                                                alignment: Alignment.center,
+                                                child: SizedBox(
+                                                  width: imageSize.width,
+                                                  height: imageSize.height,
+                                                  child: Stack(
+                                                    fit: StackFit.expand,
+                                                    children: [
+                                                      Image.file(
+                                                        File(imagePath),
+                                                        fit: BoxFit.fill,
+                                                        width: imageSize.width,
+                                                        height:
+                                                            imageSize.height,
+                                                        errorBuilder:
+                                                            (
+                                                              context,
+                                                              error,
+                                                              stackTrace,
+                                                            ) {
+                                                              return Container(
+                                                                color: darkGreen
+                                                                    .withValues(
+                                                                      alpha:
+                                                                          0.55,
+                                                                    ),
+                                                                child: const Center(
+                                                                  child: Icon(
+                                                                    Icons
+                                                                        .broken_image_rounded,
+                                                                    color:
+                                                                        antiFlashWhite,
+                                                                    size: 36,
+                                                                  ),
+                                                                ),
+                                                              );
+                                                            },
+                                                      ),
+                                                      if (showHighlights &&
+                                                          mangroveRects
+                                                              .isNotEmpty)
+                                                        CustomPaint(
+                                                          painter: _TreeHighlightPainter(
                                                             rects:
                                                                 mangroveRects,
                                                             color:
                                                                 caribbeanGreen,
                                                           ),
-                                                    ),
-                                                ],
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      )
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          )
                                         : Container(
                                             color: darkGreen.withValues(
                                               alpha: 0.55,
@@ -566,8 +570,9 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                       left: 12,
                                       child: _DetectionBadge(
                                         accent: statusColor,
-                                        stabilityLabel:
-                                            _stabilityLabel(scan.assessment),
+                                        stabilityLabel: _stabilityLabel(
+                                          scan.assessment,
+                                        ),
                                       ),
                                     ),
                                   if (hasImage && hasAnyHighlight)
@@ -705,32 +710,36 @@ class _RecentScanPageState extends State<RecentScanPage> {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        ..._stabilityRecommendations(scan.assessment)
-                            .map((rec) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text('• ',
-                                          style: TextStyle(
-                                              color: statusColor,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 16)),
-                                      Expanded(
-                                        child: Text(
-                                          rec,
-                                          style: TextStyle(
-                                            color: antiFlashWhite.withValues(
-                                                alpha: 0.8),
-                                            fontSize: 12,
-                                            height: 1.4,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                        ..._stabilityRecommendations(scan.assessment).map(
+                          (rec) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '• ',
+                                  style: TextStyle(
+                                    color: statusColor,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
                                   ),
-                                )),
+                                ),
+                                Expanded(
+                                  child: Text(
+                                    rec,
+                                    style: TextStyle(
+                                      color: antiFlashWhite.withValues(
+                                        alpha: 0.8,
+                                      ),
+                                      fontSize: 12,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                         const SizedBox(height: 18),
                         Row(
                           children: [
@@ -1016,10 +1025,7 @@ class _DetectionBadge extends StatelessWidget {
   final Color accent;
   final String stabilityLabel;
 
-  const _DetectionBadge({
-    required this.accent,
-    required this.stabilityLabel,
-  });
+  const _DetectionBadge({required this.accent, required this.stabilityLabel});
 
   @override
   Widget build(BuildContext context) {
@@ -1085,10 +1091,7 @@ class _HighlightLegend extends StatelessWidget {
   final bool showHighlights;
   final String label;
 
-  const _HighlightLegend({
-    required this.showHighlights,
-    required this.label,
-  });
+  const _HighlightLegend({required this.showHighlights, required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -1168,10 +1171,7 @@ class _HighlightLegendChip extends StatelessWidget {
           Container(
             width: 10,
             height: 10,
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
           ),
           const SizedBox(width: 6),
           Text(
@@ -1288,7 +1288,8 @@ class RecentTreeScan {
     StabilityAssessment? predictedAssessment;
     if (predictedAssessmentRaw != null) {
       for (final assessment in StabilityAssessment.values) {
-        if (assessment.name.toLowerCase() == predictedAssessmentRaw.toLowerCase()) {
+        if (assessment.name.toLowerCase() ==
+            predictedAssessmentRaw.toLowerCase()) {
           predictedAssessment = assessment;
           break;
         }
@@ -1302,8 +1303,7 @@ class RecentTreeScan {
           ? DateTime.now()
           : (DateTime.tryParse(scannedAtRaw) ?? DateTime.now()),
       metersPerPixel: (json['metersPerPixel'] as num?)?.toDouble() ?? 0.003,
-      predictionConfidence:
-          (json['predictionConfidence'] as num?)?.toDouble(),
+      predictionConfidence: (json['predictionConfidence'] as num?)?.toDouble(),
       predictedAssessment: predictedAssessment,
       capturedImagePath:
           ((json['capturedImagePath'] as String?)?.trim().isNotEmpty ?? false)

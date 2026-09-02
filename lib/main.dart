@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'features/onboarding/presentation/pages/onboarding_page.dart';
-import 'features/navigation/presentation/main_nav_page.dart';
+import 'views/onboarding_page.dart';
+import 'views/main_nav_page.dart';
 
-// Define the color scheme
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
 const Color bangladeshGreen = Color(0xFF03624C);
@@ -26,7 +25,9 @@ class MangroveGuardApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      scrollBehavior: const MaterialScrollBehavior().copyWith(scrollbars: false),
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        scrollbars: false,
+      ),
       theme: ThemeData(
         colorScheme: ColorScheme(
           brightness: Brightness.dark,
@@ -55,7 +56,7 @@ class MangroveGuardApp extends StatelessWidget {
           unselectedItemColor: antiFlashWhite,
         ),
       ),
-      // If showHome is true, go straight to the app; else, show onboarding
+
       home: showHome ? const MainNavPage() : const OnboardingPage(),
     );
   }

@@ -4,13 +4,11 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../home/models/mangrove_tree.dart';
-import '../../home/presentation/pages/scanner_page.dart';
+import '../models/mangrove_tree.dart';
+import '../services/monitoring_sync_service.dart';
+import 'scanner_page.dart';
 import 'recent_scan_page.dart';
 import 'metrics_page.dart';
 
@@ -24,9 +22,6 @@ class MainNavPage extends StatefulWidget {
 class _MainNavPageState extends State<MainNavPage> {
   static const String _recentScansStorageKey = 'recent_tree_scans_v1';
   static const int _maxRecentScans = 10000;
-  static const MethodChannel _downloadsChannel = MethodChannel(
-    'mangroveguardapp/downloads',
-  );
   static const Color caribbeanGreen = Color(0xFF00DF81);
   static const Color antiFlashWhite = Color(0xFFF1F7F6);
   static const Color bangladeshGreen = Color(0xFF03624C);
@@ -35,8 +30,9 @@ class _MainNavPageState extends State<MainNavPage> {
   int _selectedIndex = 0;
   final ScannerPageController _scannerController = ScannerPageController();
   final ValueNotifier<List<RecentTreeScan>> _recentScans = ValueNotifier([]);
-  final ValueNotifier<RecentScanNotice?> _recentScanNotice =
-      ValueNotifier(null);
+  final ValueNotifier<RecentScanNotice?> _recentScanNotice = ValueNotifier(
+    null,
+  );
 
   List<Widget> _buildPages() => [
     MetricsPage(scansListenable: _recentScans),
@@ -56,7 +52,15 @@ class _MainNavPageState extends State<MainNavPage> {
   @override
   void initState() {
     super.initState();
+    _markOnboardingComplete();
     _loadRecentScans();
+  }
+
+  Future<void> _markOnboardingComplete() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('showHome', true);
+    } catch (_) {}
   }
 
   void _setSelectedIndex(int index) {
@@ -80,9 +84,9 @@ class _MainNavPageState extends State<MainNavPage> {
     _setSelectedIndex(1);
   }
 
-void _handleScannerHoldStart() {
+  void _handleScannerHoldStart() {
     if (!mounted) return;
-    if (_selectedIndex != 1) return;  // Ignore long press if not on scanner tab
+    if (_selectedIndex != 1) return;
     if (_scannerController.isRealtimeAssessment) {
       _scannerController.stopRealtimeAssessment();
     } else {
@@ -90,9 +94,7 @@ void _handleScannerHoldStart() {
     }
   }
 
-  void _handleScannerHoldEnd() {
-    // Long-press toggles realtime; release does not change state.
-  }
+  void _handleScannerHoldEnd() {}
 
   void _handleScanCompleted() {
     unawaited(_storeLatestMeasuredTree());
@@ -100,28 +102,23 @@ void _handleScannerHoldStart() {
     _setSelectedIndex(2);
   }
 
+  String _nextTreeId() {
+    var highestNumber = 0;
+    final pattern = RegExp(r'^Tree #(\d+)$');
+    for (final scan in _recentScans.value) {
+      final match = pattern.firstMatch(scan.treeId.trim());
+      final number = int.tryParse(match?.group(1) ?? '') ?? 0;
+      if (number > highestNumber) highestNumber = number;
+    }
+    return 'Tree #${highestNumber + 1}';
+  }
+
   Future<void> _storeLatestMeasuredTree() async {
     final measuredResult = _scannerController.consumeLatestMeasuredTreeResult();
     if (measuredResult == null) return;
 
-    if (measuredResult.outcome == ScanOutcome.noMangroveDetected) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _recentScanNotice.value = RecentScanNotice(
-          id: DateTime.now().millisecondsSinceEpoch,
-          message: 'No mangroves detected. Try a clearer scan.',
-          kind: RecentScanNoticeKind.error,
-        );
-      });
-      await _appendActivityLogEntry({
-        'event': 'scan_no_mangrove_detected',
-        'scannedAt': DateTime.now().toIso8601String(),
-      });
-      return;
-    }
-
     final timestamp = DateTime.now();
-    const treeId = 'Tree #1';
+    final treeId = _nextTreeId();
     final capturedImagePath = await _persistCapturedImage(
       sourcePath: measuredResult.capturedImagePath,
       treeId: treeId,
@@ -138,10 +135,7 @@ void _handleScannerHoldStart() {
       capturedImagePath: capturedImagePath,
     );
 
-    final updated = [
-      newScan,
-      ..._recentScans.value,
-    ];
+    final updated = [newScan, ..._recentScans.value];
 
     final trimmed = updated.length <= _maxRecentScans
         ? updated
@@ -161,6 +155,17 @@ void _handleScannerHoldStart() {
       if (newScan.predictionConfidence != null)
         'predictionConfidence': newScan.predictionConfidence,
     });
+    if (newScan.predictedAssessment case final assessment?) {
+      unawaited(
+        MonitoringSyncService.syncCompletedScan(
+          treeId: newScan.treeId,
+          scannedAt: newScan.scannedAt,
+          assessment: assessment,
+          imagePath: newScan.capturedImagePath,
+          predictionConfidence: newScan.predictionConfidence,
+        ),
+      );
+    }
     for (final scan in removed) {
       await _deleteManagedCaptureFile(scan.capturedImagePath);
     }
@@ -176,9 +181,7 @@ void _handleScannerHoldStart() {
           final decoded = jsonDecode(raw);
           if (decoded is! Map<String, dynamic>) continue;
           loaded.add(RecentTreeScan.fromJson(decoded));
-        } catch (_) {
-          // Skip malformed entries and continue loading valid scans.
-        }
+        } catch (_) {}
       }
       loaded.sort((a, b) => b.scannedAt.compareTo(a.scannedAt));
       final limited = loaded.length <= _maxRecentScans
@@ -195,9 +198,7 @@ void _handleScannerHoldStart() {
           await _deleteManagedCaptureFile(scan.capturedImagePath);
         }
       }
-    } catch (_) {
-      // Ignore storage errors to keep app usable.
-    }
+    } catch (_) {}
   }
 
   Future<void> _persistRecentScans(List<RecentTreeScan> scans) async {
@@ -207,25 +208,7 @@ void _handleScannerHoldStart() {
           .map((scan) => jsonEncode(scan.toJson()))
           .toList(growable: false);
       await prefs.setStringList(_recentScansStorageKey, encoded);
-    } catch (_) {
-      // Ignore persistence failures to avoid interrupting capture flow.
-    }
-  }
-
-  Future<String?> _saveRecentScan(int index) async {
-    if (index < 0 || index >= _recentScans.value.length) return null;
-    final scan = _recentScans.value[index];
-    final exportPath = await _exportRecentScanPdf(scan);
-    await _persistRecentScans(_recentScans.value);
-    if (exportPath != null) {
-      await _appendActivityLogEntry({
-        'event': 'pdf_exported',
-        'treeId': scan.treeId,
-        'scannedAt': scan.scannedAt.toIso8601String(),
-        'exportPath': exportPath,
-      });
-    }
-    return exportPath;
+    } catch (_) {}
   }
 
   Future<void> _deleteRecentScan(int index) async {
@@ -241,23 +224,6 @@ void _handleScannerHoldStart() {
       'treeId': removedScan.treeId,
       'scannedAt': removedScan.scannedAt.toIso8601String(),
     });
-  }
-
-  Future<bool> _openExportPath(String pdfPath) async {
-    try {
-      if (!Platform.isAndroid) return false;
-      final opened = await _downloadsChannel.invokeMethod<bool>(
-        'openExportedPdf',
-        {'path': pdfPath},
-      );
-      return opened ?? false;
-    } on PlatformException catch (e) {
-      debugPrint('Failed to open exported PDF path: ${e.code} ${e.message}');
-      return false;
-    } catch (e) {
-      debugPrint('Failed to open exported PDF path: $e');
-      return false;
-    }
   }
 
   Future<String?> _persistCapturedImage({
@@ -287,181 +253,6 @@ void _handleScannerHoldStart() {
       return null;
     }
   }
-
-  Future<String?> _exportRecentScanPdf(RecentTreeScan scan) async {
-    try {
-      final rootDir = await _resolveStorageRootDirectory();
-      final exportDir = Directory('${rootDir.path}/scan_exports');
-      if (!await exportDir.exists()) {
-        await exportDir.create(recursive: true);
-      }
-
-      final capturedImageBytes = await _readCapturedImageBytes(
-        scan.capturedImagePath,
-      );
-      final pdf = pw.Document();
-      final pdfTheme = await _loadPdfTheme();
-      final generatedAt = DateTime.now();
-
-      pdf.addPage(
-        pw.MultiPage(
-          theme: pdfTheme,
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(28),
-          build: (context) {
-            final content = <pw.Widget>[
-              pw.Text(
-                'Tree Assessment Report',
-                style: pw.TextStyle(
-                  fontSize: 24,
-                  fontWeight: pw.FontWeight.bold,
-                  color: const PdfColor.fromInt(0xFF1E523A), // darkGreen
-                ),
-              ),
-              pw.SizedBox(height: 16),
-              pw.Text(
-                'Tree ID: ${scan.treeId}',
-                style: pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.grey700,
-                ),
-              ),
-              pw.Text(
-                'Scanned On: ${scan.scannedAt.year}-${scan.scannedAt.month.toString().padLeft(2, '0')}-${scan.scannedAt.day.toString().padLeft(2, '0')} '
-                '${scan.scannedAt.hour.toString().padLeft(2, '0')}:${scan.scannedAt.minute.toString().padLeft(2, '0')}',
-                style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600),
-              ),
-              pw.SizedBox(height: 20),
-              pw.Table(
-                border: pw.TableBorder.all(
-                  color: PdfColors.grey300,
-                  width: 0.5,
-                ),
-                columnWidths: const {
-                  0: pw.FlexColumnWidth(2.2),
-                  1: pw.FlexColumnWidth(2.8),
-                },
-                children: [
-                  if (scan.predictionConfidence != null)
-                    _buildPdfMetricRow(
-                      'AI Confidence',
-                      '${(scan.predictionConfidence! * 100).toStringAsFixed(0)}%',
-                    ),
-                  _buildPdfMetricRow('Assessment', _assessmentLabel(scan)),
-                ],
-              ),
-              pw.SizedBox(height: 12),
-              pw.Text(
-                _assessmentDescription(scan),
-                style: const pw.TextStyle(fontSize: 11),
-              ),
-            ];
-
-            if (capturedImageBytes != null) {
-              final image = pw.MemoryImage(capturedImageBytes);
-              content
-                ..add(pw.SizedBox(height: 16))
-                ..add(
-                  pw.Text(
-                    'Captured Image',
-                    style: pw.TextStyle(
-                      fontSize: 13,
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.grey800,
-                    ),
-                  ),
-                )
-                ..add(pw.SizedBox(height: 8))
-                ..add(
-                  pw.Center(
-                    child: pw.Container(
-                      width: 250,
-                      height: 360,
-                      decoration: pw.BoxDecoration(
-                        color: PdfColors.grey100,
-                        border: pw.Border.all(color: PdfColors.grey400),
-                      ),
-                      alignment: pw.Alignment.center,
-                      child: pw.Image(image, fit: pw.BoxFit.contain),
-                    ),
-                  ),
-                );
-            } else {
-              content
-                ..add(pw.SizedBox(height: 16))
-                ..add(
-                  pw.Text(
-                    'Captured image unavailable for this scan.',
-                    style: pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
-                  ),
-                );
-            }
-
-            return content;
-          },
-        ),
-      );
-
-      final fileName = 'scan_${scan.scannedAt.millisecondsSinceEpoch}.pdf';
-
-      final pdfBytes = await pdf.save();
-      if (Platform.isAndroid) {
-        final downloadRef = await _savePdfToAndroidDownloads(
-          bytes: pdfBytes,
-          fileName: fileName,
-        );
-        if (downloadRef != null) return downloadRef;
-      }
-
-      final file = File('${exportDir.path}/$fileName');
-      await file.writeAsBytes(pdfBytes, flush: true);
-      return file.path;
-    } catch (e) {
-      debugPrint('Failed to export scan PDF: $e');
-      return null;
-    }
-  }
-
-  Future<String?> _savePdfToAndroidDownloads({
-    required Uint8List bytes,
-    required String fileName,
-  }) async {
-    try {
-      final savedRef = await _downloadsChannel.invokeMethod<String>(
-        'savePdfToDownloads',
-        {'bytes': bytes, 'fileName': fileName},
-      );
-      return savedRef;
-    } on PlatformException catch (e) {
-      debugPrint(
-        'Failed to save PDF to Android Downloads: ${e.code} ${e.message}',
-      );
-      return null;
-    } catch (e) {
-      debugPrint('Failed to save PDF to Android Downloads: $e');
-      return null;
-    }
-  }
-
-  Future<pw.ThemeData> _loadPdfTheme() async {
-    try {
-      final regular = await rootBundle.load('assets/fonts/DejaVuSans.ttf');
-      final bold = await rootBundle.load('assets/fonts/DejaVuSans-Bold.ttf');
-      return pw.ThemeData.withFont(
-        base: pw.Font.ttf(regular),
-        bold: pw.Font.ttf(bold),
-      );
-    } catch (e) {
-      debugPrint('Failed to load PDF Unicode fonts, using defaults: $e');
-      return pw.ThemeData.withFont(
-        base: pw.Font.helvetica(),
-        bold: pw.Font.helveticaBold(),
-      );
-    }
-  }
-
-
 
   Future<Directory> _resolveStorageRootDirectory() async {
     try {
@@ -501,20 +292,7 @@ void _handleScannerHoldStart() {
         mode: FileMode.append,
         flush: true,
       );
-    } catch (_) {
-      // Ignore logging failures to keep capture/report flows reliable.
-    }
-  }
-
-  Future<Uint8List?> _readCapturedImageBytes(String? filePath) async {
-    if (filePath == null || filePath.trim().isEmpty) return null;
-    try {
-      final file = File(filePath);
-      if (!await file.exists()) return null;
-      return await file.readAsBytes();
-    } catch (_) {
-      return null;
-    }
+    } catch (_) {}
   }
 
   Future<void> _deleteManagedCaptureFile(String? filePath) async {
@@ -525,60 +303,11 @@ void _handleScannerHoldStart() {
       if (await file.exists()) {
         await file.delete();
       }
-    } catch (_) {
-      // Ignore file delete failures to avoid blocking UI actions.
-    }
-  }
-
-  pw.TableRow _buildPdfMetricRow(String label, String value) {
-    return pw.TableRow(
-      children: [
-        pw.Padding(
-          padding: const pw.EdgeInsets.all(8),
-          child: pw.Text(
-            label,
-            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11),
-          ),
-        ),
-        pw.Padding(
-          padding: const pw.EdgeInsets.all(8),
-          child: pw.Text(value, style: const pw.TextStyle(fontSize: 11)),
-        ),
-      ],
-    );
+    } catch (_) {}
   }
 
   String _assessmentLabel(RecentTreeScan scan) {
     return scan.assessment.label;
-  }
-
-  String _assessmentDescription(RecentTreeScan scan) {
-    return scan.assessment.description;
-  }
-
-  String _formatTimestamp(DateTime value) {
-    final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final minute = value.minute.toString().padLeft(2, '0');
-    final period = value.hour >= 12 ? 'PM' : 'AM';
-    return '${_monthName(value.month)} ${value.day}, ${value.year} $hour12:$minute $period';
-  }
-
-  String _monthName(int month) {
-    const names = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return names[month - 1];
   }
 
   String _sanitizeFileName(String value) {
@@ -610,9 +339,9 @@ void _handleScannerHoldStart() {
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      // IndexedStack prevents the AR camera from "restarting" every time you switch tabs
+
       body: IndexedStack(index: _selectedIndex, children: _buildPages()),
-      // Glassmorphic Floating Dock Navigation Bar
+
       bottomNavigationBar: SizedBox(
         height: 112,
         child: Stack(
@@ -672,7 +401,7 @@ void _handleScannerHoldStart() {
                 ),
               ),
             ),
-Positioned(
+            Positioned(
               top: 0,
               child: AnimatedBuilder(
                 animation: _scannerController,
@@ -704,10 +433,10 @@ class _ScannerFab extends StatefulWidget {
   final Color iconColor;
   final VoidCallback onTap;
   final VoidCallback? onHoldStart;
-final VoidCallback? onHoldEnd;
+  final VoidCallback? onHoldEnd;
   final bool showLiveAnimation;
 
-const _ScannerFab({
+  const _ScannerFab({
     required this.isScannerActive,
     required this.showLiveAnimation,
     required this.selectedColor,
@@ -938,7 +667,7 @@ class _ShutterVisual extends StatefulWidget {
 
   const _ShutterVisual({required this.iconColor});
 
-@override
+  @override
   State<_ShutterVisual> createState() => _ShutterVisualState();
 }
 
@@ -971,7 +700,6 @@ class _ShutterVisualState extends State<_ShutterVisual>
       ),
     );
 
-    // Radar ring 1
     _ringScale1 = Tween<double>(begin: 0.6, end: 1.6).animate(
       CurvedAnimation(
         parent: _pulseController,
@@ -985,7 +713,6 @@ class _ShutterVisualState extends State<_ShutterVisual>
       ),
     );
 
-// Radar ring 2 (delayed)
     _ringScale2 = Tween<double>(begin: 0.6, end: 1.6).animate(
       CurvedAnimation(
         parent: _pulseController,
@@ -1020,9 +747,7 @@ class _ShutterVisualState extends State<_ShutterVisual>
           child: Stack(
             alignment: Alignment.center,
             children: [
-              // Radar pulse rings (live only)
               if (isLive) ...[
-                // Outer ring
                 Positioned.fill(
                   child: Transform.scale(
                     scale: _ringScale2.value,
@@ -1030,16 +755,16 @@ class _ShutterVisualState extends State<_ShutterVisual>
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: const Color(0xFF00DF81).withValues(
-                            alpha: _ringAlpha2.value,
-                          ),
+                          color: const Color(
+                            0xFF00DF81,
+                          ).withValues(alpha: _ringAlpha2.value),
                           width: 1.5,
                         ),
                       ),
                     ),
                   ),
                 ),
-                // Inner ring
+
                 Positioned.fill(
                   child: Transform.scale(
                     scale: _ringScale1.value,
@@ -1047,9 +772,9 @@ class _ShutterVisualState extends State<_ShutterVisual>
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: const Color(0xFF00DF81).withValues(
-                            alpha: _ringAlpha1.value * 0.7,
-                          ),
+                          color: const Color(
+                            0xFF00DF81,
+                          ).withValues(alpha: _ringAlpha1.value * 0.7),
                           width: 1.0,
                         ),
                       ),
@@ -1057,7 +782,7 @@ class _ShutterVisualState extends State<_ShutterVisual>
                   ),
                 ),
               ],
-              // Core button with subtle pulse
+
               AnimatedScale(
                 scale: isLive ? _scaleAnimation.value : 1.0,
                 duration: const Duration(milliseconds: 200),
@@ -1074,9 +799,9 @@ class _ShutterVisualState extends State<_ShutterVisual>
                     boxShadow: isLive
                         ? [
                             BoxShadow(
-                              color: const Color(0xFF00DF81).withValues(
-                                alpha: _glowAnimation.value * 0.6,
-                              ),
+                              color: const Color(
+                                0xFF00DF81,
+                              ).withValues(alpha: _glowAnimation.value * 0.6),
                               blurRadius: 12 + (_glowAnimation.value * 12),
                               spreadRadius: 1,
                             ),
@@ -1085,7 +810,7 @@ class _ShutterVisualState extends State<_ShutterVisual>
                   ),
                 ),
               ),
-              // Center shutter circle
+
               Container(
                 width: 28,
                 height: 28,
@@ -1157,7 +882,6 @@ class _ScannerVisual extends StatelessWidget {
   }
 }
 
-// Custom Navigation Item Widget
 class _NavItem extends StatelessWidget {
   final IconData icon;
   final bool isSelected;

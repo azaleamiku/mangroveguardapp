@@ -1,7 +1,8 @@
 import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../navigation/presentation/main_nav_page.dart';
+import 'package:mangroveguardapp/views/main_nav_page.dart';
 
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
@@ -51,25 +52,27 @@ class _OnboardingPageState extends State<OnboardingPage>
   }
 
   Future<void> _handleGetStarted() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('showHome', true);
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const FeatureWalkthroughPage()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const FeatureWalkthroughPage()));
   }
 
   Future<void> _handleSkip() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('showHome', true);
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainNavPage()),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const MainNavPage()));
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme.apply(fontFamily: 'DejaVuSans');
+    final textTheme = theme.textTheme;
 
     return Theme(
       data: theme.copyWith(textTheme: textTheme),
@@ -177,11 +180,7 @@ class _OnboardingBackdrop extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF031B1B),
-            Color(0xFF052B26),
-            Color(0xFF0A3C2F),
-          ],
+          colors: [Color(0xFF031B1B), Color(0xFF052B26), Color(0xFF0A3C2F)],
           stops: [0.0, 0.5, 1.0],
         ),
       ),
@@ -228,17 +227,17 @@ class _HeaderRow extends StatelessWidget {
             Text(
               'Mangrove Guard',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: antiFlashWhite,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3,
-                  ),
+                color: antiFlashWhite,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.3,
+              ),
             ),
             Text(
               'Field-ready coastal insights',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: antiFlashWhite.withOpacity(0.7),
-                    letterSpacing: 0.4,
-                  ),
+                color: antiFlashWhite.withOpacity(0.7),
+                letterSpacing: 0.4,
+              ),
             ),
           ],
         ),
@@ -254,10 +253,10 @@ class _HeaderRow extends StatelessWidget {
             child: Text(
               'LIVE BUILD',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: caribbeanGreen,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.2,
-                  ),
+                color: caribbeanGreen,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.2,
+              ),
             ),
           ),
       ],
@@ -368,17 +367,17 @@ class _HeroVisual extends StatelessWidget {
                   Text(
                     'Live assessment active',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: antiFlashWhite,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: antiFlashWhite,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     'Realtime root analysis and stability scoring via camera feed.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: antiFlashWhite.withOpacity(0.7),
-                          height: 1.4,
-                        ),
+                      color: antiFlashWhite.withOpacity(0.7),
+                      height: 1.4,
+                    ),
                   ),
                   const SizedBox(height: 14),
                   _ProgressBar(value: 0.78),
@@ -407,7 +406,8 @@ class _FeatureGrid extends StatelessWidget {
       ),
       const _FeatureCard(
         title: 'Permissions Note',
-        description: 'Camera access required for mangrove scanning. Grant permission when prompted for best experience.',
+        description:
+            'Camera access required for mangrove scanning. Grant permission when prompted for best experience.',
         icon: Icons.security,
       ),
       const _FeatureCard(
@@ -491,17 +491,17 @@ class _FeatureCard extends StatelessWidget {
           Text(
             title,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: antiFlashWhite,
-                  fontWeight: FontWeight.w600,
-                ),
+              color: antiFlashWhite,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             description,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: antiFlashWhite.withOpacity(0.72),
-                  height: 1.4,
-                ),
+              color: antiFlashWhite.withOpacity(0.72),
+              height: 1.4,
+            ),
           ),
         ],
       ),
@@ -529,17 +529,17 @@ class _CallToAction extends StatelessWidget {
           Text(
             'Ready to map today? ',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: antiFlashWhite,
-                  fontWeight: FontWeight.w600,
-                ),
+              color: antiFlashWhite,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             'Hold shutter for live analysis or jump to recent scans & metrics. Move at your own pace.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: antiFlashWhite.withOpacity(0.72),
-                  height: 1.4,
-                ),
+              color: antiFlashWhite.withOpacity(0.72),
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 16),
           Row(
@@ -550,10 +550,9 @@ class _CallToAction extends StatelessWidget {
                     backgroundColor: caribbeanGreen,
                     foregroundColor: richBlack,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    textStyle: Theme.of(context)
-                        .textTheme
-                        .titleSmall
-                        ?.copyWith(fontWeight: FontWeight.w700),
+                    textStyle: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   onPressed: onGetStarted,
                   child: const Text('Get Started'),
@@ -564,11 +563,13 @@ class _CallToAction extends StatelessWidget {
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: antiFlashWhite.withOpacity(0.4)),
                   foregroundColor: antiFlashWhite,
-                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
-                  textStyle: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                    horizontal: 18,
+                  ),
+                  textStyle: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 onPressed: onSkip,
                 child: const Text('Skip for Now'),
@@ -597,10 +598,10 @@ class _TagPill extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: caribbeanGreen,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.4,
-            ),
+          color: caribbeanGreen,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.4,
+        ),
       ),
     );
   }
@@ -623,10 +624,10 @@ class _SignalPill extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
-            ),
+          color: color,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+        ),
       ),
     );
   }
@@ -730,7 +731,7 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
     _WalkthroughStep(
       title: 'Hold for Live Assessment',
       description:
-'Tap shutter to capture photo for analysis, hold for live realtime root analysis & stability scoring.',
+          'Tap shutter to capture photo for analysis, hold for live realtime root analysis & stability scoring.',
       icon: Icons.videocam,
     ),
     _WalkthroughStep(
@@ -757,9 +758,9 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('showHome', true);
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainNavPage()),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const MainNavPage()));
   }
 
   void _handleNext() {
@@ -776,9 +777,10 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme.apply(fontFamily: 'DejaVuSans');
-    final primaryActionLabel =
-        _pageIndex == _steps.length - 1 ? 'Start Scanning' : 'Next';
+    final textTheme = theme.textTheme;
+    final primaryActionLabel = _pageIndex == _steps.length - 1
+        ? 'Start Scanning'
+        : 'Next';
 
     return Theme(
       data: theme.copyWith(textTheme: textTheme),
@@ -790,8 +792,10 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
               child: Column(
                 children: [
                   Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 16,
+                    ),
                     child: Row(
                       children: [
                         Text(
@@ -821,8 +825,10 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
                     ),
                   ),
                   Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 24,
+                    ),
                     child: Row(
                       children: [
                         _WalkthroughIndicators(
@@ -942,22 +948,24 @@ class _WalkthroughCard extends StatelessWidget {
               Text(
                 step.title,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: antiFlashWhite,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  color: antiFlashWhite,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
                 step.description,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: antiFlashWhite.withOpacity(0.75),
-                      height: 1.5,
-                    ),
+                  color: antiFlashWhite.withOpacity(0.75),
+                  height: 1.5,
+                ),
               ),
               const Spacer(),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
                   color: darkGreen.withOpacity(0.7),
@@ -966,9 +974,9 @@ class _WalkthroughCard extends StatelessWidget {
                 child: Text(
                   'Step ${index + 1} of $total',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: caribbeanGreen,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: caribbeanGreen,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -977,7 +985,6 @@ class _WalkthroughCard extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _WalkthroughIndicators extends StatelessWidget {
@@ -990,28 +997,28 @@ class _WalkthroughIndicators extends StatelessWidget {
     final dots = <Widget>[];
     for (int i = 0; i < count; i++) {
       final isActive = i == index;
-      dots.add(AnimatedContainer(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-        width: isActive ? 28 : 10,
-        height: 10,
-        margin: const EdgeInsets.only(right: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(999),
-          color: isActive
-              ? caribbeanGreen
-              : antiFlashWhite.withOpacity(0.2),
-          boxShadow: isActive
-              ? [
-                  BoxShadow(
-                    color: caribbeanGreen.withOpacity(0.35),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : const [],
+      dots.add(
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          width: isActive ? 28 : 10,
+          height: 10,
+          margin: const EdgeInsets.only(right: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+            color: isActive ? caribbeanGreen : antiFlashWhite.withOpacity(0.2),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: caribbeanGreen.withOpacity(0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : const [],
+          ),
         ),
-      ));
+      );
     }
     return Row(children: dots);
   }

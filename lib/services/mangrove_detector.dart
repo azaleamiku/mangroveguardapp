@@ -25,10 +25,7 @@ class MangroveDetectionResult {
 class MangroveDetector {
   static const String _modelAssetPath = 'assets/models/mangroveModel.tflite';
   static const String modelAssetPath = _modelAssetPath;
-  /// Model Class Mapping:
-  /// 0: high_stability
-  /// 1: low_stability
-  /// 2: moderate_stability
+
   static const List<StabilityAssessment> _classOrder = [
     StabilityAssessment.high,
     StabilityAssessment.low,
@@ -75,14 +72,9 @@ class MangroveDetector {
     return MangroveDetector._(interpreter, width, height, inputTensor.type);
   }
 
-  static Future<MangroveDetector> createFromBuffer(
-    Uint8List modelBytes,
-  ) async {
+  static Future<MangroveDetector> createFromBuffer(Uint8List modelBytes) async {
     final options = _buildOptions();
-    final interpreter = Interpreter.fromBuffer(
-      modelBytes,
-      options: options,
-    );
+    final interpreter = Interpreter.fromBuffer(modelBytes, options: options);
     final inputTensor = interpreter.getInputTensor(0);
     final shape = inputTensor.shape;
     if (shape.length < 3) {
@@ -133,8 +125,8 @@ class MangroveDetector {
 
     final detection = _extractBestPrediction(outputs);
     if (detection != null) {
-      final assessment = detection.classIndex >= 0 &&
-              detection.classIndex < _classOrder.length
+      final assessment =
+          detection.classIndex >= 0 && detection.classIndex < _classOrder.length
           ? _classOrder[detection.classIndex]
           : null;
       final tree = MangroveTree(
@@ -321,12 +313,7 @@ class MangroveDetector {
       if (bestClassScore > bestScore) {
         bestScore = bestClassScore;
         bestClass = bestClassIndex;
-        bestBounds = _boxFromCenter(
-          cx: cx,
-          cy: cy,
-          w: w,
-          h: h,
-        );
+        bestBounds = _boxFromCenter(cx: cx, cy: cy, w: w, h: h);
       }
     }
 
@@ -398,12 +385,10 @@ class MangroveDetector {
       height = height / _inputHeight;
     }
 
-    // Make the bounding box slightly wider (left to right).
-    final left = (centerX - width / 1.7).clamp(0.0, 1.0);
-    final right = (centerX + width / 1.7).clamp(0.0, 1.0);
-    // Make the bounding box higher (taller) by extending the top boundary further up.
-    final top = (centerY - height / 1.4).clamp(0.0, 1.0);
-    final bottom = (centerY + height / 2.0).clamp(0.0, 1.0);
+    final left = (centerX - width / 2).clamp(0.0, 1.0);
+    final right = (centerX + width / 2).clamp(0.0, 1.0);
+    final top = (centerY - height / 2).clamp(0.0, 1.0);
+    final bottom = (centerY + height / 2).clamp(0.0, 1.0);
 
     return TreeBounds(
       left: math.min(left, right),

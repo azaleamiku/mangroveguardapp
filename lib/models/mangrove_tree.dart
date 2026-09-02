@@ -1,6 +1,3 @@
-import 'dart:ui';
-import 'dart:math' as math;
-
 class TrunkMeasurement {
   final double startX;
   final double endX;

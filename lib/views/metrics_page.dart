@@ -3,8 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-
-import '../../home/models/mangrove_tree.dart';
+import 'package:mangroveguardapp/models/mangrove_tree.dart';
 import 'recent_scan_page.dart';
 
 class MetricsPage extends StatefulWidget {
@@ -133,12 +132,11 @@ class _MetricsPageState extends State<MetricsPage> {
                 hasIntentionalDrag &&
                 pullExtent >= _aboutPullTrigger);
         var releaseQueued = _aboutReleaseQueued || armed;
-        // Backing off below trigger cancels the queued open.
+
         if (isDraggingDown && pullExtent < _aboutPullTrigger) {
           releaseQueued = false;
         }
 
-        // Open immediately on finger release if still intentionally queued.
         if (dragDelta == null && releaseQueued && !_aboutSheetOpen) {
           setState(() {
             _aboutPullExtent = 0;
@@ -573,23 +571,23 @@ class _AboutAppSheet extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-	                                  Text(
-	                                    'Mangroves',
-	                                    style: TextStyle(
-	                                      color: MetricsPage.antiFlashWhite
-	                                          .withValues(alpha: 0.9),
-	                                      fontSize: 12,
-	                                      fontWeight: FontWeight.w800,
+                                  Text(
+                                    'Mangroves',
+                                    style: TextStyle(
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.9),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
                                       letterSpacing: 0.2,
                                     ),
                                   ),
-	                                  const SizedBox(height: 6),
-	                                  Text(
-	                                    'Mangroves anchor shorelines with dense roots, filter sediments, shelter juvenile marine life, and thrive in salty tidal water.',
-	                                    style: TextStyle(
-	                                      color: MetricsPage.antiFlashWhite
-	                                          .withValues(alpha: 0.8),
-	                                      fontSize: 12,
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Mangroves anchor shorelines with dense roots, filter sediments, shelter juvenile marine life, and thrive in salty tidal water.',
+                                    style: TextStyle(
+                                      color: MetricsPage.antiFlashWhite
+                                          .withValues(alpha: 0.8),
+                                      fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                       height: 1.35,
                                     ),
@@ -834,8 +832,8 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasData = recentScanCount > 0;
 
-    final majorityCount = hasData 
-        ? [lowCount, moderateCount, highCount].reduce(math.max) 
+    final majorityCount = hasData
+        ? [lowCount, moderateCount, highCount].reduce(math.max)
         : 0;
     final majorityRatio = hasData ? majorityCount / recentScanCount : 0.0;
 
@@ -854,8 +852,12 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
       }
     }
 
-    final statusLabel = hasData ? '${majorityAssessment!.label} Majority' : 'No data yet';
-    final statusColor = hasData ? _statusColorForAssessment(majorityAssessment!) : MetricsPage.antiFlashWhite.withValues(alpha: 0.6);
+    final statusLabel = hasData
+        ? '${majorityAssessment!.label} Majority'
+        : 'No data yet';
+    final statusColor = hasData
+        ? _statusColorForAssessment(majorityAssessment!)
+        : MetricsPage.antiFlashWhite.withValues(alpha: 0.6);
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1273,8 +1275,12 @@ class _AverageStabilityGaugePainter extends CustomPainter {
 
         final countRadius = scaleRadius + 15;
         final countOffset = Offset(
-          center.dx + countRadius * math.cos(middleAngle) - countPainter.width / 2,
-          center.dy + countRadius * math.sin(middleAngle) - countPainter.height / 2,
+          center.dx +
+              countRadius * math.cos(middleAngle) -
+              countPainter.width / 2,
+          center.dy +
+              countRadius * math.sin(middleAngle) -
+              countPainter.height / 2,
         );
         countPainter.paint(canvas, countOffset);
       }
@@ -1305,7 +1311,6 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     canvas
       ..drawCircle(progressEnd, 7, markerFill)
       ..drawCircle(progressEnd, 7, markerBorder);
-
   }
 
   @override

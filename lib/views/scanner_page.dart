@@ -8,8 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:mangroveguardapp/features/home/data/mangrove_detector.dart';
-import 'package:mangroveguardapp/features/home/models/mangrove_tree.dart';
+import 'package:mangroveguardapp/models/mangrove_tree.dart';
+import 'package:mangroveguardapp/services/mangrove_detector.dart';
 
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
@@ -54,8 +54,10 @@ img.Image _convertYuv420ToRgb({
         );
   final scaledWidth = (width + scale - 1) ~/ scale;
   final scaledHeight = (height + scale - 1) ~/ scale;
-  final img.Image imgImage =
-      img.Image(width: scaledWidth, height: scaledHeight);
+  final img.Image imgImage = img.Image(
+    width: scaledWidth,
+    height: scaledHeight,
+  );
 
   var dy = 0;
   for (int y = 0; y < height; y += scale) {
@@ -69,8 +71,9 @@ img.Image _convertYuv420ToRgb({
       final int uVal = bytesU[uvIndex];
       final int vVal = bytesV[uvIndex];
       final int r = _clampByte(yVal + (1.403 * (vVal - 128)));
-      final int g =
-          _clampByte(yVal - (0.344 * (uVal - 128)) - (0.714 * (vVal - 128)));
+      final int g = _clampByte(
+        yVal - (0.344 * (uVal - 128)) - (0.714 * (vVal - 128)),
+      );
       final int b = _clampByte(yVal + (1.770 * (uVal - 128)));
       imgImage.setPixelRgb(dx, dy, r, g, b);
       dx++;
@@ -139,12 +142,15 @@ void _liveAssessmentIsolate(Map<String, Object?> config) async {
       final uvRowStride = message['uvRowStride'] as int;
       final uvPixelStride = message['uvPixelStride'] as int;
       final maxDimension = message['maxDimension'] as int?;
-      final bytesY =
-          (message['bytesY'] as TransferableTypedData).materialize().asUint8List();
-      final bytesU =
-          (message['bytesU'] as TransferableTypedData).materialize().asUint8List();
-      final bytesV =
-          (message['bytesV'] as TransferableTypedData).materialize().asUint8List();
+      final bytesY = (message['bytesY'] as TransferableTypedData)
+          .materialize()
+          .asUint8List();
+      final bytesU = (message['bytesU'] as TransferableTypedData)
+          .materialize()
+          .asUint8List();
+      final bytesV = (message['bytesV'] as TransferableTypedData)
+          .materialize()
+          .asUint8List();
       final crop = message['crop'] as Map<String, Object?>?;
 
       var rgb = _convertYuv420ToRgb(
@@ -185,12 +191,14 @@ void _liveAssessmentIsolate(Map<String, Object?> config) async {
         'requestId': requestId,
         'assessment': detection.predictedAssessment?.name,
         'confidence': detection.predictionConfidence,
-        'boundingBox': detection.boundingBox != null ? {
-          'left': detection.boundingBox!.left,
-          'top': detection.boundingBox!.top,
-          'right': detection.boundingBox!.right,
-          'bottom': detection.boundingBox!.bottom,
-        } : null,
+        'boundingBox': detection.boundingBox != null
+            ? {
+                'left': detection.boundingBox!.left,
+                'top': detection.boundingBox!.top,
+                'right': detection.boundingBox!.right,
+                'bottom': detection.boundingBox!.bottom,
+              }
+            : null,
       });
     } catch (e) {
       sendPort.send({
@@ -230,7 +238,6 @@ class ScannerPageController extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Call this when a scan result is ready to store.
   void setLatestMeasuredTree({
     required MangroveTree tree,
     double metersPerPixel = 0.003,
@@ -274,11 +281,7 @@ class MeasuredTreeResult {
   });
 }
 
-enum ScanOutcome {
-  detected,
-  noMangroveDetected,
-  captureOnly,
-}
+enum ScanOutcome { detected, noMangroveDetected, captureOnly }
 
 class ScannerPage extends StatefulWidget {
   final ScannerPageController? controller;
@@ -298,7 +301,8 @@ class ScannerPage extends StatefulWidget {
 
 class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   static const double _defaultMetersPerPixel = 0.003;
-  static const double _minPredictionConfidence = 0.4;
+
+  static const double _minPredictionConfidence = 0.25;
   static const Duration _realtimeInterval = Duration(milliseconds: 450);
   static const int _liveProcessingMaxDimension = 512;
   static const double _sharpnessLowVariance = 80;
@@ -308,6 +312,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
   CameraController? _cameraController;
   List<CameraDescription> _cameras = [];
+  bool _cameraInitInFlight = false;
   bool _isInitializing = true;
   bool _isCapturing = false;
   String? _cameraError;
@@ -346,7 +351,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     widget.controller?.addListener(_handleControllerSignal);
     _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
     _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleCameraInit());
+    if (widget.isActive) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _scheduleCameraInit(),
+      );
+    }
     _initDetector();
     unawaited(_ensureLiveIsolateReady());
   }
@@ -365,9 +374,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         (!oldWidget.isActive ||
             _cameraController == null ||
             !_cameraController!.value.isInitialized)) {
-      if (!_isInitializing) {
-        _scheduleCameraInit();
-      }
+      _scheduleCameraInit();
     }
   }
 
@@ -378,7 +385,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _stopRealtimeAssessment();
     _disposeLiveIsolate();
-    _cameraController?.dispose();
+    unawaited(_disposeCameraController());
     _detector?.dispose();
     super.dispose();
   }
@@ -390,38 +397,40 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       return;
     }
 
-    // Only dispose the camera when the app is paused/backgrounded or detached.
-    // Do NOT dispose on AppLifecycleState.inactive (e.g. system permission dialogs).
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       widget.controller?.stopRealtimeAssessment();
       _stopRealtimeAssessment();
       _disposeLiveIsolate();
-      _cameraController?.dispose();
+      unawaited(_disposeCameraController());
       _cameraController = null;
     }
   }
 
   void _scheduleCameraInit() {
     if (!mounted) return;
+    if (!widget.isActive) return;
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.detached) {
       return;
     }
     unawaited(_ensureLiveIsolateReady());
-    _initCamera();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.isActive) return;
+      unawaited(_initCamera());
+    });
   }
 
   Future<void> _initCamera() async {
-    if (!mounted) return;
+    if (!mounted || _cameraInitInFlight) return;
+    _cameraInitInFlight = true;
     setState(() {
       _isInitializing = true;
       _cameraError = null;
     });
 
     try {
-      // 1. Explicitly check and request camera permissions first.
       var status = await Permission.camera.status;
       if (!status.isGranted) {
         status = await Permission.camera.request();
@@ -438,8 +447,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         return;
       }
 
-      // 2. Query available cameras.
-      _cameras = await availableCameras();
+      if (_cameras.isEmpty) {
+        _cameras = await availableCameras();
+      }
       if (_cameras.isEmpty) {
         if (!mounted) return;
         setState(() {
@@ -456,7 +466,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
       final controller = CameraController(
         selectedCamera,
-        ResolutionPreset.high,
+
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: resolveCameraFormatGroup(
           isAndroid: Platform.isAndroid,
@@ -464,7 +475,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       );
 
       await controller.initialize();
-      await _configureCameraForFastCapture(controller);
 
       if (!mounted) {
         await controller.dispose();
@@ -478,12 +488,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         return;
       }
 
-      await _cameraController?.dispose();
+      await _disposeCameraController();
       _cameraController = controller;
       setState(() {
         _isInitializing = false;
         _cameraError = null;
       });
+
+      unawaited(_configureCameraForFastCapture(controller));
 
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
@@ -500,6 +512,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         _cameraError = 'Unable to initialize camera.';
         _isInitializing = false;
       });
+    } finally {
+      _cameraInitInFlight = false;
     }
   }
 
@@ -514,8 +528,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     if (!mounted) return;
     setState(() {
       _isDetectorReady = detector != null;
-      _detectorError ??=
-          detector == null ? 'Model failed to load.' : null;
+      _detectorError ??= detector == null ? 'Model failed to load.' : null;
     });
   }
 
@@ -562,14 +575,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       _liveModelBytes ??= await MangroveDetector.loadModelBytes();
       _liveReceivePort ??= ReceivePort();
       _liveReceivePort!.listen(_handleLiveIsolateMessage);
-      _liveIsolate = await Isolate.spawn(
-        _liveAssessmentIsolate,
-        {
-          'sendPort': _liveReceivePort!.sendPort,
-          'modelData': TransferableTypedData.fromList([_liveModelBytes!]),
-        },
-        debugName: 'live-assessment',
-      );
+      _liveIsolate = await Isolate.spawn(_liveAssessmentIsolate, {
+        'sendPort': _liveReceivePort!.sendPort,
+        'modelData': TransferableTypedData.fromList([_liveModelBytes!]),
+      }, debugName: 'live-assessment');
       await _liveReadyCompleter!.future.timeout(
         const Duration(seconds: 2),
         onTimeout: () {
@@ -587,6 +596,17 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       }
     } finally {
       _isLiveIsolateStarting = false;
+    }
+  }
+
+  Future<void> _disposeCameraController() async {
+    final controller = _cameraController;
+    if (controller == null) return;
+    _cameraController = null;
+    try {
+      await controller.dispose();
+    } catch (e) {
+      debugPrint('Failed to dispose camera controller cleanly: $e');
     }
   }
 
@@ -632,9 +652,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       }
       final assessmentName = message['assessment'] as String?;
       final confidence = message['confidence'] as double?;
-      
-      // Apply threshold to real-time results
-      final bool isConfident = confidence != null && confidence >= _minPredictionConfidence;
+
+      final bool isConfident =
+          confidence != null && confidence >= _minPredictionConfidence;
       final assessment = (assessmentName != null && isConfident)
           ? StabilityAssessment.values.byName(assessmentName)
           : null;
@@ -699,37 +719,29 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   ) async {
     try {
       await controller.setFlashMode(FlashMode.off);
-    } catch (_) {
-      // Ignore if flash control is unavailable on this device.
-    }
+    } catch (_) {}
     try {
       await controller.setFocusMode(FocusMode.auto);
-    } catch (_) {
-      // Ignore if focus lock is unavailable on this device.
-    }
+    } catch (_) {}
     try {
       await controller.setExposureMode(ExposureMode.auto);
-    } catch (_) {
-      // Ignore if exposure control is unavailable on this device.
-    }
+    } catch (_) {}
   }
 
   void _storeCapturedImageResult(String imagePath) {
     widget.controller?.setLatestMeasuredTree(
-      tree: const MangroveTree(
-        trunkWidthAtBranchPoint: 0,
-      ),
+      tree: const MangroveTree(trunkWidthAtBranchPoint: 0),
       metersPerPixel: _defaultMetersPerPixel,
       capturedImagePath: imagePath,
       outcome: ScanOutcome.captureOnly,
     );
   }
 
-  Future<void> _storeDetectedImageResult(String imagePath) async {
+  Future<ScanOutcome> _storeDetectedImageResult(String imagePath) async {
     final detector = await _ensureDetector();
     if (detector == null) {
       _storeCapturedImageResult(imagePath);
-      return;
+      return ScanOutcome.captureOnly;
     }
 
     try {
@@ -748,11 +760,15 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
             : ScanOutcome.noMangroveDetected,
         predictedAssessment: predictedAssessment,
       );
+      return predictedAssessment != null && isConfident
+          ? ScanOutcome.detected
+          : ScanOutcome.noMangroveDetected;
     } catch (e) {
       debugPrint('Detector failed: $e');
       _storeCapturedImageResult(imagePath);
-      if (!mounted) return;
+      if (!mounted) return ScanOutcome.captureOnly;
       _showTopNotification('Detection failed. Saved photo only.');
+      return ScanOutcome.captureOnly;
     }
   }
 
@@ -901,14 +917,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                   icon: _isCapturing
                       ? Icons.camera
                       : (_isRealtimeAssessment
-                          ? Icons.sensors
-                          : Icons.check_circle),
+                            ? Icons.sensors
+                            : Icons.check_circle),
                   label: _isRealtimeAssessment ? 'Assessing' : 'Ready',
                   glow: _isCapturing
                       ? const Color(0xFFFFA34D)
                       : (_isRealtimeAssessment
-                          ? const Color(0xFF56E0D4)
-                          : caribbeanGreen),
+                            ? const Color(0xFF56E0D4)
+                            : caribbeanGreen),
                   trailing: (_isCapturing || _isRealtimeAssessment)
                       ? const SizedBox(
                           width: 12,
@@ -933,8 +949,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                   glow: _detectorError != null
                       ? Colors.redAccent
                       : (_isDetectorReady
-                          ? caribbeanGreen
-                          : const Color(0xFFFFA34D)),
+                            ? caribbeanGreen
+                            : const Color(0xFFFFA34D)),
                   trailing: (!_isDetectorReady && _detectorError == null)
                       ? const SizedBox(
                           width: 12,
@@ -1046,49 +1062,62 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
             Text(
               _liveAssessment != null
                   ? '${_liveAssessment!.name.toUpperCase()} STABILITY DETECTED'
-                  : (_isDetectorReady ? 'SCANNING FOR MANGROVES...' : 'MODEL LOADING...'),
+                  : (_isDetectorReady
+                        ? 'SCANNING FOR MANGROVES...'
+                        : 'MODEL LOADING...'),
               style: TextStyle(
                 color: _liveAssessment == StabilityAssessment.high
                     ? caribbeanGreen
                     : _liveAssessment == StabilityAssessment.moderate
-                        ? const Color(0xFFFFA34D)
-                        : _liveAssessment == StabilityAssessment.low
-                            ? Colors.redAccent
-                            : antiFlashWhite.withValues(alpha: 0.7),
+                    ? const Color(0xFFFFA34D)
+                    : _liveAssessment == StabilityAssessment.low
+                    ? Colors.redAccent
+                    : antiFlashWhite.withValues(alpha: 0.7),
                 fontSize: 13,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.5,
               ),
             ),
             const SizedBox(height: 8),
-            Builder(builder: (context) {
-              String description;
-              switch (_liveAssessment) {
-                case StabilityAssessment.high:
-                  description = "This mangrove shows High Stability. It acts as a primary defense line, capable of absorbing heavy wave energy and resisting gale-force winds. Its deep, interlocking root system makes it highly unlikely to uproot during a storm.";
-                  break;
-                case StabilityAssessment.moderate:
-                  description = "This mangrove shows Moderate Stability. While it offers decent protection, it may suffer branch breakage or partial root loosening during a strong storm. It can handle moderate winds, but it needs surrounding support to stay upright in a typhoon.";
-                  break;
-                case StabilityAssessment.low:
-                  description = "This mangrove has Low Stability. It provides minimal protection against storm surges and is at high risk of being uprooted by strong winds. In its current state, it may not survive a major weather event and could even become floating debris.";
-                  break;
-                default:
-                  description = _isDetectorReady ? 'Scanning for mangroves...' : 'Model Loading...';
-              }
-              return Text(
-                description,
-                style: const TextStyle(
-                  color: antiFlashWhite,
-                  fontSize: 12,
-                  height: 1.4,
-                ),
-              );
-            }),
+            Builder(
+              builder: (context) {
+                String description;
+                switch (_liveAssessment) {
+                  case StabilityAssessment.high:
+                    description =
+                        "This mangrove shows High Stability. It acts as a primary defense line, capable of absorbing heavy wave energy and resisting gale-force winds. Its deep, interlocking root system makes it highly unlikely to uproot during a storm.";
+                    break;
+                  case StabilityAssessment.moderate:
+                    description =
+                        "This mangrove shows Moderate Stability. While it offers decent protection, it may suffer branch breakage or partial root loosening during a strong storm. It can handle moderate winds, but it needs surrounding support to stay upright in a typhoon.";
+                    break;
+                  case StabilityAssessment.low:
+                    description =
+                        "This mangrove has Low Stability. It provides minimal protection against storm surges and is at high risk of being uprooted by strong winds. In its current state, it may not survive a major weather event and could even become floating debris.";
+                    break;
+                  default:
+                    description = _isDetectorReady
+                        ? 'Scanning for mangroves...'
+                        : 'Model Loading...';
+                }
+                return Text(
+                  description,
+                  style: const TextStyle(
+                    color: antiFlashWhite,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                );
+              },
+            ),
           ] else ...[
             const Text(
               '1) Position the tree within the frame, capturing from the roots up to the visible trunk.\n2) Keep steady and tap or hold the shutter button.\n3) Re-capture if any part of the tree (roots or trunk) is cut off.',
-              style: TextStyle(color: antiFlashWhite, fontSize: 12, height: 1.4),
+              style: TextStyle(
+                color: antiFlashWhite,
+                fontSize: 12,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 10),
             const Text(
@@ -1146,7 +1175,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         boxColor = caribbeanGreen;
         break;
       case StabilityAssessment.moderate:
-        boxColor = const Color(0xFFFFA34D); // Orange
+        boxColor = const Color(0xFFFFA34D);
         break;
       case StabilityAssessment.low:
         boxColor = Colors.redAccent;
@@ -1328,7 +1357,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       for (int x = left; x <= right; x += step) {
         final idx = row + x;
         final center = bytes[idx];
-        final laplacian = bytes[idx - 1] +
+        final laplacian =
+            bytes[idx - 1] +
             bytes[idx + 1] +
             bytes[idx - rowStride] +
             bytes[idx + rowStride] -
@@ -1376,7 +1406,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       for (int x = left; x <= right; x += step) {
         final idx = row + x;
         final center = bytes[idx];
-        final diff = (center - bytes[idx - 1]).abs() +
+        final diff =
+            (center - bytes[idx - 1]).abs() +
             (center - bytes[idx + 1]).abs() +
             (center - bytes[idx - rowStride]).abs() +
             (center - bytes[idx + rowStride]).abs();
@@ -1416,12 +1447,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         'yRowStride': image.planes[0].bytesPerRow,
         'uvRowStride': image.planes[1].bytesPerRow,
         'uvPixelStride': image.planes[1].bytesPerPixel ?? 1,
-        'bytesY':
-            TransferableTypedData.fromList([image.planes[0].bytes]),
-        'bytesU':
-            TransferableTypedData.fromList([image.planes[1].bytes]),
-        'bytesV':
-            TransferableTypedData.fromList([image.planes[2].bytes]),
+        'bytesY': TransferableTypedData.fromList([image.planes[0].bytes]),
+        'bytesU': TransferableTypedData.fromList([image.planes[1].bytes]),
+        'bytesV': TransferableTypedData.fromList([image.planes[2].bytes]),
         'crop': normalizedCrop == null
             ? null
             : {
@@ -1528,9 +1556,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       final picture = await controller.takePicture();
       final croppedImagePath = await _cropCapturedImageToFrame(picture.path);
       if (!mounted) return;
-      await _storeDetectedImageResult(croppedImagePath);
+      final outcome = await _storeDetectedImageResult(croppedImagePath);
       if (!mounted) return;
-      widget.onScanCompleted?.call();
+      if (outcome != ScanOutcome.noMangroveDetected) {
+        widget.onScanCompleted?.call();
+      } else {
+        _showTopNotification('No mangroves detected. Try a clearer scan.');
+      }
     } on CameraException catch (e) {
       if (!mounted) return;
       _showTopNotification('Capture failed: ${e.description ?? e.code}');
@@ -1549,9 +1581,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     try {
       picked = await _imagePicker.pickImage(source: ImageSource.gallery);
     } on PlatformException catch (e) {
-      _showTopNotification(
-        'Photo picker failed: ${e.message ?? e.code}',
-      );
+      _showTopNotification('Photo picker failed: ${e.message ?? e.code}');
       return;
     } catch (_) {
       _showTopNotification('Photo picker failed.');
@@ -1562,9 +1592,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
     setState(() => _isCapturing = true);
     try {
-      await _storeDetectedImageResult(picked.path);
+      final outcome = await _storeDetectedImageResult(picked.path);
       if (!mounted) return;
-      widget.onScanCompleted?.call();
+      if (outcome != ScanOutcome.noMangroveDetected) {
+        widget.onScanCompleted?.call();
+      } else {
+        _showTopNotification('No mangroves detected. Try a clearer scan.');
+      }
     } finally {
       if (mounted) setState(() => _isCapturing = false);
     }

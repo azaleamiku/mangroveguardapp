@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-
-import 'app_header.dart';
+import 'package:mangroveguardapp/widgets/app_header.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
