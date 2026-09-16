@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/mangrove_tree.dart';
 import '../services/monitoring_sync_service.dart';
 import 'scanner_page.dart';
 import 'recent_scan_page.dart';
@@ -19,7 +18,7 @@ class MainNavPage extends StatefulWidget {
   State<MainNavPage> createState() => _MainNavPageState();
 }
 
-class _MainNavPageState extends State<MainNavPage> {
+class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   static const String _recentScansStorageKey = 'recent_tree_scans_v1';
   static const int _maxRecentScans = 10000;
   static const Color caribbeanGreen = Color(0xFF00DF81);
@@ -46,14 +45,23 @@ class _MainNavPageState extends State<MainNavPage> {
       noticeListenable: _recentScanNotice,
       onDeleteScan: _deleteRecentScan,
       onRescan: _handleRescanRequested,
+      onUploadScan: _handleUploadScanRequested,
     ),
   ];
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _markOnboardingComplete();
-    _loadRecentScans();
+    unawaited(_loadRecentScans().whenComplete(() => _flushPendingScans()));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _flushPendingScans();
+    }
   }
 
   Future<void> _markOnboardingComplete() async {
@@ -82,6 +90,53 @@ class _MainNavPageState extends State<MainNavPage> {
   void _handleRescanRequested() {
     if (!mounted) return;
     _setSelectedIndex(1);
+  }
+
+  Future<bool> _handleUploadScanRequested(int index) async {
+    if (index < 0 || index >= _recentScans.value.length) return false;
+    final scan = _recentScans.value[index];
+    if (scan.predictedAssessment == null) return false;
+    final success = await MonitoringSyncService.syncCompletedScan(scan);
+    if (!mounted) return success;
+    if (success) {
+      final updated = List<RecentTreeScan>.from(_recentScans.value);
+      updated[index] = RecentTreeScan(
+        treeId: updated[index].treeId,
+        scannedAt: updated[index].scannedAt,
+        tree: updated[index].tree,
+        metersPerPixel: updated[index].metersPerPixel,
+        predictionConfidence: updated[index].predictionConfidence,
+        predictedAssessment: updated[index].predictedAssessment,
+        capturedImagePath: updated[index].capturedImagePath,
+        isSynced: true,
+      );
+      _recentScans.value = updated;
+      await _persistRecentScans(updated);
+    }
+    return success;
+  }
+
+  Future<void> _flushPendingScans() async {
+    if (!mounted) return;
+    await MonitoringSyncService.flushPendingScans(
+      _recentScans.value,
+      (index) {
+        if (index < 0 || index >= _recentScans.value.length) return;
+        final updated = List<RecentTreeScan>.from(_recentScans.value);
+        updated[index] = RecentTreeScan(
+          treeId: updated[index].treeId,
+          scannedAt: updated[index].scannedAt,
+          tree: updated[index].tree,
+          metersPerPixel: updated[index].metersPerPixel,
+          predictionConfidence: updated[index].predictionConfidence,
+          predictedAssessment: updated[index].predictedAssessment,
+          capturedImagePath: updated[index].capturedImagePath,
+          isSynced: true,
+        );
+        _recentScans.value = updated;
+        _persistRecentScans(updated);
+      },
+    );
   }
 
   void _handleScannerHoldStart() {
@@ -133,6 +188,7 @@ class _MainNavPageState extends State<MainNavPage> {
       predictionConfidence: measuredResult.predictionConfidence,
       predictedAssessment: measuredResult.predictedAssessment,
       capturedImagePath: capturedImagePath,
+      isSynced: false,
     );
 
     final updated = [newScan, ..._recentScans.value];
@@ -147,28 +203,17 @@ class _MainNavPageState extends State<MainNavPage> {
     if (!mounted) return;
     _recentScans.value = trimmed;
     await _persistRecentScans(trimmed);
-    await _appendActivityLogEntry({
-      'event': 'scan_completed',
-      'treeId': newScan.treeId,
-      'scannedAt': newScan.scannedAt.toIso8601String(),
-      'predictedAssessment': newScan.predictedAssessment?.name,
-      if (newScan.predictionConfidence != null)
-        'predictionConfidence': newScan.predictionConfidence,
-    });
-    if (newScan.predictedAssessment case final assessment?) {
-      unawaited(
-        MonitoringSyncService.syncCompletedScan(
-          treeId: newScan.treeId,
-          scannedAt: newScan.scannedAt,
-          assessment: assessment,
-          imagePath: newScan.capturedImagePath,
-          predictionConfidence: newScan.predictionConfidence,
-        ),
-      );
-    }
-    for (final scan in removed) {
-      await _deleteManagedCaptureFile(scan.capturedImagePath);
-    }
+      await _appendActivityLogEntry({
+        'event': 'scan_completed',
+        'treeId': newScan.treeId,
+        'scannedAt': newScan.scannedAt.toIso8601String(),
+        'predictedAssessment': newScan.predictedAssessment?.name,
+        if (newScan.predictionConfidence != null)
+          'predictionConfidence': newScan.predictionConfidence,
+      });
+      for (final scan in removed) {
+        await _deleteManagedCaptureFile(scan.capturedImagePath);
+      }
   }
 
   Future<void> _loadRecentScans() async {
@@ -325,6 +370,7 @@ class _MainNavPageState extends State<MainNavPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scannerController.dispose();
     _recentScans.dispose();
     _recentScanNotice.dispose();

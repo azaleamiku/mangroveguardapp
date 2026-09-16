@@ -78,6 +78,7 @@ class RecentScanPage extends StatefulWidget {
   final ValueListenable<RecentScanNotice?>? noticeListenable;
   final Future<void> Function(int index)? onDeleteScan;
   final VoidCallback? onRescan;
+  final Future<bool> Function(int index)? onUploadScan;
 
   const RecentScanPage({
     super.key,
@@ -85,6 +86,7 @@ class RecentScanPage extends StatefulWidget {
     this.noticeListenable,
     this.onDeleteScan,
     this.onRescan,
+    this.onUploadScan,
   });
 
   @override
@@ -96,11 +98,17 @@ class _RecentScanPageState extends State<RecentScanPage> {
   final Map<String, Size> _imageSizeCache = {};
   VoidCallback? _noticeListener;
   int? _lastNoticeId;
+  final Set<int> _uploadingIndices = {};
+  final Set<String> _failedUploadTreeIds = {};
+  bool _uploadAttempted = false;
+  String? _currentDisplayedTreeId;
 
   @override
   void initState() {
     super.initState();
     _attachNoticeListener();
+    widget.scansListenable.addListener(_onScansChanged);
+    _onScansChanged();
   }
 
   @override
@@ -110,12 +118,30 @@ class _RecentScanPageState extends State<RecentScanPage> {
       _detachNoticeListener(oldWidget.noticeListenable);
       _attachNoticeListener();
     }
+    if (oldWidget.scansListenable != widget.scansListenable) {
+      oldWidget.scansListenable.removeListener(_onScansChanged);
+      widget.scansListenable.addListener(_onScansChanged);
+      _onScansChanged();
+    }
   }
 
   @override
   void dispose() {
+    widget.scansListenable.removeListener(_onScansChanged);
     _detachNoticeListener();
     super.dispose();
+  }
+
+  void _onScansChanged() {
+    final scans = widget.scansListenable.value;
+    final firstTreeId = scans.isEmpty ? null : scans.first.treeId;
+    if (_currentDisplayedTreeId != firstTreeId) {
+      _currentDisplayedTreeId = firstTreeId;
+      _uploadAttempted = false;
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   void _attachNoticeListener() {
@@ -163,6 +189,49 @@ class _RecentScanPageState extends State<RecentScanPage> {
     final callback = widget.onRescan;
     if (callback == null) return;
     callback();
+  }
+
+  Future<void> _handleUploadScan(int index) async {
+    if (_uploadAttempted) return;
+    final callback = widget.onUploadScan;
+    if (callback == null) return;
+    final scan = widget.scansListenable.value[index];
+    setState(() {
+      _uploadingIndices.add(index);
+      _failedUploadTreeIds.remove(scan.treeId);
+      _uploadAttempted = true;
+    });
+    try {
+      final success = await callback(index);
+      if (!mounted) return;
+      if (success) {
+        _showNotice(
+          message: 'Scan uploaded successfully.',
+          kind: _NoticeKind.success,
+        );
+      } else {
+        setState(() {
+          _failedUploadTreeIds.add(scan.treeId);
+        });
+        _showNotice(
+          message: 'Server unreachable. Scan saved to offline queue.',
+          kind: _NoticeKind.error,
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _failedUploadTreeIds.add(scan.treeId);
+      });
+      _showNotice(
+        message: 'Upload failed. Please try again.',
+        kind: _NoticeKind.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _uploadingIndices.remove(index));
+      }
+    }
   }
 
   Future<Size?> _loadImageSize(String path) async {
@@ -216,120 +285,92 @@ class _RecentScanPageState extends State<RecentScanPage> {
     Future<void> Function()? onAction,
   }) {
     if (!mounted) return;
-    final navigator = Navigator.of(context, rootNavigator: true);
-    showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'notification',
-      barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 260),
-      pageBuilder: (context, animation, secondaryAnimation) {
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted && navigator.mounted && navigator.canPop()) {
-            navigator.pop();
-          }
-        });
+    final accentColor = _noticeAccentColor(kind);
+    final icon = _noticeIcon(kind);
+    final actionText = actionLabel?.trim();
+    final hasAction =
+        actionText != null && actionText.isNotEmpty && onAction != null;
 
-        final accentColor = _noticeAccentColor(kind);
-        final actionText = actionLabel?.trim();
-        final hasAction =
-            actionText != null && actionText.isNotEmpty && onAction != null;
-
-        return SafeArea(
-          child: Align(
-            alignment: Alignment.topCenter,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: darkGreen.withValues(alpha: 0.94),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: accentColor.withValues(alpha: 0.4),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        blurRadius: 14,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(_noticeIcon(kind), color: accentColor, size: 20),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          message,
-                          style: const TextStyle(
-                            color: antiFlashWhite,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      if (hasAction) ...[
-                        const SizedBox(width: 12),
-                        TextButton(
-                          style: TextButton.styleFrom(
-                            foregroundColor: accentColor,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              side: BorderSide(
-                                color: accentColor.withValues(alpha: 0.45),
-                              ),
-                            ),
-                          ),
-                          onPressed: () async {
-                            if (navigator.canPop()) {
-                              navigator.pop();
-                            }
-                            await onAction();
-                          },
-                          child: Text(
-                            actionText,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+    final snackBar = SnackBar(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      duration: const Duration(seconds: 3),
+      margin: EdgeInsets.fromLTRB(
+        16,
+        MediaQuery.paddingOf(context).top + 10,
+        16,
+        0,
+      ),
+      padding: EdgeInsets.zero,
+      content: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: darkGreen.withValues(alpha: 0.9),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: accentColor.withValues(alpha: 0.4),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: accentColor, size: 20),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: antiFlashWhite,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-          ),
-        );
-      },
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-        );
-        return SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, -0.2),
-            end: Offset.zero,
-          ).animate(curved),
-          child: FadeTransition(opacity: curved, child: child),
-        );
-      },
+            if (hasAction) ...[
+              const SizedBox(width: 12),
+              TextButton(
+                onPressed: () async {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  await onAction();
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: accentColor,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    side: BorderSide(
+                      color: accentColor.withValues(alpha: 0.45),
+                    ),
+                  ),
+                ),
+                child: Text(
+                  actionText,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
+
+    ScaffoldMessenger.of(context).showSnackBar(snackBar);
   }
 
   String _formatTimestamp(DateTime value) {
@@ -740,74 +781,185 @@ class _RecentScanPageState extends State<RecentScanPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Color(0xFF0F766E),
-                                      Color(0xFF14B8A6),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: const Color(
-                                      0xFF5EEAD4,
-                                    ).withValues(alpha: 0.32),
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(
-                                        0xFF14B8A6,
-                                      ).withValues(alpha: 0.22),
-                                      blurRadius: 10,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: FilledButton(
-                                    onPressed: _handleRescan,
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: Colors.transparent,
-                                      shadowColor: Colors.transparent,
-                                      foregroundColor: antiFlashWhite,
-                                      alignment: Alignment.center,
-                                      padding: const EdgeInsets.symmetric(
-                                        vertical: 12,
-                                      ),
-                                      shape: const RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.zero,
-                                      ),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    child: const Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      mainAxisSize: MainAxisSize.max,
-                                      children: [
-                                        Icon(
-                                          Icons.center_focus_strong_rounded,
-                                          size: 18,
-                                        ),
-                                        SizedBox(width: 8),
-                                        Text('Rescan'),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                         const SizedBox(height: 18),
+                         Row(
+                           children: [
+                             Expanded(
+                               child: DecoratedBox(
+                                 decoration: BoxDecoration(
+                                   gradient: const LinearGradient(
+                                     begin: Alignment.topLeft,
+                                     end: Alignment.bottomRight,
+                                     colors: [
+                                       Color(0xFF0F766E),
+                                       Color(0xFF14B8A6),
+                                     ],
+                                   ),
+                                   borderRadius: BorderRadius.circular(12),
+                                   border: Border.all(
+                                     color: const Color(
+                                       0xFF5EEAD4,
+                                     ).withValues(alpha: 0.32),
+                                   ),
+                                   boxShadow: [
+                                     BoxShadow(
+                                       color: const Color(
+                                         0xFF14B8A6,
+                                       ).withValues(alpha: 0.22),
+                                       blurRadius: 10,
+                                       offset: const Offset(0, 4),
+                                     ),
+                                   ],
+                                 ),
+                                 child: ClipRRect(
+                                   borderRadius: BorderRadius.circular(12),
+                                   child: FilledButton(
+                                     onPressed: _handleRescan,
+                                     style: FilledButton.styleFrom(
+                                       backgroundColor: Colors.transparent,
+                                       shadowColor: Colors.transparent,
+                                       foregroundColor: antiFlashWhite,
+                                       alignment: Alignment.center,
+                                       padding: const EdgeInsets.symmetric(
+                                         vertical: 12,
+                                       ),
+                                       shape: const RoundedRectangleBorder(
+                                         borderRadius: BorderRadius.zero,
+                                       ),
+                                       textStyle: const TextStyle(
+                                         fontWeight: FontWeight.w800,
+                                       ),
+                                     ),
+                                     child: const Row(
+                                       mainAxisAlignment:
+                                           MainAxisAlignment.center,
+                                       mainAxisSize: MainAxisSize.max,
+                                       children: [
+                                         Icon(
+                                           Icons.center_focus_strong_rounded,
+                                           size: 18,
+                                         ),
+                                         SizedBox(width: 8),
+                                         Text('Rescan'),
+                                       ],
+                                     ),
+                                   ),
+                                 ),
+                               ),
+                             ),
+                             const SizedBox(width: 10),
+                             Expanded(
+                               child: DecoratedBox(
+                                 decoration: BoxDecoration(
+                                   gradient: scan.isSynced
+                                       ? LinearGradient(
+                                           begin: Alignment.topLeft,
+                                           end: Alignment.bottomRight,
+                                           colors: [
+                                             bangladeshGreen.withValues(alpha: 0.7),
+                                             darkGreen.withValues(alpha: 0.85),
+                                           ],
+                                         )
+                                       : const LinearGradient(
+                                           begin: Alignment.topLeft,
+                                           end: Alignment.bottomRight,
+                                           colors: [
+                                             Color(0xFF03624C),
+                                             Color(0xFF014D3C),
+                                           ],
+                                         ),
+                                   borderRadius: BorderRadius.circular(12),
+                                   border: Border.all(
+                                     color: scan.isSynced
+                                         ? caribbeanGreen.withValues(alpha: 0.45)
+                                         : antiFlashWhite.withValues(alpha: 0.15),
+                                   ),
+                                   boxShadow: scan.isSynced
+                                       ? [
+                                           BoxShadow(
+                                             color: caribbeanGreen.withValues(
+                                               alpha: 0.18,
+                                             ),
+                                             blurRadius: 10,
+                                             offset: const Offset(0, 4),
+                                           ),
+                                         ]
+                                       : null,
+                                 ),
+                                 child: ClipRRect(
+                                   borderRadius: BorderRadius.circular(12),
+                                    child: FilledButton(
+                                      onPressed: scan.isSynced || _uploadAttempted
+                                          ? null
+                                          : () => _handleUploadScan(0),
+                                     style: FilledButton.styleFrom(
+                                       backgroundColor: Colors.transparent,
+                                       shadowColor: Colors.transparent,
+                                       disabledBackgroundColor:
+                                           Colors.transparent,
+                                       foregroundColor: scan.isSynced
+                                           ? caribbeanGreen
+                                           : antiFlashWhite,
+                                       disabledForegroundColor:
+                                           caribbeanGreen,
+                                       alignment: Alignment.center,
+                                       padding: const EdgeInsets.symmetric(
+                                         vertical: 12,
+                                       ),
+                                       shape: const RoundedRectangleBorder(
+                                         borderRadius: BorderRadius.zero,
+                                       ),
+                                       textStyle: const TextStyle(
+                                         fontWeight: FontWeight.w800,
+                                       ),
+                                     ),
+                                     child: _uploadingIndices.contains(0)
+                                         ? const SizedBox(
+                                             height: 18,
+                                             width: 18,
+                                             child: CircularProgressIndicator(
+                                               strokeWidth: 2,
+                                               valueColor:
+                                                   AlwaysStoppedAnimation<Color>(
+                                                 antiFlashWhite,
+                                               ),
+                                             ),
+                                           )
+                                         : FittedBox(
+                                             fit: BoxFit.scaleDown,
+                                             child: Row(
+                                               mainAxisSize: MainAxisSize.min,
+                                               children: [
+                                                 Icon(
+                                                   scan.isSynced
+                                                       ? Icons.cloud_done_rounded
+                                                       : _failedUploadTreeIds
+                                                               .contains(
+                                                                   scan.treeId)
+                                                           ? Icons.cloud_off_rounded
+                                                           : Icons
+                                                               .cloud_upload_rounded,
+                                                   size: 18,
+                                                 ),
+                                                 const SizedBox(width: 8),
+                                                 Text(
+                                                   scan.isSynced
+                                                       ? 'Synced'
+                                                       : _failedUploadTreeIds
+                                                               .contains(
+                                                                   scan.treeId)
+                                                           ? 'Pending'
+                                                           : 'Upload',
+                                                 ),
+                                               ],
+                                             ),
+                                           ),
+                                   ),
+                                 ),
+                               ),
+                             ),
+                           ],
+                         ),
                       ],
                     ),
                   ),
@@ -1198,6 +1350,7 @@ class RecentTreeScan {
   final double? predictionConfidence;
   final StabilityAssessment? predictedAssessment;
   final String? capturedImagePath;
+  final bool isSynced;
 
   const RecentTreeScan({
     required this.treeId,
@@ -1207,6 +1360,7 @@ class RecentTreeScan {
     this.predictionConfidence,
     this.predictedAssessment,
     this.capturedImagePath,
+    this.isSynced = false,
   });
 
   double get trunkWidthMeters => tree.trunkWidthPixels * metersPerPixel;
@@ -1224,6 +1378,7 @@ class RecentTreeScan {
       if (predictedAssessment != null)
         'predictedAssessment': predictedAssessment!.name,
       if (capturedImagePath != null) 'capturedImagePath': capturedImagePath,
+      'isSynced': isSynced,
       'tree': {
         'trunkWidthAtBranchPoint': tree.trunkWidthAtBranchPoint,
         if (tree.trunkMeasurement != null)
@@ -1309,6 +1464,7 @@ class RecentTreeScan {
           ((json['capturedImagePath'] as String?)?.trim().isNotEmpty ?? false)
           ? (json['capturedImagePath'] as String).trim()
           : null,
+      isSynced: (json['isSynced'] as bool?) ?? false,
       tree: MangroveTree(
         trunkWidthAtBranchPoint:
             (treeMap['trunkWidthAtBranchPoint'] as num?)?.toDouble() ?? 0,
