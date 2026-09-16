@@ -299,7 +299,7 @@ class ScannerPage extends StatefulWidget {
   State<ScannerPage> createState() => _ScannerPageState();
 }
 
-class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
+class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
   static const double _defaultMetersPerPixel = 0.003;
 
   static const double _minPredictionConfidence = 0.25;
@@ -348,6 +348,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   Uint8List? _liveModelBytes;
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
@@ -373,11 +376,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
     }
 
-    if (widget.isActive &&
-        (!oldWidget.isActive ||
-            _cameraController == null ||
-            !_cameraController!.value.isInitialized)) {
-      _scheduleCameraInit();
+    if (widget.isActive && !oldWidget.isActive) {
+      _resetPermissionState();
+      _resumeCameraForTabSwitch();
+    } else if (!widget.isActive && oldWidget.isActive) {
+      _pauseCameraForTabSwitch();
     }
   }
 
@@ -444,7 +447,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !widget.isActive) return;
       if (_isPermissionDenied) return;
-      unawaited(_initCamera());
+      final controller = _cameraController;
+      if (controller != null && controller.value.isInitialized) {
+        unawaited(_resumeCameraForTabSwitch());
+      } else {
+        unawaited(_initCamera());
+      }
     });
   }
 
@@ -781,6 +789,51 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     unawaited(_initCamera());
   }
 
+  Future<void> _pauseCameraForTabSwitch() async {
+    _stopRealtimeAssessment();
+    _disposeLiveIsolate();
+    final controller = _cameraController;
+    if (controller != null && controller.value.isInitialized) {
+      try {
+        if (controller.value.isStreamingImages) {
+          await controller.stopImageStream();
+        }
+      } catch (_) {}
+    }
+    _cameraInitInFlight = false;
+    if (mounted) {
+      setState(() {
+        _isInitializing = false;
+        _cameraError = null;
+      });
+    }
+  }
+
+  Future<void> _resumeCameraForTabSwitch() async {
+    if (!mounted) return;
+    if (_isPermissionDenied) return;
+    
+    final controller = _cameraController;
+    if (controller != null && controller.value.isInitialized) {
+      try {
+        if (!controller.value.isStreamingImages) {
+          await controller.startImageStream(_handleCameraImage);
+        }
+      } catch (_) {}
+      
+      if (_lastRealtimeSignal) {
+        unawaited(_startRealtimeAssessment());
+      }
+      
+      setState(() {
+        _isInitializing = false;
+        _cameraError = null;
+      });
+    } else {
+      _scheduleCameraInit();
+    }
+  }
+
   Future<void> _configureCameraForFastCapture(
     CameraController controller,
   ) async {
@@ -841,6 +894,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _cacheFrameRectIfPossible();
