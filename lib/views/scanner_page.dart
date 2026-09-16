@@ -315,6 +315,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   bool _cameraInitInFlight = false;
   bool _isInitializing = true;
   bool _isCapturing = false;
+  bool _isPermissionDenied = false;
+  bool _isPermanentlyDenied = false;
+  bool _isCheckingPermission = false;
   String? _cameraError;
   MangroveDetector? _detector;
   Future<MangroveDetector?>? _detectorFuture;
@@ -393,7 +396,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _scheduleCameraInit();
+      if (_isPermissionDenied) {
+        unawaited(_recheckDeniedPermission());
+      } else {
+        _scheduleCameraInit();
+      }
       return;
     }
 
@@ -407,9 +414,27 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _recheckDeniedPermission() async {
+    if (!mounted || _isCheckingPermission) return;
+    _isCheckingPermission = true;
+
+    try {
+      final status = await Permission.camera.status;
+      if (status.isGranted) {
+        _resetPermissionState();
+        await _initCamera();
+      }
+    } catch (_) {
+      debugPrint('Permission recheck failed:');
+    } finally {
+      _isCheckingPermission = false;
+    }
+  }
+
   void _scheduleCameraInit() {
     if (!mounted) return;
     if (!widget.isActive) return;
+    if (_isPermissionDenied) return;
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.detached) {
@@ -418,30 +443,62 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     unawaited(_ensureLiveIsolateReady());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !widget.isActive) return;
+      if (_isPermissionDenied) return;
       unawaited(_initCamera());
     });
   }
 
+  void _resetPermissionState() {
+    _isPermissionDenied = false;
+    _isPermanentlyDenied = false;
+    _isCheckingPermission = false;
+  }
+
   Future<void> _initCamera() async {
-    if (!mounted || _cameraInitInFlight) return;
+    if (!mounted || _cameraInitInFlight || _isCheckingPermission) return;
+    if (_isPermissionDenied) return;
     _cameraInitInFlight = true;
+    _isCheckingPermission = true;
     setState(() {
       _isInitializing = true;
       _cameraError = null;
     });
 
     try {
-      var status = await Permission.camera.status;
-      if (!status.isGranted) {
-        status = await Permission.camera.request();
-      }
-
-      if (!status.isGranted) {
+      final status = await Permission.camera.status;
+      if (status.isGranted) {
+        _resetPermissionState();
+      } else if (status.isPermanentlyDenied) {
+        _isPermissionDenied = true;
+        _isPermanentlyDenied = true;
         if (!mounted) return;
         setState(() {
-          _cameraError = status.isPermanentlyDenied
-              ? 'Camera permission is permanently denied. Please enable camera access in app settings.'
-              : 'Camera permission is required to scan mangroves.';
+          _cameraError =
+              'Camera permission is permanently denied. Please enable camera access in app settings.';
+          _isInitializing = false;
+        });
+        return;
+      }
+
+      final granted = await Permission.camera.request();
+      if (granted.isGranted) {
+        _resetPermissionState();
+      } else if (granted.isPermanentlyDenied) {
+        _isPermissionDenied = true;
+        _isPermanentlyDenied = true;
+        if (!mounted) return;
+        setState(() {
+          _cameraError =
+              'Camera permission is permanently denied. Please enable camera access in app settings.';
+          _isInitializing = false;
+        });
+        return;
+      } else {
+        _isPermissionDenied = true;
+        _isPermanentlyDenied = false;
+        if (!mounted) return;
+        setState(() {
+          _cameraError = 'Camera permission is required to scan mangroves.';
           _isInitializing = false;
         });
         return;
@@ -474,7 +531,17 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
         ),
       );
 
-      await controller.initialize();
+      try {
+        await controller.initialize();
+      } on CameraException catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _cameraError =
+              'Camera error: ${e.description ?? e.code}';
+          _isInitializing = false;
+        });
+        return;
+      }
 
       if (!mounted) {
         await controller.dispose();
@@ -500,12 +567,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
       }
-    } on CameraException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cameraError = 'Camera error: ${e.description ?? e.code}';
-        _isInitializing = false;
-      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -514,6 +575,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
       });
     } finally {
       _cameraInitInFlight = false;
+      _isCheckingPermission = false;
     }
   }
 
@@ -714,6 +776,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
     }
   }
 
+  void _resetPermissionStateAndRetry() {
+    _resetPermissionState();
+    unawaited(_initCamera());
+  }
+
   Future<void> _configureCameraForFastCapture(
     CameraController controller,
   ) async {
@@ -793,6 +860,61 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver {
                 style: TextStyle(color: antiFlashWhite, fontSize: 16),
               ),
             ],
+          ),
+        ),
+      );
+    }
+
+    if (_isPermissionDenied) {
+      return Scaffold(
+        backgroundColor: richBlack,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.videocam_off,
+                  color: Colors.redAccent,
+                  size: 40,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _cameraError ??
+                      'Camera permission is required to scan mangroves.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: antiFlashWhite, fontSize: 15),
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    ElevatedButton(
+                      onPressed: _isPermanentlyDenied
+                          ? () => openAppSettings()
+                          : _resetPermissionStateAndRetry,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: caribbeanGreen,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                      ),
+                      child: Text(
+                        _isPermanentlyDenied ? 'Open Settings' : 'Retry',
+                        style: const TextStyle(
+                          color: richBlack,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       );
