@@ -151,7 +151,7 @@ class _MainNavPageState extends State<MainNavPage> {
       'event': 'scan_completed',
       'treeId': newScan.treeId,
       'scannedAt': newScan.scannedAt.toIso8601String(),
-      'assessment': _assessmentLabel(newScan),
+      'predictedAssessment': newScan.predictedAssessment?.name,
       if (newScan.predictionConfidence != null)
         'predictionConfidence': newScan.predictionConfidence,
     });
@@ -304,10 +304,6 @@ class _MainNavPageState extends State<MainNavPage> {
         await file.delete();
       }
     } catch (_) {}
-  }
-
-  String _assessmentLabel(RecentTreeScan scan) {
-    return scan.assessment.label;
   }
 
   String _sanitizeFileName(String value) {

@@ -43,11 +43,11 @@ extension StabilityAssessmentExtension on StabilityAssessment {
   String get description {
     switch (this) {
       case StabilityAssessment.high:
-        return 'High Stability (0.75–1.00) — Well-distributed support structure.';
+        return 'Well-distributed support structure.';
       case StabilityAssessment.moderate:
-        return 'Moderate Stability (0.50–0.74) — Support is adequate but may be vulnerable.';
+        return 'Support is adequate but may be vulnerable.';
       case StabilityAssessment.low:
-        return 'Low Stability (0.00–0.49) — Structure is limited or uneven; stability compromised.';
+        return 'Structure is limited or uneven; stability compromised.';
     }
   }
 }

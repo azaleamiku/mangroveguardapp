@@ -835,11 +835,6 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
     final majorityCount = hasData
         ? [lowCount, moderateCount, highCount].reduce(math.max)
         : 0;
-    final majorityRatio = hasData ? majorityCount / recentScanCount : 0.0;
-
-    final averageLabel = hasData
-        ? '${(majorityRatio * 100).toStringAsFixed(0)}%'
-        : '--';
 
     StabilityAssessment? majorityAssessment;
     if (hasData) {
@@ -852,8 +847,12 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
       }
     }
 
+    final majorityLabel = hasData
+        ? '$majorityCount'
+        : '--';
+
     final statusLabel = hasData
-        ? '${majorityAssessment!.label} Majority'
+        ? '${majorityAssessment!.label} ($majorityCount scans)'
         : 'No data yet';
     final statusColor = hasData
         ? _statusColorForAssessment(majorityAssessment!)
@@ -892,9 +891,9 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
           ),
           const SizedBox(height: 32),
           _AverageStabilityGauge(
-            value: majorityRatio,
-            valueLabel: averageLabel,
-            caption: '',
+            value: hasData ? majorityCount / recentScanCount : 0.0,
+            valueLabel: majorityLabel,
+            caption: hasData ? 'of $recentScanCount scans' : '',
             statusLabel: statusLabel,
             statusColor: statusColor,
             lowCount: lowCount,

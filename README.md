@@ -24,20 +24,14 @@
 
 - Captures mangrove scans (still images) using a guided camera frame.
 - Runs YOLOv8 Nano instance segmentation via TensorFlow Lite on-device.
-- Calculates stability from weighted root structure metrics (RC, RD, RS, RCR, SS, RT).
+- Classifies stability directly from the model output (High / Moderate / Low).
 - Tracks metrics and recent scans using local persistence.
 - Exports detailed PDF reports per scan.
 - Shows onboarding once, then routes directly to home.
 
 ## Stability Logic
 
-`S = 0.20RC + 0.15RD + 0.20RS + 0.15RCR + 0.20SS + 0.10RT`
-
-| Stability Score (S) | Classification |
-| --- | --- |
-| `0.75–1.00` | `High` |
-| `0.50–0.74` | `Moderate` |
-| `0.00–0.49` | `Low` |
+The model outputs a direct classification (`High`, `Moderate`, or `Low`) for each scan. No secondary weighted formula is applied; the app relies strictly on the model's predicted label and confidence score for all stability assessments.
 
 ## Tech Stack
 

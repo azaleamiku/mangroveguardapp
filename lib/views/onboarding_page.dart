@@ -60,15 +60,6 @@ class _OnboardingPageState extends State<OnboardingPage>
     ).push(MaterialPageRoute(builder: (_) => const FeatureWalkthroughPage()));
   }
 
-  Future<void> _handleSkip() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('showHome', true);
-    if (!mounted) return;
-    Navigator.of(
-      context,
-    ).pushReplacement(MaterialPageRoute(builder: (_) => const MainNavPage()));
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -154,7 +145,6 @@ class _OnboardingPageState extends State<OnboardingPage>
                           yOffset: 24,
                           child: _CallToAction(
                             onGetStarted: _handleGetStarted,
-                            onSkip: _handleSkip,
                           ),
                         ),
                       ],
@@ -511,8 +501,7 @@ class _FeatureCard extends StatelessWidget {
 
 class _CallToAction extends StatelessWidget {
   final VoidCallback onGetStarted;
-  final VoidCallback onSkip;
-  const _CallToAction({required this.onGetStarted, required this.onSkip});
+  const _CallToAction({required this.onGetStarted});
 
   @override
   Widget build(BuildContext context) {
@@ -527,7 +516,7 @@ class _CallToAction extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Ready to map today? ',
+            'Ready to scan today? ',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               color: antiFlashWhite,
               fontWeight: FontWeight.w600,
@@ -542,39 +531,20 @@ class _CallToAction extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: caribbeanGreen,
-                    foregroundColor: richBlack,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    textStyle: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  onPressed: onGetStarted,
-                  child: const Text('Get Started'),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: caribbeanGreen,
+                foregroundColor: richBlack,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                textStyle: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(width: 12),
-              OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: antiFlashWhite.withOpacity(0.4)),
-                  foregroundColor: antiFlashWhite,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 14,
-                    horizontal: 18,
-                  ),
-                  textStyle: Theme.of(
-                    context,
-                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                ),
-                onPressed: onSkip,
-                child: const Text('Skip for Now'),
-              ),
-            ],
+              onPressed: onGetStarted,
+              child: const Text('Get Started'),
+            ),
           ),
         ],
       ),
