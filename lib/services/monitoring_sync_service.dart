@@ -71,6 +71,36 @@ class MonitoringSyncService {
     }
   }
 
+  static Future<bool> pingServer() async {
+    final endpoint = Uri.tryParse(_endpoint);
+    if (endpoint == null ||
+        !endpoint.hasScheme ||
+        (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {
+      return false;
+    }
+
+    final client = HttpClient();
+    try {
+      final base = Uri(
+        scheme: endpoint.scheme,
+        host: endpoint.host,
+        port: endpoint.port,
+        path: '/',
+      );
+      final request = await client.getUrl(base).timeout(const Duration(seconds: 3));
+      final response = await request.close().timeout(const Duration(seconds: 3));
+      return response.statusCode >= 200 && response.statusCode < 500;
+    } on SocketException {
+      return false;
+    } on HttpException {
+      return false;
+    } on TimeoutException {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   static Future<void> flushPendingScans(
     List<RecentTreeScan> recentScans,
     Function(int index) onScanSynced,

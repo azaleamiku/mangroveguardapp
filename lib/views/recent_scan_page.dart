@@ -6,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../models/mangrove_tree.dart';
+import '../services/monitoring_sync_service.dart';
 
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
@@ -46,33 +47,6 @@ String _recentScanSummary(StabilityAssessment assessment) {
   }
 }
 
-List<String> _stabilityRecommendations(StabilityAssessment assessment) {
-  switch (assessment) {
-    case StabilityAssessment.high:
-      return [
-        'Prioritize for Conservation: Designate these areas as "no-touch" zones or core protected areas to serve as a seed source for surrounding regions.',
-        'Eco-Tourism Potential: Use these sites for educational boardwalks or research, as the trees are resilient enough to handle light human infrastructure.',
-        'Baseline Monitoring: Establish these zones as the "Gold Standard" for measuring the health and growth rates of less stable areas.',
-      ];
-    case StabilityAssessment.moderate:
-      return [
-        'Pollution Monitoring: Track heavy metal or chemical levels in the water, as chronic exposure can weaken the wood’s density and make the "moderate" branches more prone to snapping.',
-        'Debris Clearing: Schedule regular community clean-ups to remove large trash items trapped in the roots, which can cause physical abrasions and invite rot in otherwise healthy trees.',
-        'Infill Planting: Introduce saplings in the gaps between existing trees to increase the overall density and provide the "surrounding support" needed during typhoons.',
-        'Erosion Control: Install temporary bamboo breakwaters or wave-attenuators seaward of these zones to reduce the physical stress on loosening roots.',
-        'Routine Maintenance: Conduct periodic checks after minor storms to prune broken branches that could become "projectiles" or cause further damage to the trunk.',
-      ];
-    case StabilityAssessment.low:
-      return [
-        'Pollution Mitigation: Implement strict waste management and net barriers in nearby residential areas to prevent plastic debris from entangling and suffocating fragile young roots.',
-        'Relocation Strategy: Consider transplanting these individuals to more sheltered nurseries if the current site suffers from high water toxicity or heavy human encroachment that prevents natural growth.',
-        'Water Quality Remediation: Address upstream runoff or sewage discharge that may be weakening the trees\' health and preventing the development of a sturdy, anchoring root system.',
-        'Zoning and Buffers: Establish "restricted entry" fences to prevent human trampling and illegal harvesting, which further destabilizes the already loose substrate.',
-        'Hazard Mitigation: Prioritize removal or reinforcement if they are near docks, as their high risk of becoming floating debris poses a threat to local maritime safety during surges.',
-      ];
-  }
-}
-
 class RecentScanPage extends StatefulWidget {
   final ValueListenable<List<RecentTreeScan>> scansListenable;
   final ValueListenable<RecentScanNotice?>? noticeListenable;
@@ -102,6 +76,22 @@ class _RecentScanPageState extends State<RecentScanPage> {
   final Set<String> _failedUploadTreeIds = {};
   bool _uploadAttempted = false;
   String? _currentDisplayedTreeId;
+
+  static const double _connectionPullTrigger = 70;
+  static const double _connectionPullDisarm = 52;
+  static const double _connectionPullMaxExtent = 72;
+  static const double _connectionMinIntentDrag = 96;
+  static const double _connectionIndicatorBottom = 114;
+
+  double _connectionPullExtent = 0;
+  double _connectionDragDistance = 0;
+  bool _connectionTriggerArmed = false;
+  bool _connectionReleaseQueued = false;
+  bool _connectionSheetOpen = false;
+  bool _connectionSheetPending = false;
+  bool _showConnectionHint = false;
+  bool _connectionHintSeen = false;
+  Timer? _connectionHintTimer;
 
   @override
   void initState() {
@@ -183,6 +173,226 @@ class _RecentScanPageState extends State<RecentScanPage> {
       case RecentScanNoticeKind.error:
         return _NoticeKind.error;
     }
+  }
+
+  void _showConnectionHintNotice() {
+    if (_connectionHintSeen) {
+      return;
+    }
+    _connectionHintSeen = true;
+    _connectionHintTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _showConnectionHint = true;
+      });
+    }
+    _connectionHintTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _showConnectionHint = false;
+      });
+    });
+  }
+
+  bool _handleConnectionScrollNotification(
+    ScrollNotification notification,
+    BuildContext context,
+  ) {
+    final metrics = notification.metrics;
+    if (metrics.axis != Axis.vertical) {
+      return false;
+    }
+
+    if (notification is ScrollStartNotification) {
+      _connectionDragDistance = 0;
+      _connectionReleaseQueued = false;
+      return false;
+    }
+
+    if (notification is ScrollUpdateNotification ||
+        notification is OverscrollNotification) {
+      if (!_connectionHintSeen &&
+          metrics.maxScrollExtent > 0 &&
+          metrics.pixels >= metrics.maxScrollExtent - 24 &&
+          !_connectionSheetOpen) {
+        _showConnectionHintNotice();
+      }
+
+      final dragDelta = switch (notification) {
+        ScrollUpdateNotification update => update.dragDetails?.primaryDelta,
+        OverscrollNotification overscroll =>
+          overscroll.dragDetails?.primaryDelta,
+        _ => null,
+      };
+      final isDraggingUp = dragDelta != null && dragDelta < 0;
+      final isDraggingDown = dragDelta != null && dragDelta > 0;
+      if (dragDelta != null) {
+        if (dragDelta < 0) {
+          _connectionDragDistance = (_connectionDragDistance + -dragDelta)
+              .clamp(0.0, _connectionPullMaxExtent * 2)
+              .toDouble();
+        } else if (dragDelta > 0 && _connectionDragDistance > 0) {
+          _connectionDragDistance = (_connectionDragDistance - dragDelta)
+              .clamp(0.0, _connectionPullMaxExtent * 2)
+              .toDouble();
+        }
+      }
+
+      final isPushingPastBottom = metrics.pixels > metrics.maxScrollExtent;
+      final isReversingIntoList = !isPushingPastBottom && isDraggingDown;
+      if (isReversingIntoList &&
+          (_connectionPullExtent > 0 ||
+              _connectionTriggerArmed ||
+              _connectionReleaseQueued)) {
+        setState(() {
+          _connectionPullExtent = 0;
+          _connectionTriggerArmed = false;
+          _connectionReleaseQueued = false;
+        });
+        _connectionDragDistance = 0;
+        return false;
+      }
+
+      if (isPushingPastBottom) {
+        final rawPullExtent = (metrics.pixels - metrics.maxScrollExtent)
+            .clamp(0.0, _connectionPullMaxExtent)
+            .toDouble();
+        final pullExtent = rawPullExtent > _connectionDragDistance
+            ? _connectionDragDistance
+            : rawPullExtent;
+        final hasIntentionalDrag =
+            _connectionDragDistance >= _connectionMinIntentDrag;
+        final armed =
+            (_connectionTriggerArmed && pullExtent >= _connectionPullDisarm) ||
+            (isDraggingUp &&
+                hasIntentionalDrag &&
+                pullExtent >= _connectionPullTrigger);
+        var releaseQueued = _connectionReleaseQueued || armed;
+
+        if (isDraggingDown && pullExtent < _connectionPullTrigger) {
+          releaseQueued = false;
+        }
+
+        if (dragDelta == null && releaseQueued && !_connectionSheetOpen) {
+          setState(() {
+            _connectionPullExtent = 0;
+            _connectionTriggerArmed = false;
+            _connectionReleaseQueued = false;
+          });
+          _connectionDragDistance = 0;
+          _showConnectionSheet(context);
+          return false;
+        }
+
+        if (pullExtent != _connectionPullExtent ||
+            armed != _connectionTriggerArmed ||
+            releaseQueued != _connectionReleaseQueued) {
+          setState(() {
+            _connectionPullExtent = pullExtent;
+            _connectionTriggerArmed = armed;
+            _connectionReleaseQueued = releaseQueued;
+          });
+        }
+      } else if (_connectionPullExtent > 0 ||
+          _connectionTriggerArmed ||
+          _connectionReleaseQueued) {
+        setState(() {
+          _connectionPullExtent = 0;
+          _connectionTriggerArmed = false;
+          _connectionReleaseQueued = false;
+        });
+      }
+    } else if (notification is ScrollEndNotification) {
+      final shouldShowSheet =
+          (_connectionTriggerArmed || _connectionReleaseQueued) &&
+              !_connectionSheetOpen;
+      if (_connectionPullExtent > 0 ||
+          _connectionTriggerArmed ||
+          _connectionReleaseQueued) {
+        setState(() {
+          _connectionPullExtent = 0;
+          _connectionTriggerArmed = false;
+          _connectionReleaseQueued = false;
+        });
+      }
+      _connectionDragDistance = 0;
+      if (shouldShowSheet) {
+        _showConnectionSheet(context);
+      }
+    }
+
+    return false;
+  }
+
+  Future<void> _showConnectionSheet(BuildContext context) async {
+    if (_connectionSheetOpen || _connectionSheetPending) {
+      return;
+    }
+    _connectionSheetPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        _connectionSheetPending = false;
+        return;
+      }
+      _connectionSheetPending = false;
+      if (_connectionSheetOpen) {
+        return;
+      }
+
+      _connectionHintTimer?.cancel();
+      if (_showConnectionHint) {
+        setState(() {
+          _showConnectionHint = false;
+        });
+      }
+
+      _connectionSheetOpen = true;
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (context) => _ConnectionStatusSheet(
+          scansListenable: widget.scansListenable,
+          onClose: () {
+            if (mounted) {
+              setState(() {
+                _connectionSheetOpen = false;
+              });
+            } else {
+              _connectionSheetOpen = false;
+            }
+            Navigator.of(context).pop();
+          },
+          onScanSynced: (index) {
+            final listenable = widget.scansListenable;
+            if (listenable is! ValueNotifier<List<RecentTreeScan>>) return;
+            final scans = listenable.value;
+            if (index < 0 || index >= scans.length) return;
+            final updated = List<RecentTreeScan>.from(scans);
+            updated[index] = RecentTreeScan(
+              treeId: updated[index].treeId,
+              scannedAt: updated[index].scannedAt,
+              tree: updated[index].tree,
+              metersPerPixel: updated[index].metersPerPixel,
+              predictionConfidence: updated[index].predictionConfidence,
+              predictedAssessment: updated[index].predictedAssessment,
+              capturedImagePath: updated[index].capturedImagePath,
+              isSynced: true,
+            );
+            listenable.value = updated;
+          },
+        ),
+      );
+      if (mounted) {
+        setState(() {
+          _connectionSheetOpen = false;
+        });
+      } else {
+        _connectionSheetOpen = false;
+      }
+    });
   }
 
   void _handleRescan() {
@@ -464,509 +674,1047 @@ class _RecentScanPageState extends State<RecentScanPage> {
             const extraBottomPadding = 12.0;
             final contentBottomPadding =
                 bottomInset + bottomNavHeight + extraBottomPadding;
-            final frameAspect = _scannerFrameAspect(MediaQuery.sizeOf(context));
+            final frameAspect =
+                _scannerFrameAspect(MediaQuery.sizeOf(context));
             final mangroveRects = _normalizedMangroveRects(scan.tree);
             final hasAnyHighlight = mangroveRects.isNotEmpty;
             final hasPrediction = scan.predictedAssessment != null;
             final showHighlights = !_peekRawPhoto;
 
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                contentTopPadding + 8,
-                16,
-                contentBottomPadding,
-              ),
-              physics: const BouncingScrollPhysics(),
-              child: Column(
+            return NotificationListener<ScrollNotification>(
+              onNotification: (notification) =>
+                  _handleConnectionScrollNotification(notification, context),
+              child: Stack(
                 children: [
-                  AspectRatio(
-                    aspectRatio: frameAspect,
-                    child: Stack(
-                      children: [
-                        DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(
-                              color: photoBorderColor,
-                              width: photoBorderWidth,
-                            ),
-                          ),
-                          child: Padding(
-                            padding: EdgeInsets.all(photoBorderWidth),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(18),
-                              child: Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: hasImage
-                                        ? FutureBuilder<Size?>(
-                                            future: _loadImageSize(imagePath),
-                                            builder: (context, snapshot) {
-                                              final imageSize = snapshot.data;
-                                              if (imageSize == null) {
-                                                return Image.file(
-                                                  File(imagePath),
-                                                  fit: BoxFit.cover,
-                                                  width: double.infinity,
-                                                  height: double.infinity,
-                                                  errorBuilder:
-                                                      (
-                                                        context,
-                                                        error,
-                                                        stackTrace,
-                                                      ) {
-                                                        return Container(
-                                                          color: darkGreen
-                                                              .withValues(
-                                                                alpha: 0.55,
+                  StretchingOverscrollIndicator(
+                    axisDirection: AxisDirection.down,
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        contentTopPadding + 8,
+                        16,
+                        contentBottomPadding,
+                      ),
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
+                      child: Column(
+                        children: [
+                          AspectRatio(
+                            aspectRatio: frameAspect,
+                            child: Stack(
+                              children: [
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(22),
+                                    border: Border.all(
+                                      color: photoBorderColor,
+                                      width: photoBorderWidth,
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: EdgeInsets.all(photoBorderWidth),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(18),
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: hasImage
+                                                ? FutureBuilder<Size?>(
+                                                    future: _loadImageSize(
+                                                      imagePath,
+                                                    ),
+                                                    builder: (
+                                                      context,
+                                                      snapshot,
+                                                    ) {
+                                                      final imageSize =
+                                                          snapshot.data;
+                                                      if (imageSize == null) {
+                                                        return Image.file(
+                                                          File(imagePath),
+                                                          fit: BoxFit.cover,
+                                                          width:
+                                                              double.infinity,
+                                                          height:
+                                                              double.infinity,
+                                                          errorBuilder: (
+                                                            context,
+                                                            error,
+                                                            stackTrace,
+                                                          ) {
+                                                            return Container(
+                                                              color: darkGreen
+                                                                  .withValues(
+                                                                    alpha: 0.55,
+                                                                  ),
+                                                              child: const Center(
+                                                                child: Icon(
+                                                                  Icons
+                                                                      .broken_image_rounded,
+                                                                  color:
+                                                                      antiFlashWhite,
+                                                                  size: 36,
+                                                                ),
                                                               ),
-                                                          child: const Center(
-                                                            child: Icon(
-                                                              Icons
-                                                                  .broken_image_rounded,
-                                                              color:
-                                                                  antiFlashWhite,
-                                                              size: 36,
-                                                            ),
-                                                          ),
+                                                            );
+                                                          },
                                                         );
-                                                      },
-                                                );
-                                              }
+                                                      }
 
-                                              return FittedBox(
-                                                fit: BoxFit.cover,
-                                                alignment: Alignment.center,
-                                                child: SizedBox(
-                                                  width: imageSize.width,
-                                                  height: imageSize.height,
-                                                  child: Stack(
-                                                    fit: StackFit.expand,
-                                                    children: [
-                                                      Image.file(
-                                                        File(imagePath),
-                                                        fit: BoxFit.fill,
-                                                        width: imageSize.width,
-                                                        height:
-                                                            imageSize.height,
-                                                        errorBuilder:
-                                                            (
-                                                              context,
-                                                              error,
-                                                              stackTrace,
-                                                            ) {
-                                                              return Container(
-                                                                color: darkGreen
-                                                                    .withValues(
-                                                                      alpha:
-                                                                          0.55,
+                                                      return FittedBox(
+                                                        fit: BoxFit.cover,
+                                                        alignment:
+                                                            Alignment.center,
+                                                        child: SizedBox(
+                                                          width:
+                                                              imageSize.width,
+                                                          height:
+                                                              imageSize.height,
+                                                          child: Stack(
+                                                            fit:
+                                                                StackFit.expand,
+                                                            children: [
+                                                              Image.file(
+                                                                File(imagePath),
+                                                                fit:
+                                                                    BoxFit.fill,
+                                                                width: imageSize
+                                                                    .width,
+                                                                height:
+                                                                    imageSize
+                                                                        .height,
+                                                                errorBuilder: (
+                                                                  context,
+                                                                  error,
+                                                                  stackTrace,
+                                                                ) {
+                                                                  return Container(
+                                                                    color: darkGreen
+                                                                        .withValues(
+                                                                          alpha:
+                                                                              0.55,
+                                                                        ),
+                                                                    child: const Center(
+                                                                      child: Icon(
+                                                                        Icons
+                                                                            .broken_image_rounded,
+                                                                        color:
+                                                                            antiFlashWhite,
+                                                                        size: 36,
+                                                                      ),
                                                                     ),
-                                                                child: const Center(
-                                                                  child: Icon(
-                                                                    Icons
-                                                                        .broken_image_rounded,
+                                                                  );
+                                                                },
+                                                              ),
+                                                              if (showHighlights &&
+                                                                  mangroveRects
+                                                                      .isNotEmpty)
+                                                                CustomPaint(
+                                                                  painter:
+                                                                      _TreeHighlightPainter(
+                                                                    rects:
+                                                                        mangroveRects,
                                                                     color:
-                                                                        antiFlashWhite,
-                                                                    size: 36,
+                                                                        caribbeanGreen,
                                                                   ),
                                                                 ),
-                                                              );
-                                                            },
-                                                      ),
-                                                      if (showHighlights &&
-                                                          mangroveRects
-                                                              .isNotEmpty)
-                                                        CustomPaint(
-                                                          painter: _TreeHighlightPainter(
-                                                            rects:
-                                                                mangroveRects,
-                                                            color:
-                                                                caribbeanGreen,
+                                                            ],
                                                           ),
                                                         ),
-                                                    ],
+                                                      );
+                                                    },
+                                                  )
+                                                : Container(
+                                                    color: darkGreen.withValues(
+                                                      alpha: 0.55,
+                                                    ),
+                                                    child: const Center(
+                                                      child: Icon(
+                                                        Icons.image_rounded,
+                                                        color: antiFlashWhite,
+                                                        size: 36,
+                                                      ),
+                                                    ),
                                                   ),
+                                          ),
+                                          if (hasImage &&
+                                              (hasAnyHighlight ||
+                                                  hasPrediction))
+                                            Positioned(
+                                              top: 12,
+                                              left: 12,
+                                              child: _DetectionBadge(
+                                                accent: statusColor,
+                                                stabilityLabel:
+                                                    _stabilityLabel(
+                                                  scan.assessment,
                                                 ),
-                                              );
-                                            },
-                                          )
-                                        : Container(
-                                            color: darkGreen.withValues(
-                                              alpha: 0.55,
-                                            ),
-                                            child: const Center(
-                                              child: Icon(
-                                                Icons.image_rounded,
-                                                color: antiFlashWhite,
-                                                size: 36,
                                               ),
                                             ),
-                                          ),
-                                  ),
-                                  if (hasImage &&
-                                      (hasAnyHighlight || hasPrediction))
-                                    Positioned(
-                                      top: 12,
-                                      left: 12,
-                                      child: _DetectionBadge(
-                                        accent: statusColor,
-                                        stabilityLabel: _stabilityLabel(
-                                          scan.assessment,
-                                        ),
+                                          if (hasImage && hasAnyHighlight)
+                                            Positioned(
+                                              bottom: 12,
+                                              right: 12,
+                                              child: _PeekHighlightButton(
+                                                pressed: _peekRawPhoto,
+                                                onPressedChanged: (pressed) {
+                                                  if (!mounted) return;
+                                                  setState(
+                                                    () => _peekRawPhoto =
+                                                        pressed,
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                        ],
                                       ),
-                                    ),
-                                  if (hasImage && hasAnyHighlight)
-                                    Positioned(
-                                      bottom: 12,
-                                      right: 12,
-                                      child: _PeekHighlightButton(
-                                        pressed: _peekRawPhoto,
-                                        onPressedChanged: (pressed) {
-                                          if (!mounted) return;
-                                          setState(
-                                            () => _peekRawPhoto = pressed,
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (hasImage && hasAnyHighlight) ...[
-                    const SizedBox(height: 10),
-                    _HighlightLegend(
-                      showHighlights: showHighlights,
-                      label: 'Mangrove detected',
-                    ),
-                    const SizedBox(height: 12),
-                  ] else
-                    const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [darkGreen.withValues(alpha: 0.95), richBlack],
-                      ),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.55),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.22),
-                          blurRadius: 18,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Mangrove Stability',
-                              style: TextStyle(
-                                color: antiFlashWhite,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: statusColor.withValues(alpha: 0.18),
-                                borderRadius: BorderRadius.circular(999),
-                                border: Border.all(
-                                  color: statusColor.withValues(alpha: 0.6),
-                                ),
-                              ),
-                              child: Text(
-                                _stabilityLabel(scan.assessment),
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.access_time_rounded,
-                              size: 14,
-                              color: antiFlashWhite.withValues(alpha: 0.75),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              _formatTimestamp(scan.scannedAt),
-                              style: TextStyle(
-                                color: antiFlashWhite.withValues(alpha: 0.7),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Divider(
-                          color: bangladeshGreen.withValues(alpha: 0.5),
-                          height: 1,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _recentScanSummary(scan.assessment),
-                          style: TextStyle(
-                            color: antiFlashWhite.withValues(alpha: 0.85),
-                            fontSize: 12,
-                            height: 1.45,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'Intervention Protocols',
-                          style: TextStyle(
-                            color: antiFlashWhite,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        ..._stabilityRecommendations(scan.assessment).map(
-                          (rec) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '• ',
-                                  style: TextStyle(
-                                    color: statusColor,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    rec,
-                                    style: TextStyle(
-                                      color: antiFlashWhite.withValues(
-                                        alpha: 0.8,
-                                      ),
-                                      fontSize: 12,
-                                      height: 1.4,
                                     ),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ),
-                         const SizedBox(height: 18),
-                         Row(
-                           children: [
-                             Expanded(
-                               child: DecoratedBox(
-                                 decoration: BoxDecoration(
-                                   gradient: const LinearGradient(
-                                     begin: Alignment.topLeft,
-                                     end: Alignment.bottomRight,
-                                     colors: [
-                                       Color(0xFF0F766E),
-                                       Color(0xFF14B8A6),
-                                     ],
-                                   ),
-                                   borderRadius: BorderRadius.circular(12),
-                                   border: Border.all(
-                                     color: const Color(
-                                       0xFF5EEAD4,
-                                     ).withValues(alpha: 0.32),
-                                   ),
-                                   boxShadow: [
-                                     BoxShadow(
-                                       color: const Color(
-                                         0xFF14B8A6,
-                                       ).withValues(alpha: 0.22),
-                                       blurRadius: 10,
-                                       offset: const Offset(0, 4),
-                                     ),
-                                   ],
-                                 ),
-                                 child: ClipRRect(
-                                   borderRadius: BorderRadius.circular(12),
-                                   child: FilledButton(
-                                     onPressed: _handleRescan,
-                                     style: FilledButton.styleFrom(
-                                       backgroundColor: Colors.transparent,
-                                       shadowColor: Colors.transparent,
-                                       foregroundColor: antiFlashWhite,
-                                       alignment: Alignment.center,
-                                       padding: const EdgeInsets.symmetric(
-                                         vertical: 12,
-                                       ),
-                                       shape: const RoundedRectangleBorder(
-                                         borderRadius: BorderRadius.zero,
-                                       ),
-                                       textStyle: const TextStyle(
-                                         fontWeight: FontWeight.w800,
-                                       ),
-                                     ),
-                                     child: const Row(
-                                       mainAxisAlignment:
-                                           MainAxisAlignment.center,
-                                       mainAxisSize: MainAxisSize.max,
-                                       children: [
-                                         Icon(
-                                           Icons.center_focus_strong_rounded,
-                                           size: 18,
-                                         ),
-                                         SizedBox(width: 8),
-                                         Text('Rescan'),
-                                       ],
-                                     ),
-                                   ),
-                                 ),
-                               ),
-                             ),
-                             const SizedBox(width: 10),
-                             Expanded(
-                               child: DecoratedBox(
-                                 decoration: BoxDecoration(
-                                   gradient: scan.isSynced
-                                       ? LinearGradient(
-                                           begin: Alignment.topLeft,
-                                           end: Alignment.bottomRight,
-                                           colors: [
-                                             bangladeshGreen.withValues(alpha: 0.7),
-                                             darkGreen.withValues(alpha: 0.85),
-                                           ],
-                                         )
-                                       : const LinearGradient(
-                                           begin: Alignment.topLeft,
-                                           end: Alignment.bottomRight,
-                                           colors: [
-                                             Color(0xFF03624C),
-                                             Color(0xFF014D3C),
-                                           ],
-                                         ),
-                                   borderRadius: BorderRadius.circular(12),
-                                   border: Border.all(
-                                     color: scan.isSynced
-                                         ? caribbeanGreen.withValues(alpha: 0.45)
-                                         : antiFlashWhite.withValues(alpha: 0.15),
-                                   ),
-                                   boxShadow: scan.isSynced
-                                       ? [
-                                           BoxShadow(
-                                             color: caribbeanGreen.withValues(
-                                               alpha: 0.18,
-                                             ),
-                                             blurRadius: 10,
-                                             offset: const Offset(0, 4),
-                                           ),
-                                         ]
-                                       : null,
-                                 ),
-                                 child: ClipRRect(
-                                   borderRadius: BorderRadius.circular(12),
-                                    child: FilledButton(
-                                      onPressed: scan.isSynced || _uploadAttempted
-                                          ? null
-                                          : () => _handleUploadScan(0),
-                                     style: FilledButton.styleFrom(
-                                       backgroundColor: Colors.transparent,
-                                       shadowColor: Colors.transparent,
-                                       disabledBackgroundColor:
-                                           Colors.transparent,
-                                       foregroundColor: scan.isSynced
-                                           ? caribbeanGreen
-                                           : antiFlashWhite,
-                                       disabledForegroundColor:
-                                           caribbeanGreen,
-                                       alignment: Alignment.center,
-                                       padding: const EdgeInsets.symmetric(
-                                         vertical: 12,
-                                       ),
-                                       shape: const RoundedRectangleBorder(
-                                         borderRadius: BorderRadius.zero,
-                                       ),
-                                       textStyle: const TextStyle(
-                                         fontWeight: FontWeight.w800,
-                                       ),
-                                     ),
-                                     child: _uploadingIndices.contains(0)
-                                         ? const SizedBox(
-                                             height: 18,
-                                             width: 18,
-                                             child: CircularProgressIndicator(
-                                               strokeWidth: 2,
-                                               valueColor:
-                                                   AlwaysStoppedAnimation<Color>(
-                                                 antiFlashWhite,
-                                               ),
-                                             ),
-                                           )
-                                         : FittedBox(
-                                             fit: BoxFit.scaleDown,
-                                             child: Row(
-                                               mainAxisSize: MainAxisSize.min,
-                                               children: [
-                                                 Icon(
-                                                   scan.isSynced
-                                                       ? Icons.cloud_done_rounded
-                                                       : _failedUploadTreeIds
-                                                               .contains(
-                                                                   scan.treeId)
-                                                           ? Icons.cloud_off_rounded
-                                                           : Icons
-                                                               .cloud_upload_rounded,
-                                                   size: 18,
-                                                 ),
-                                                 const SizedBox(width: 8),
-                                                 Text(
-                                                   scan.isSynced
-                                                       ? 'Synced'
-                                                       : _failedUploadTreeIds
-                                                               .contains(
-                                                                   scan.treeId)
-                                                           ? 'Pending'
-                                                           : 'Upload',
-                                                 ),
-                                               ],
-                                             ),
-                                           ),
-                                   ),
-                                 ),
-                               ),
-                             ),
-                           ],
-                         ),
-                      ],
+                          if (hasImage && hasAnyHighlight) ...[
+                            const SizedBox(height: 10),
+                            _HighlightLegend(
+                              showHighlights: showHighlights,
+                              label: 'Mangrove detected',
+                            ),
+                            const SizedBox(height: 12),
+                          ] else
+                            const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  darkGreen.withValues(alpha: 0.95),
+                                  richBlack,
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: statusColor.withValues(alpha: 0.55),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.22),
+                                  blurRadius: 18,
+                                  offset: const Offset(0, 8),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Mangrove Stability',
+                                      style: TextStyle(
+                                        color: antiFlashWhite,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: 0.2,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: statusColor.withValues(
+                                          alpha: 0.18,
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                        border: Border.all(
+                                          color: statusColor.withValues(
+                                            alpha: 0.6,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        _stabilityLabel(scan.assessment),
+                                        style: TextStyle(
+                                          color: statusColor,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.access_time_rounded,
+                                      size: 14,
+                                      color: antiFlashWhite.withValues(
+                                        alpha: 0.75,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _formatTimestamp(scan.scannedAt),
+                                      style: TextStyle(
+                                        color: antiFlashWhite.withValues(
+                                          alpha: 0.7,
+                                        ),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Divider(
+                                  color: bangladeshGreen.withValues(alpha: 0.5),
+                                  height: 1,
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _recentScanSummary(scan.assessment),
+                                  style: TextStyle(
+                                    color: antiFlashWhite.withValues(
+                                      alpha: 0.85,
+                                    ),
+                                    fontSize: 12,
+                                    height: 1.45,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          gradient: const LinearGradient(
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                            colors: [
+                                              Color(0xFF0F766E),
+                                              Color(0xFF14B8A6),
+                                            ],
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          border: Border.all(
+                                            color: const Color(
+                                              0xFF5EEAD4,
+                                            ).withValues(alpha: 0.32),
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: const Color(
+                                                0xFF14B8A6,
+                                              ).withValues(alpha: 0.22),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ],
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child: FilledButton(
+                                            onPressed: _handleRescan,
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor:
+                                                  Colors.transparent,
+                                              shadowColor: Colors.transparent,
+                                              foregroundColor: antiFlashWhite,
+                                              alignment: Alignment.center,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                vertical: 12,
+                                              ),
+                                              shape:
+                                                  const RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.zero,
+                                              ),
+                                              textStyle: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            child: const Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              mainAxisSize: MainAxisSize.max,
+                                              children: [
+                                                Icon(
+                                                  Icons
+                                                      .center_focus_strong_rounded,
+                                                  size: 18,
+                                                ),
+                                                SizedBox(width: 8),
+                                                Text('Rescan'),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          gradient: scan.isSynced
+                                              ? LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    bangladeshGreen.withValues(
+                                                      alpha: 0.7,
+                                                    ),
+                                                    darkGreen.withValues(
+                                                      alpha: 0.85,
+                                                    ),
+                                                  ],
+                                                )
+                                              : const LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    Color(0xFF03624C),
+                                                    Color(0xFF014D3C),
+                                                  ],
+                                                ),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          border: Border.all(
+                                            color: scan.isSynced
+                                                ? caribbeanGreen.withValues(
+                                                    alpha: 0.45,
+                                                  )
+                                                : antiFlashWhite.withValues(
+                                                    alpha: 0.15,
+                                                  ),
+                                          ),
+                                          boxShadow: scan.isSynced
+                                              ? [
+                                                  BoxShadow(
+                                                    color: caribbeanGreen
+                                                        .withValues(
+                                                          alpha: 0.18,
+                                                        ),
+                                                    blurRadius: 10,
+                                                    offset: const Offset(0, 4),
+                                                  ),
+                                                ]
+                                              : null,
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child: FilledButton(
+                                            onPressed:
+                                                scan.isSynced ||
+                                                        _uploadAttempted
+                                                    ? null
+                                                    : () =>
+                                                        _handleUploadScan(0),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor:
+                                                  Colors.transparent,
+                                              shadowColor: Colors.transparent,
+                                              disabledBackgroundColor:
+                                                  Colors.transparent,
+                                              foregroundColor: scan.isSynced
+                                                  ? caribbeanGreen
+                                                  : antiFlashWhite,
+                                              disabledForegroundColor:
+                                                  caribbeanGreen,
+                                              alignment: Alignment.center,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                vertical: 12,
+                                              ),
+                                              shape:
+                                                  const RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.zero,
+                                              ),
+                                              textStyle: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                            child:
+                                                _uploadingIndices.contains(0)
+                                                    ? const SizedBox(
+                                                        height: 18,
+                                                        width: 18,
+                                                        child: CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                          valueColor:
+                                                              AlwaysStoppedAnimation<
+                                                                Color
+                                                              >(
+                                                            antiFlashWhite,
+                                                          ),
+                                                        ),
+                                                      )
+                                                    : FittedBox(
+                                                        fit: BoxFit.scaleDown,
+                                                        child: Row(
+                                                          mainAxisSize:
+                                                              MainAxisSize.min,
+                                                          children: [
+                                                            Icon(
+                                                              scan.isSynced
+                                                                  ? Icons
+                                                                      .cloud_done_rounded
+                                                                  : _failedUploadTreeIds
+                                                                          .contains(
+                                                                              scan.treeId)
+                                                                      ? Icons
+                                                                          .cloud_off_rounded
+                                                                      : Icons
+                                                                          .cloud_upload_rounded,
+                                                              size: 18,
+                                                            ),
+                                                            const SizedBox(
+                                                              width: 8,
+                                                            ),
+                                                            Text(
+                                                              scan.isSynced
+                                                                  ? 'Synced'
+                                                                  : _failedUploadTreeIds
+                                                                          .contains(
+                                                                              scan.treeId)
+                                                                      ? 'Pending'
+                                                                      : 'Upload',
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: _connectionIndicatorBottom,
+                    child: _ConnectionOverscrollNotice(
+                      showHint: _showConnectionHint,
+                      pullExtent: _connectionPullExtent,
+                      isArmed: _connectionTriggerArmed,
+                      hasPending: widget.scansListenable.value.any(
+                        (scan) => !scan.isSynced,
+                      ),
+                      pendingCount: widget.scansListenable.value
+                          .where((scan) => !scan.isSynced)
+                          .length,
                     ),
                   ),
                 ],
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _ConnectionOverscrollNotice extends StatelessWidget {
+  final bool showHint;
+  final double pullExtent;
+  final bool isArmed;
+  final bool hasPending;
+  final int pendingCount;
+
+  const _ConnectionOverscrollNotice({
+    required this.showHint,
+    required this.pullExtent,
+    required this.isArmed,
+    required this.hasPending,
+    required this.pendingCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isPulling = pullExtent > 0;
+    final isVisible = isPulling || isArmed || showHint;
+    final title = isArmed
+        ? 'Release for Server Status'
+        : hasPending
+            ? 'Pull up to Sync ($pendingCount Pending)'
+            : 'Pull up for Server Status';
+    final icon = isArmed
+        ? Icons.touch_app_rounded
+        : hasPending
+            ? Icons.cloud_off_rounded
+            : Icons.cloud_done_rounded;
+    final iconColor = isArmed
+        ? caribbeanGreen
+        : hasPending
+            ? const Color(0xFFF59E0B)
+            : caribbeanGreen;
+
+    return IgnorePointer(
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        offset: isVisible ? Offset.zero : const Offset(0, 0.45),
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 180),
+          opacity: isVisible ? 1 : 0,
+          child: Center(
+            child: Container(
+              constraints: BoxConstraints(
+                maxWidth: (MediaQuery.sizeOf(context).width - 32)
+                    .clamp(220.0, 360.0)
+                    .toDouble(),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: darkGreen.withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isArmed
+                      ? caribbeanGreen.withValues(alpha: 0.9)
+                      : bangladeshGreen.withValues(alpha: 0.9),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    blurRadius: 12,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: iconColor, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: antiFlashWhite.withValues(alpha: 0.9),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConnectionStatusSheet extends StatefulWidget {
+  final ValueListenable<List<RecentTreeScan>> scansListenable;
+  final VoidCallback onClose;
+  final void Function(int index) onScanSynced;
+
+  const _ConnectionStatusSheet({
+    required this.scansListenable,
+    required this.onClose,
+    required this.onScanSynced,
+  });
+
+  @override
+  State<_ConnectionStatusSheet> createState() => _ConnectionStatusSheetState();
+}
+
+class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
+  bool _isChecking = true;
+  bool _isConnected = false;
+  bool _isSyncing = false;
+  int _pendingCount = 0;
+  String? _endpoint;
+
+  @override
+  void initState() {
+    super.initState();
+    _endpoint = const String.fromEnvironment(
+      'MANGROVE_GUARD_API_URL',
+      defaultValue: 'http://10.173.168.10:8080',
+    );
+    _checkConnectionAndSync();
+  }
+
+  Future<void> _checkConnectionAndSync() async {
+    setState(() {
+      _isChecking = true;
+    });
+    final connected = await MonitoringSyncService.pingServer();
+    if (!mounted) return;
+    setState(() {
+      _isConnected = connected;
+      _isChecking = false;
+    });
+    if (connected) {
+      await _syncPending();
+    }
+  }
+
+  Future<void> _syncPending() async {
+    final scans = widget.scansListenable.value;
+    final pending = scans.where((scan) => !scan.isSynced).toList();
+    if (pending.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _pendingCount = 0;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSyncing = true;
+      _pendingCount = pending.length;
+    });
+
+    int syncedCount = 0;
+    await MonitoringSyncService.flushPendingScans(
+      scans,
+      (index) {
+        syncedCount++;
+        widget.onScanSynced(index);
+      },
+    );
+
+    if (!mounted) return;
+    final remaining = widget.scansListenable.value
+        .where((scan) => !scan.isSynced)
+        .length;
+    setState(() {
+      _pendingCount = remaining;
+      _isSyncing = false;
+    });
+
+    if (syncedCount > 0) {
+      _showSyncResultToast('Sync complete. All scans uploaded.');
+    } else if (_pendingCount > 0) {
+      _showSyncResultToast('Server unreachable. Scans remain queued.');
+    }
+  }
+
+  void _showSyncResultToast(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        duration: const Duration(seconds: 3),
+        content: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: darkGreen.withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: caribbeanGreen.withValues(alpha: 0.4),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _pendingCount == 0
+                    ? Icons.cloud_done_rounded
+                    : Icons.cloud_off_rounded,
+                color: _pendingCount == 0
+                    ? caribbeanGreen
+                    : const Color(0xFFF59E0B),
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    color: antiFlashWhite,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      bottom: false,
+      child: Container(
+        decoration: BoxDecoration(
+          color: darkGreen,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(
+            color: bangladeshGreen.withValues(alpha: 0.95),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.34),
+              blurRadius: 20,
+              offset: const Offset(0, -8),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: antiFlashWhite.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Server & Sync Status',
+                          style: TextStyle(
+                            color: antiFlashWhite.withValues(alpha: 0.94),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        Text(
+                          _isChecking
+                              ? 'Checking connection...'
+                              : _isConnected
+                                  ? 'Connected to server'
+                                  : 'Server unreachable',
+                          style: TextStyle(
+                            color: antiFlashWhite.withValues(alpha: 0.66),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: widget.onClose,
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: antiFlashWhite.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: darkGreen.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: bangladeshGreen.withValues(alpha: 0.9),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.dns_rounded,
+                          size: 15,
+                          color: caribbeanGreen,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Target Endpoint',
+                            style: TextStyle(
+                              color: antiFlashWhite.withValues(alpha: 0.9),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _isConnected
+                                ? caribbeanGreen.withValues(alpha: 0.18)
+                                : const Color(0xFFEF4444).withValues(
+                                    alpha: 0.18,
+                                  ),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: _isConnected
+                                  ? caribbeanGreen.withValues(alpha: 0.6)
+                                  : const Color(0xFFEF4444).withValues(
+                                      alpha: 0.6,
+                                    ),
+                            ),
+                          ),
+                          child: Text(
+                            _isChecking
+                                ? 'Checking...'
+                                : _isConnected
+                                    ? 'Connected'
+                                    : 'Unreachable',
+                            style: TextStyle(
+                              color: _isConnected
+                                  ? caribbeanGreen
+                                  : const Color(0xFFEF4444),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _endpoint ?? '',
+                      style: TextStyle(
+                        color: antiFlashWhite.withValues(alpha: 0.8),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: darkGreen.withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: bangladeshGreen.withValues(alpha: 0.9),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Sync Queue',
+                      style: TextStyle(
+                        color: antiFlashWhite.withValues(alpha: 0.9),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '$_pendingCount scans queued locally',
+                      style: TextStyle(
+                        color: antiFlashWhite.withValues(alpha: 0.8),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Background auto-retry active on resume.',
+                      style: TextStyle(
+                        color: antiFlashWhite.withValues(alpha: 0.6),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: caribbeanGreen,
+                    foregroundColor: richBlack,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: _isSyncing ? null : _syncPending,
+                  child: _isSyncing
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              richBlack,
+                            ),
+                          ),
+                        )
+                      : const Text(
+                          'Sync Now',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1409,7 +2157,8 @@ class RecentTreeScan {
       final startX = (trunkMeasurementRaw['startX'] as num?)?.toDouble();
       final endX = (trunkMeasurementRaw['endX'] as num?)?.toDouble();
       final y = (trunkMeasurementRaw['y'] as num?)?.toDouble();
-      final isEstimated = (trunkMeasurementRaw['isEstimated'] as bool?) ?? true;
+      final isEstimated =
+          (trunkMeasurementRaw['isEstimated'] as bool?) ?? true;
       if (startX != null && endX != null && y != null) {
         trunkMeasurement = TrunkMeasurement(
           startX: startX,
@@ -1462,8 +2211,8 @@ class RecentTreeScan {
       predictedAssessment: predictedAssessment,
       capturedImagePath:
           ((json['capturedImagePath'] as String?)?.trim().isNotEmpty ?? false)
-          ? (json['capturedImagePath'] as String).trim()
-          : null,
+              ? (json['capturedImagePath'] as String).trim()
+              : null,
       isSynced: (json['isSynced'] as bool?) ?? false,
       tree: MangroveTree(
         trunkWidthAtBranchPoint:
