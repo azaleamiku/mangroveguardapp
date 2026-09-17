@@ -130,8 +130,6 @@ class MangroveDetector {
           ? _classOrder[detection.classIndex]
           : null;
       final tree = MangroveTree(
-        trunkWidthAtBranchPoint:
-            (detection.bounds.right - detection.bounds.left).clamp(0.0, 1.0),
         treeBounds: detection.bounds,
       );
       return MangroveDetectionResult(
@@ -143,7 +141,7 @@ class MangroveDetector {
     }
 
     return MangroveDetectionResult(
-      tree: const MangroveTree(trunkWidthAtBranchPoint: 0),
+      tree: const MangroveTree(),
     );
   }
 

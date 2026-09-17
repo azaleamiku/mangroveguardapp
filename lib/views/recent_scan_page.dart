@@ -375,7 +375,6 @@ class _RecentScanPageState extends State<RecentScanPage> {
               treeId: updated[index].treeId,
               scannedAt: updated[index].scannedAt,
               tree: updated[index].tree,
-              metersPerPixel: updated[index].metersPerPixel,
               predictionConfidence: updated[index].predictionConfidence,
               predictedAssessment: updated[index].predictedAssessment,
               capturedImagePath: updated[index].capturedImagePath,
@@ -2094,7 +2093,6 @@ class RecentTreeScan {
   final String treeId;
   final DateTime scannedAt;
   final MangroveTree tree;
-  final double metersPerPixel;
   final double? predictionConfidence;
   final StabilityAssessment? predictedAssessment;
   final String? capturedImagePath;
@@ -2104,15 +2102,12 @@ class RecentTreeScan {
     required this.treeId,
     required this.scannedAt,
     required this.tree,
-    this.metersPerPixel = 0.003,
     this.predictionConfidence,
     this.predictedAssessment,
     this.capturedImagePath,
     this.isSynced = false,
   });
 
-  double get trunkWidthMeters => tree.trunkWidthPixels * metersPerPixel;
-  double get trunkWidthCentimeters => trunkWidthMeters * 100;
   StabilityAssessment get assessment =>
       predictedAssessment ?? StabilityAssessment.low;
 
@@ -2120,7 +2115,6 @@ class RecentTreeScan {
     return {
       'treeId': treeId,
       'scannedAt': scannedAt.toIso8601String(),
-      'metersPerPixel': metersPerPixel,
       if (predictionConfidence != null)
         'predictionConfidence': predictionConfidence,
       if (predictedAssessment != null)
@@ -2128,14 +2122,6 @@ class RecentTreeScan {
       if (capturedImagePath != null) 'capturedImagePath': capturedImagePath,
       'isSynced': isSynced,
       'tree': {
-        'trunkWidthAtBranchPoint': tree.trunkWidthAtBranchPoint,
-        if (tree.trunkMeasurement != null)
-          'trunkMeasurement': {
-            'startX': tree.trunkMeasurement!.startX,
-            'endX': tree.trunkMeasurement!.endX,
-            'y': tree.trunkMeasurement!.y,
-            'isEstimated': tree.trunkMeasurement!.isEstimated,
-          },
         if (tree.treeBounds != null)
           'treeBounds': {
             'left': tree.treeBounds!.left,
@@ -2149,25 +2135,6 @@ class RecentTreeScan {
 
   factory RecentTreeScan.fromJson(Map<String, dynamic> json) {
     final treeMap = (json['tree'] as Map?)?.cast<String, dynamic>() ?? const {};
-
-    final trunkMeasurementRaw = (treeMap['trunkMeasurement'] as Map?)
-        ?.cast<String, dynamic>();
-    TrunkMeasurement? trunkMeasurement;
-    if (trunkMeasurementRaw != null) {
-      final startX = (trunkMeasurementRaw['startX'] as num?)?.toDouble();
-      final endX = (trunkMeasurementRaw['endX'] as num?)?.toDouble();
-      final y = (trunkMeasurementRaw['y'] as num?)?.toDouble();
-      final isEstimated =
-          (trunkMeasurementRaw['isEstimated'] as bool?) ?? true;
-      if (startX != null && endX != null && y != null) {
-        trunkMeasurement = TrunkMeasurement(
-          startX: startX,
-          endX: endX,
-          y: y,
-          isEstimated: isEstimated,
-        );
-      }
-    }
 
     final treeBoundsRaw = (treeMap['treeBounds'] as Map?)
         ?.cast<String, dynamic>();
@@ -2206,7 +2173,6 @@ class RecentTreeScan {
       scannedAt: scannedAtRaw == null
           ? DateTime.now()
           : (DateTime.tryParse(scannedAtRaw) ?? DateTime.now()),
-      metersPerPixel: (json['metersPerPixel'] as num?)?.toDouble() ?? 0.003,
       predictionConfidence: (json['predictionConfidence'] as num?)?.toDouble(),
       predictedAssessment: predictedAssessment,
       capturedImagePath:
@@ -2215,9 +2181,6 @@ class RecentTreeScan {
               : null,
       isSynced: (json['isSynced'] as bool?) ?? false,
       tree: MangroveTree(
-        trunkWidthAtBranchPoint:
-            (treeMap['trunkWidthAtBranchPoint'] as num?)?.toDouble() ?? 0,
-        trunkMeasurement: trunkMeasurement,
         treeBounds: treeBounds,
       ),
     );

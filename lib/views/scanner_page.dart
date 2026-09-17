@@ -240,7 +240,6 @@ class ScannerPageController extends ChangeNotifier {
 
   void setLatestMeasuredTree({
     required MangroveTree tree,
-    double metersPerPixel = 0.003,
     double? predictionConfidence,
     String? capturedImagePath,
     ScanOutcome outcome = ScanOutcome.detected,
@@ -248,7 +247,6 @@ class ScannerPageController extends ChangeNotifier {
   }) {
     _latestMeasuredTreeResult = MeasuredTreeResult(
       tree: tree,
-      metersPerPixel: metersPerPixel,
       predictionConfidence: predictionConfidence,
       capturedImagePath: capturedImagePath,
       outcome: outcome,
@@ -265,7 +263,6 @@ class ScannerPageController extends ChangeNotifier {
 
 class MeasuredTreeResult {
   final MangroveTree tree;
-  final double metersPerPixel;
   final double? predictionConfidence;
   final String? capturedImagePath;
   final ScanOutcome outcome;
@@ -273,7 +270,6 @@ class MeasuredTreeResult {
 
   const MeasuredTreeResult({
     required this.tree,
-    required this.metersPerPixel,
     this.predictionConfidence,
     this.capturedImagePath,
     this.outcome = ScanOutcome.detected,
@@ -300,8 +296,6 @@ class ScannerPage extends StatefulWidget {
 }
 
 class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
-  static const double _defaultMetersPerPixel = 0.003;
-
   static const double _minPredictionConfidence = 0.25;
   static const Duration _realtimeInterval = Duration(milliseconds: 450);
   static const int _liveProcessingMaxDimension = 512;
@@ -850,8 +844,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
   void _storeCapturedImageResult(String imagePath) {
     widget.controller?.setLatestMeasuredTree(
-      tree: const MangroveTree(trunkWidthAtBranchPoint: 0),
-      metersPerPixel: _defaultMetersPerPixel,
+      tree: const MangroveTree(),
       capturedImagePath: imagePath,
       outcome: ScanOutcome.captureOnly,
     );
@@ -872,7 +865,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       final predictedAssessment = detection.predictedAssessment;
       widget.controller?.setLatestMeasuredTree(
         tree: detection.tree,
-        metersPerPixel: _defaultMetersPerPixel,
         predictionConfidence: confidence,
         capturedImagePath: imagePath,
         outcome: predictedAssessment != null && isConfident

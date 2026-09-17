@@ -1,16 +1,3 @@
-class TrunkMeasurement {
-  final double startX;
-  final double endX;
-  final double y;
-  final bool isEstimated;
-
-  const TrunkMeasurement({
-    required this.startX,
-    required this.endX,
-    required this.y,
-    this.isEstimated = false,
-  });
-}
 
 class TreeBounds {
   final double left;
@@ -53,15 +40,9 @@ extension StabilityAssessmentExtension on StabilityAssessment {
 }
 
 class MangroveTree {
-  final double trunkWidthAtBranchPoint;
-  final TrunkMeasurement? trunkMeasurement;
   final TreeBounds? treeBounds;
 
   const MangroveTree({
-    required this.trunkWidthAtBranchPoint,
-    this.trunkMeasurement,
     this.treeBounds,
   });
-
-  double get trunkWidthPixels => trunkWidthAtBranchPoint;
 }
