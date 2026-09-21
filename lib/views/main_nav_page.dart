@@ -111,6 +111,19 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       );
       _recentScans.value = updated;
       await _persistRecentScans(updated);
+    } else if (!scan.isSynced) {
+      final updated = List<RecentTreeScan>.from(_recentScans.value);
+      updated[index] = RecentTreeScan(
+        treeId: updated[index].treeId,
+        scannedAt: updated[index].scannedAt,
+        tree: updated[index].tree,
+        predictionConfidence: updated[index].predictionConfidence,
+        predictedAssessment: updated[index].predictedAssessment,
+        capturedImagePath: updated[index].capturedImagePath,
+        isSynced: false,
+      );
+      _recentScans.value = updated;
+      await _persistRecentScans(updated);
     }
     return success;
   }
@@ -151,6 +164,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
 
   void _handleScanCompleted() {
     unawaited(_storeLatestMeasuredTree());
+    unawaited(_flushPendingScans());
     if (!mounted) return;
     _setSelectedIndex(2);
   }

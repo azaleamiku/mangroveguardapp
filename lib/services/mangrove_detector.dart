@@ -33,6 +33,8 @@ class MangroveDetector {
   ];
   static bool _didLogDebug = false;
 
+  static const int _supportedClassCount = 3;
+
   final Interpreter _interpreter;
   final int _inputWidth;
   final int _inputHeight;
@@ -281,6 +283,9 @@ class MangroveDetector {
       hasObjectness = true;
       classStart = 5;
       classCount = channels - classStart;
+    }
+    if (classCount > _supportedClassCount) {
+      classCount = _supportedClassCount;
     }
     if (classCount <= 0) return null;
 

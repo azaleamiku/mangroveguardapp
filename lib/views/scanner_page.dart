@@ -217,6 +217,7 @@ class ScannerPageController extends ChangeNotifier {
   int _shutterSignal = 0;
   MeasuredTreeResult? _latestMeasuredTreeResult;
   bool _isRealtimeAssessment = false;
+  LiveFrameCache? _liveFrameCache;
 
   int get shutterSignal => _shutterSignal;
   bool get isRealtimeAssessment => _isRealtimeAssessment;
@@ -259,6 +260,42 @@ class ScannerPageController extends ChangeNotifier {
     _latestMeasuredTreeResult = null;
     return result;
   }
+
+  void cacheLiveFrame(LiveFrameCache cache) {
+    _liveFrameCache = cache;
+    notifyListeners();
+  }
+
+  LiveFrameCache? consumeLiveFrameCache() {
+    final cache = _liveFrameCache;
+    _liveFrameCache = null;
+    if (cache != null) notifyListeners();
+    return cache;
+  }
+
+  void updateLiveFrameDetection({
+    StabilityAssessment? assessment,
+    double? confidence,
+    Rect? boundingBox,
+  }) {
+    final existing = _liveFrameCache;
+    if (existing == null) return;
+    _liveFrameCache = LiveFrameCache(
+      imageBytes: existing.imageBytes,
+      sharpnessScore: existing.sharpnessScore,
+      framingScore: existing.framingScore,
+      assessment: assessment,
+      confidence: confidence,
+      boundingBox: boundingBox,
+    );
+    notifyListeners();
+  }
+
+  void clearLiveFrameCache() {
+    if (_liveFrameCache == null) return;
+    _liveFrameCache = null;
+    notifyListeners();
+  }
 }
 
 class MeasuredTreeResult {
@@ -274,6 +311,24 @@ class MeasuredTreeResult {
     this.capturedImagePath,
     this.outcome = ScanOutcome.detected,
     this.predictedAssessment,
+  });
+}
+
+class LiveFrameCache {
+  final Uint8List imageBytes;
+  final double? sharpnessScore;
+  final double? framingScore;
+  final StabilityAssessment? assessment;
+  final double? confidence;
+  final Rect? boundingBox;
+
+  const LiveFrameCache({
+    required this.imageBytes,
+    this.sharpnessScore,
+    this.framingScore,
+    this.assessment,
+    this.confidence,
+    this.boundingBox,
   });
 }
 
@@ -719,9 +774,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
       final bool isConfident =
           confidence != null && confidence >= _minPredictionConfidence;
-      final assessment = (assessmentName != null && isConfident)
-          ? StabilityAssessment.values.byName(assessmentName)
-          : null;
+      StabilityAssessment? assessment;
+      if (assessmentName != null && isConfident) {
+        try {
+          assessment = StabilityAssessment.values.byName(assessmentName);
+        } on StateError {
+          assessment = null;
+        }
+      }
 
       final bboxMap = message['boundingBox'] as Map<Object?, Object?>?;
       Rect? boundingBox;
@@ -745,6 +805,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
         _liveConfidence = confidence;
         _liveBoundingBox = boundingBox;
       }
+      widget.controller?.updateLiveFrameDetection(
+        assessment: assessment,
+        confidence: confidence,
+        boundingBox: boundingBox,
+      );
       _isRealtimeProcessing = false;
       return;
     }
@@ -1605,6 +1670,49 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
         previewHeight: image.height.toDouble(),
       );
       _updateQualityMetrics(image, normalizedCrop);
+
+      var rgb = _convertYuv420ToRgb(
+        width: image.width,
+        height: image.height,
+        bytesY: image.planes[0].bytes,
+        bytesU: image.planes[1].bytes,
+        bytesV: image.planes[2].bytes,
+        yRowStride: image.planes[0].bytesPerRow,
+        uvRowStride: image.planes[1].bytesPerRow,
+        uvPixelStride: image.planes[1].bytesPerPixel ?? 1,
+        maxDimension: _liveProcessingMaxDimension,
+      );
+
+      if (normalizedCrop != null) {
+        final rect = _cropRectFromNormalized(
+          left: normalizedCrop.left,
+          top: normalizedCrop.top,
+          right: normalizedCrop.right,
+          bottom: normalizedCrop.bottom,
+          width: rgb.width,
+          height: rgb.height,
+        );
+        if (rect != null) {
+          rgb = img.copyCrop(
+            rgb,
+            x: rect.left.round(),
+            y: rect.top.round(),
+            width: rect.width.round(),
+            height: rect.height.round(),
+          );
+        }
+      }
+
+      final cachedImageBytes = Uint8List.fromList(img.encodeJpg(rgb, quality: 92));
+      widget.controller?.cacheLiveFrame(LiveFrameCache(
+        imageBytes: cachedImageBytes,
+        sharpnessScore: _liveSharpnessScore,
+        framingScore: _liveFramingScore,
+        assessment: _liveAssessment,
+        confidence: _liveConfidence,
+        boundingBox: _liveBoundingBox,
+      ));
+
       final requestId = ++_liveRequestId;
       _pendingLiveRequestId = requestId;
       _liveSendPort?.send({
@@ -1678,6 +1786,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     } else {
       _isRealtimeAssessment = true;
     }
+    widget.controller?.clearLiveFrameCache();
 
     if (controller.value.isStreamingImages) return;
     try {
@@ -1702,6 +1811,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     _liveSharpnessScore = null;
     _liveFramingScore = null;
     _liveBoundingBox = null;
+    widget.controller?.clearLiveFrameCache();
     if (mounted) {
       setState(() {});
     }
@@ -1713,7 +1823,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
   Future<void> _captureShutter() async {
     final controller = _cameraController;
-    if (_isRealtimeAssessment) return;
     if (_isCapturing || controller == null || !controller.value.isInitialized) {
       return;
     }
@@ -1721,6 +1830,40 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
     setState(() => _isCapturing = true);
     try {
+      if (_isRealtimeAssessment) {
+        final cache = widget.controller?.consumeLiveFrameCache();
+        if (cache != null &&
+            cache.assessment != null &&
+            cache.confidence != null) {
+          final tempDir = Directory.systemTemp;
+          final tempFile = File(
+            '${tempDir.path}/live_capture_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          );
+          await tempFile.writeAsBytes(cache.imageBytes, flush: true);
+
+          widget.controller?.setLatestMeasuredTree(
+            tree: MangroveTree(
+              treeBounds: cache.boundingBox == null
+                  ? null
+                  : TreeBounds(
+                      left: cache.boundingBox!.left,
+                      top: cache.boundingBox!.top,
+                      right: cache.boundingBox!.right,
+                      bottom: cache.boundingBox!.bottom,
+                    ),
+            ),
+            predictionConfidence: cache.confidence,
+            capturedImagePath: tempFile.path,
+            outcome: ScanOutcome.detected,
+            predictedAssessment: cache.assessment,
+          );
+
+          if (!mounted) return;
+          widget.onScanCompleted?.call();
+          return;
+        }
+      }
+
       final picture = await controller.takePicture();
       final croppedImagePath = await _cropCapturedImageToFrame(picture.path);
       if (!mounted) return;

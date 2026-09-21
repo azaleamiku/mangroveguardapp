@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/mangrove_tree.dart';
 import '../services/monitoring_sync_service.dart';
 
@@ -1361,7 +1362,25 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
       'MANGROVE_GUARD_API_URL',
       defaultValue: 'http://10.173.168.10:8080',
     );
+    widget.scansListenable.addListener(_refreshPendingCount);
+    _pendingCount = widget.scansListenable.value.where((scan) => !scan.isSynced).length;
     _checkConnectionAndSync();
+  }
+
+  @override
+  void dispose() {
+    widget.scansListenable.removeListener(_refreshPendingCount);
+    super.dispose();
+  }
+
+  void _refreshPendingCount() {
+    if (!mounted) return;
+    final pending = widget.scansListenable.value
+        .where((scan) => !scan.isSynced)
+        .length;
+    setState(() {
+      _pendingCount = pending;
+    });
   }
 
   Future<void> _checkConnectionAndSync() async {
@@ -1472,6 +1491,59 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
         ),
       ),
     );
+  }
+
+  Future<void> _showClearDataConfirmation(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF032221),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Clear Queued Scans?',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'This will permanently remove all offline pending scans from your device that haven\'t been synced to the server.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear Data', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _clearLocalScans();
+    }
+  }
+
+  Future<void> _clearLocalScans() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('recent_tree_scans_v1');
+
+    setState(() {
+      _pendingCount = 0;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Local scan queue cleared.'),
+          backgroundColor: const Color(0xFF021716),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
   }
 
   @override
@@ -1706,10 +1778,36 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                             ),
                           ),
                         )
-                      : const Text(
-                          'Sync Now',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
+                       : const Text(
+                           'Sync Now',
+                           style: TextStyle(fontWeight: FontWeight.w800),
+                         ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _pendingCount == 0
+                      ? null
+                      : () => _showClearDataConfirmation(context),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.redAccent,
+                    side: BorderSide(
+                      color: _pendingCount == 0
+                          ? Colors.white24
+                          : Colors.redAccent.withValues(alpha: 0.6),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                  label: const Text(
+                    'Clear Local Queue',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
                 ),
               ),
             ],

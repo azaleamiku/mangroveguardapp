@@ -852,7 +852,7 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
         : '--';
 
     final statusLabel = hasData
-        ? '${majorityAssessment!.label} ($majorityCount scans)'
+        ? majorityAssessment!.label
         : 'No data yet';
     final statusColor = hasData
         ? _statusColorForAssessment(majorityAssessment!)
@@ -879,21 +879,20 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            hasData
-                ? 'Based on $recentScanCount recent scans'
-                : 'Scan a mangrove to begin',
-            style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
+          if (!hasData)
+            Text(
+              'Scan a mangrove to begin',
+              style: TextStyle(
+                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
             ),
-          ),
           const SizedBox(height: 32),
           _AverageStabilityGauge(
             value: hasData ? majorityCount / recentScanCount : 0.0,
             valueLabel: majorityLabel,
-            caption: hasData ? 'of $recentScanCount scans' : '',
+            caption: '',
             statusLabel: statusLabel,
             statusColor: statusColor,
             lowCount: lowCount,
