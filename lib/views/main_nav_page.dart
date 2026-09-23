@@ -46,6 +46,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       onDeleteScan: _deleteRecentScan,
       onRescan: _handleRescanRequested,
       onUploadScan: _handleUploadScanRequested,
+      onClearQueue: _handleClearQueue,
     ),
   ];
 
@@ -54,14 +55,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _markOnboardingComplete();
-    unawaited(_loadRecentScans().whenComplete(() => _flushPendingScans()));
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _flushPendingScans();
-    }
+    unawaited(_loadRecentScans());
   }
 
   Future<void> _markOnboardingComplete() async {
@@ -90,6 +84,20 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   void _handleRescanRequested() {
     if (!mounted) return;
     _setSelectedIndex(1);
+  }
+
+  Future<void> _handleClearQueue() async {
+    final scans = List<RecentTreeScan>.from(_recentScans.value);
+    _recentScans.value = const [];
+    if (!mounted) return;
+    await _persistRecentScans(const []);
+    unawaited(_deleteManagedCaptureFiles(scans));
+  }
+
+  Future<void> _deleteManagedCaptureFiles(List<RecentTreeScan> scans) async {
+    for (final scan in scans) {
+      await _deleteManagedCaptureFile(scan.capturedImagePath);
+    }
   }
 
   Future<bool> _handleUploadScanRequested(int index) async {
@@ -128,28 +136,6 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     return success;
   }
 
-  Future<void> _flushPendingScans() async {
-    if (!mounted) return;
-    await MonitoringSyncService.flushPendingScans(
-      _recentScans.value,
-      (index) {
-        if (index < 0 || index >= _recentScans.value.length) return;
-        final updated = List<RecentTreeScan>.from(_recentScans.value);
-        updated[index] = RecentTreeScan(
-          treeId: updated[index].treeId,
-          scannedAt: updated[index].scannedAt,
-          tree: updated[index].tree,
-          predictionConfidence: updated[index].predictionConfidence,
-          predictedAssessment: updated[index].predictedAssessment,
-          capturedImagePath: updated[index].capturedImagePath,
-          isSynced: true,
-        );
-        _recentScans.value = updated;
-        _persistRecentScans(updated);
-      },
-    );
-  }
-
   void _handleScannerHoldStart() {
     if (!mounted) return;
     if (_selectedIndex != 1) return;
@@ -164,7 +150,6 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
 
   void _handleScanCompleted() {
     unawaited(_storeLatestMeasuredTree());
-    unawaited(_flushPendingScans());
     if (!mounted) return;
     _setSelectedIndex(2);
   }

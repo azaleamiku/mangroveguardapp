@@ -1,6 +1,6 @@
 <svg width="1280" height="340" viewBox="0 0 1280 340" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">Mangrove Guard Scan Flow</title>
-  <desc id="desc">Draw.io-style scan flow from scanner opening to local save, with branches to PDF export and dashboard update.</desc>
+  <desc id="desc">Draw.io-style scan flow from scanner opening to local save and dashboard update.</desc>
 
   <defs>
     <style>
@@ -50,7 +50,7 @@
   <text class="label" x="1100" y="171" text-anchor="middle">Save Scan Locally</text>
 
   <rect class="node" x="1125" y="20" width="135" height="58"/>
-  <text class="label" x="1192.5" y="55" text-anchor="middle">Export PDF</text>
+  <text class="label" x="1192.5" y="55" text-anchor="middle">Scan Complete</text>
 
   <rect class="node" x="1125" y="262" width="150" height="58"/>
   <text class="label" x="1200" y="297" text-anchor="middle">Update Dashboard</text>

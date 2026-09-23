@@ -296,6 +296,20 @@ class ScannerPageController extends ChangeNotifier {
     _liveFrameCache = null;
     notifyListeners();
   }
+
+  void clearStaleLiveDetection() {
+    _liveFrameCache = _liveFrameCache == null
+        ? null
+        : LiveFrameCache(
+            imageBytes: _liveFrameCache!.imageBytes,
+            sharpnessScore: _liveFrameCache!.sharpnessScore,
+            framingScore: _liveFrameCache!.framingScore,
+            assessment: null,
+            confidence: _liveFrameCache!.confidence,
+            boundingBox: null,
+          );
+    notifyListeners();
+  }
 }
 
 class MeasuredTreeResult {
@@ -352,8 +366,9 @@ class ScannerPage extends StatefulWidget {
 
 class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
   static const double _minPredictionConfidence = 0.25;
-  static const Duration _realtimeInterval = Duration(milliseconds: 450);
-  static const int _liveProcessingMaxDimension = 512;
+  static const Duration _realtimeInterval = Duration(milliseconds: 380);
+  static const int _liveProcessingMaxDimension = 768;
+  static const double _liveBoundingBoxSmoothing = 0.35;
   static const double _sharpnessLowVariance = 80;
   static const double _sharpnessHighVariance = 280;
   static const double _framingLowEdge = 6;
@@ -386,6 +401,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   double? _liveSharpnessScore;
   double? _liveFramingScore;
   Rect? _liveBoundingBox;
+  Rect? _smoothedBoundingBox;
   Isolate? _liveIsolate;
   ReceivePort? _liveReceivePort;
   SendPort? _liveSendPort;
@@ -395,6 +411,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   int _liveRequestId = 0;
   int _pendingLiveRequestId = 0;
   Uint8List? _liveModelBytes;
+  Timer? _liveStaleTimer;
 
   @override
   bool get wantKeepAlive => true;
@@ -581,7 +598,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       final controller = CameraController(
         selectedCamera,
 
-        ResolutionPreset.medium,
+        ResolutionPreset.high,
         enableAudio: false,
         imageFormatGroup: resolveCameraFormatGroup(
           isAndroid: Platform.isAndroid,
@@ -729,9 +746,26 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     }
   }
 
+  void _clearStaleLiveAssessment() {
+    if (!_isRealtimeAssessment) return;
+    _liveStaleTimer = null;
+    if (mounted) {
+      setState(() {
+        _liveAssessment = null;
+        _liveBoundingBox = null;
+      });
+    } else {
+      _liveAssessment = null;
+      _liveBoundingBox = null;
+    }
+    widget.controller?.clearStaleLiveDetection();
+  }
+
   void _disposeLiveIsolate() {
     _isLiveIsolateReady = false;
     _isLiveIsolateStarting = false;
+    _liveStaleTimer?.cancel();
+    _liveStaleTimer = null;
     final completer = _liveReadyCompleter;
     if (completer != null && !completer.isCompleted) {
       completer.complete();
@@ -743,8 +777,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     _liveReceivePort?.close();
     _liveReceivePort = null;
     _liveSendPort = null;
-    _liveIsolate?.kill(priority: Isolate.immediate);
+    final isolate = _liveIsolate;
     _liveIsolate = null;
+    if (isolate != null) {
+      try {
+        isolate.kill(priority: Isolate.immediate);
+      } catch (_) {}
+    }
   }
 
   void _handleLiveIsolateMessage(dynamic message) {
@@ -796,21 +835,55 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
       if (mounted) {
         setState(() {
-          _liveAssessment = assessment;
           _liveConfidence = confidence;
-          _liveBoundingBox = boundingBox;
+          if (isConfident) {
+            _liveAssessment = assessment;
+            if (boundingBox != null) {
+              _smoothedBoundingBox ??= boundingBox;
+              _smoothedBoundingBox = Rect.fromLTRB(
+                _liveBoundingBoxSmoothing * boundingBox.left +
+                    (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.left,
+                _liveBoundingBoxSmoothing * boundingBox.top +
+                    (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.top,
+                _liveBoundingBoxSmoothing * boundingBox.right +
+                    (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.right,
+                _liveBoundingBoxSmoothing * boundingBox.bottom +
+                    (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.bottom,
+              );
+              _liveBoundingBox = _smoothedBoundingBox;
+            }
+          }
         });
       } else {
-        _liveAssessment = assessment;
         _liveConfidence = confidence;
-        _liveBoundingBox = boundingBox;
+        if (isConfident) {
+          _liveAssessment = assessment;
+          if (boundingBox != null) {
+            _smoothedBoundingBox ??= boundingBox;
+            _smoothedBoundingBox = Rect.fromLTRB(
+              _liveBoundingBoxSmoothing * boundingBox.left +
+                  (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.left,
+              _liveBoundingBoxSmoothing * boundingBox.top +
+                  (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.top,
+              _liveBoundingBoxSmoothing * boundingBox.right +
+                  (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.right,
+              _liveBoundingBoxSmoothing * boundingBox.bottom +
+                  (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.bottom,
+            );
+            _liveBoundingBox = _smoothedBoundingBox;
+          }
+        }
       }
       widget.controller?.updateLiveFrameDetection(
-        assessment: assessment,
+        assessment: _liveAssessment,
         confidence: confidence,
-        boundingBox: boundingBox,
+        boundingBox: _liveBoundingBox,
       );
       _isRealtimeProcessing = false;
+      if (isConfident) {
+        _liveStaleTimer?.cancel();
+        _liveStaleTimer = Timer(const Duration(seconds: 2), _clearStaleLiveAssessment);
+      }
       return;
     }
 
@@ -1782,6 +1855,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
         _liveSharpnessScore = null;
         _liveFramingScore = null;
         _liveBoundingBox = null;
+        _smoothedBoundingBox = null;
       });
     } else {
       _isRealtimeAssessment = true;
@@ -1811,6 +1885,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     _liveSharpnessScore = null;
     _liveFramingScore = null;
     _liveBoundingBox = null;
+    _smoothedBoundingBox = null;
+    _liveStaleTimer?.cancel();
+    _liveStaleTimer = null;
     widget.controller?.clearLiveFrameCache();
     if (mounted) {
       setState(() {});
@@ -2002,60 +2079,18 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       transitionDuration: const Duration(milliseconds: 260),
       pageBuilder: (context, animation, secondaryAnimation) {
         final navigator = Navigator.of(context, rootNavigator: true);
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted && navigator.mounted && navigator.canPop()) {
-            navigator.pop();
-          }
-        });
-
         return SafeArea(
           child: Align(
             alignment: Alignment.topCenter,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              child: Material(
-                color: Colors.transparent,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  decoration: BoxDecoration(
-                    color: darkGreen.withValues(alpha: 0.94),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: caribbeanGreen.withValues(alpha: 0.35),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        blurRadius: 14,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.notifications_active,
-                        color: caribbeanGreen,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          message,
-                          style: const TextStyle(
-                            color: antiFlashWhite,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              child: _TopNotificationContent(
+                message: message,
+                onDismiss: () {
+                  if (navigator.mounted && navigator.canPop()) {
+                    navigator.pop();
+                  }
+                },
               ),
             ),
           ),
@@ -2074,6 +2109,88 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
           child: FadeTransition(opacity: curved, child: child),
         );
       },
+    );
+  }
+}
+
+class _TopNotificationContent extends StatefulWidget {
+  final String message;
+  final VoidCallback onDismiss;
+
+  const _TopNotificationContent({
+    required this.message,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_TopNotificationContent> createState() =>
+      _TopNotificationContentState();
+}
+
+class _TopNotificationContentState extends State<_TopNotificationContent> {
+  bool _fadingOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        setState(() => _fadingOut = true);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 250),
+      opacity: _fadingOut ? 0 : 1,
+      curve: Curves.easeIn,
+      onEnd: _fadingOut ? widget.onDismiss : null,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 12,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFF032221).withValues(alpha: 0.94),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: const Color(0xFF00DF81).withValues(alpha: 0.35),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.notifications_active,
+                color: Color(0xFF00DF81),
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                  child: Text(
+                    widget.message,
+                  style: const TextStyle(
+                    color: Color(0xFFF1F7F6),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

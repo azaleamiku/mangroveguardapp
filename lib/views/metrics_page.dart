@@ -628,7 +628,7 @@ class _AboutAppSheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device object detection for real-time mangrove tree analysis. The system evaluates structural stability into High, Moderate, or Low categories directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality, culminating in an automated, professional PDF report for every scan.',
+                                                                         'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device object detection for real-time mangrove tree analysis. The system evaluates structural stability into High, Moderate, or Low categories directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality.',
                                     style: TextStyle(
                                       color: MetricsPage.antiFlashWhite
                                           .withValues(alpha: 0.82),

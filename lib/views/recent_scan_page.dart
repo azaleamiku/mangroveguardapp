@@ -54,6 +54,7 @@ class RecentScanPage extends StatefulWidget {
   final Future<void> Function(int index)? onDeleteScan;
   final VoidCallback? onRescan;
   final Future<bool> Function(int index)? onUploadScan;
+  final VoidCallback? onClearQueue;
 
   const RecentScanPage({
     super.key,
@@ -62,6 +63,7 @@ class RecentScanPage extends StatefulWidget {
     this.onDeleteScan,
     this.onRescan,
     this.onUploadScan,
+    this.onClearQueue,
   });
 
   @override
@@ -356,16 +358,6 @@ class _RecentScanPageState extends State<RecentScanPage> {
         isScrollControlled: true,
         builder: (context) => _ConnectionStatusSheet(
           scansListenable: widget.scansListenable,
-          onClose: () {
-            if (mounted) {
-              setState(() {
-                _connectionSheetOpen = false;
-              });
-            } else {
-              _connectionSheetOpen = false;
-            }
-            Navigator.of(context).pop();
-          },
           onScanSynced: (index) {
             final listenable = widget.scansListenable;
             if (listenable is! ValueNotifier<List<RecentTreeScan>>) return;
@@ -383,6 +375,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
             );
             listenable.value = updated;
           },
+          onClearQueue: widget.onClearQueue,
         ),
       );
       if (mounted) {
@@ -505,7 +498,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
       behavior: SnackBarBehavior.floating,
       backgroundColor: Colors.transparent,
       elevation: 0,
-      duration: const Duration(seconds: 3),
+      duration: const Duration(seconds: 1),
       margin: EdgeInsets.fromLTRB(
         16,
         MediaQuery.paddingOf(context).top + 10,
@@ -634,7 +627,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
   IconData _noticeIcon(_NoticeKind kind) {
     switch (kind) {
       case _NoticeKind.success:
-        return Icons.picture_as_pdf_rounded;
+        return Icons.check_circle_rounded;
       case _NoticeKind.delete:
         return Icons.delete_forever_rounded;
       case _NoticeKind.error:
@@ -1261,7 +1254,7 @@ class _ConnectionOverscrollNotice extends StatelessWidget {
     final title = isArmed
         ? 'Release for Server Status'
         : hasPending
-            ? 'Pull up to Sync ($pendingCount Pending)'
+            ? 'Pull up for Server Status ($pendingCount Pending)'
             : 'Pull up for Server Status';
     final icon = isArmed
         ? Icons.touch_app_rounded
@@ -1335,13 +1328,13 @@ class _ConnectionOverscrollNotice extends StatelessWidget {
 
 class _ConnectionStatusSheet extends StatefulWidget {
   final ValueListenable<List<RecentTreeScan>> scansListenable;
-  final VoidCallback onClose;
   final void Function(int index) onScanSynced;
+  final VoidCallback? onClearQueue;
 
   const _ConnectionStatusSheet({
     required this.scansListenable,
-    required this.onClose,
     required this.onScanSynced,
+    this.onClearQueue,
   });
 
   @override
@@ -1393,9 +1386,6 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
       _isConnected = connected;
       _isChecking = false;
     });
-    if (connected) {
-      await _syncPending();
-    }
   }
 
   Future<void> _syncPending() async {
@@ -1415,13 +1405,29 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
     });
 
     int syncedCount = 0;
-    await MonitoringSyncService.flushPendingScans(
-      scans,
-      (index) {
-        syncedCount++;
-        widget.onScanSynced(index);
-      },
-    );
+    try {
+      await MonitoringSyncService.flushPendingScans(
+        scans,
+        (index) {
+          syncedCount++;
+          widget.onScanSynced(index);
+        },
+      );
+    } on SocketException catch (_) {
+      if (!mounted) return;
+      _showSyncResultToast('Server unreachable. Scans remain queued.');
+      setState(() {
+        _isSyncing = false;
+      });
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      _showSyncResultToast('Sync failed. Please try again.');
+      setState(() {
+        _isSyncing = false;
+      });
+      return;
+    }
 
     if (!mounted) return;
     final remaining = widget.scansListenable.value
@@ -1445,7 +1451,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
         behavior: SnackBarBehavior.floating,
         backgroundColor: Colors.transparent,
         elevation: 0,
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 1),
         content: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
@@ -1497,25 +1503,43 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF032221),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: darkGreen.withValues(alpha: 0.9),
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: caribbeanGreen.withValues(alpha: 0.4), width: 1),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        elevation: 0,
         title: const Text(
           'Clear Queued Scans?',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(color: antiFlashWhite, fontWeight: FontWeight.w800),
         ),
         content: const Text(
           'This will permanently remove all offline pending scans from your device that haven\'t been synced to the server.',
-          style: TextStyle(color: Colors.white70),
+          style: TextStyle(color: antiFlashWhite, fontSize: 14, height: 1.4),
         ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: antiFlashWhite.withValues(alpha: 0.7)),
+            ),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+          OutlinedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Clear Data', style: TextStyle(color: Colors.white)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.redAccent,
+              side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.7)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text(
+              'Clear Data',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
         ],
       ),
@@ -1527,23 +1551,16 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
   }
 
   Future<void> _clearLocalScans() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('recent_tree_scans_v1');
-
-    setState(() {
-      _pendingCount = 0;
-    });
+    widget.onClearQueue?.call();
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Local scan queue cleared.'),
-          backgroundColor: const Color(0xFF021716),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
+      setState(() {
+        _pendingCount = 0;
+      });
     }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('recent_tree_scans_v1');
   }
 
   @override
@@ -1611,13 +1628,6 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                           ),
                         ),
                       ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: widget.onClose,
-                    icon: Icon(
-                      Icons.close_rounded,
-                      color: antiFlashWhite.withValues(alpha: 0.8),
                     ),
                   ),
                 ],
