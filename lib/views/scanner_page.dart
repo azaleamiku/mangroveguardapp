@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
@@ -2449,8 +2450,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   Future<void> _processQrCode(String serverUrl) async {
-    final normalizedUrl = serverUrl.replaceAll(RegExp(r'/+$'), '');
-    final success = await _attemptPairing(normalizedUrl);
+    final uri = Uri.parse(serverUrl);
+    final normalizedUrl = uri.origin.replaceAll(RegExp(r'/+$'), '');
+    final token = uri.queryParameters['token'];
+    final success = await _attemptPairing(normalizedUrl, token);
     if (!mounted) return;
 
     if (success) {
@@ -2461,12 +2464,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       await Future.delayed(const Duration(milliseconds: 800));
 
       _showTopNotification('Device paired successfully!');
-      widget.controller?.setLatestMeasuredTree(
-        tree: const MangroveTree(),
-        capturedImagePath: normalizedUrl,
-        outcome: ScanOutcome.captureOnly,
-      );
-      widget.onScanCompleted?.call();
 
       await _stopQrScanning();
     } else {
@@ -2503,10 +2500,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     _qrErrorDismissTimer = null;
   }
 
-  Future<bool> _attemptPairing(String baseUrl) async {
+  Future<bool> _attemptPairing(String baseUrl, String? token) async {
     final endpoints = [
-      Uri.parse('$baseUrl/api/pair/qr'),
       Uri.parse('$baseUrl/api/scans'),
+      Uri.parse('$baseUrl/api/pair/qr'),
     ];
 
     for (final endpoint in endpoints) {
@@ -2517,6 +2514,35 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
         final response = await http.get(endpoint).timeout(const Duration(seconds: 5));
         if (response.statusCode == 200) {
+          if (token != null && token.isNotEmpty) {
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              final deviceId = prefs.getString('mangrove_device_id') ?? 'device-${DateTime.now().millisecondsSinceEpoch}';
+              if (!prefs.containsKey('mangrove_device_id')) {
+                await prefs.setString('mangrove_device_id', deviceId);
+              }
+
+              final confirmResponse = await http
+                  .post(
+                    Uri.parse('$baseUrl/api/pair/confirm'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({
+                      'token': token,
+                      'deviceId': deviceId,
+                      'deviceName': 'Field Device',
+                    }),
+                  )
+                  .timeout(const Duration(seconds: 5));
+              if (confirmResponse.statusCode >= 400) {
+                debugPrint('Pair confirm rejected: ${confirmResponse.statusCode}');
+                return false;
+              }
+            } catch (e) {
+              debugPrint('Pair confirm failed: $e');
+              return false;
+            }
+          }
+
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('paired_server_url', baseUrl);
           return true;

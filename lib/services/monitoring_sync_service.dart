@@ -10,12 +10,21 @@ import '../models/mangrove_tree.dart';
 import '../views/recent_scan_page.dart';
 
 class MonitoringSyncService {
-  static const String _endpoint = String.fromEnvironment(
-    'MANGROVE_GUARD_API_URL',
-    defaultValue: 'http://192.168.1.44:8080',
-  );
+  static const String _hardcodedEndpoint = 'http://192.168.1.44:8080';
   static const String _deviceIdKey = 'mangrove_device_id';
   static const String _sessionIdKey = 'mangrove_session_id';
+
+  static Future<String> _getEndpoint() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUrl = prefs.getString('paired_server_url');
+    if (savedUrl != null && savedUrl.trim().isNotEmpty) {
+      final uri = Uri.tryParse(savedUrl.trim());
+      if (uri != null && uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https')) {
+        return savedUrl.trim();
+      }
+    }
+    return _hardcodedEndpoint;
+  }
 
   static Future<String> _getOrCreateDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -36,7 +45,7 @@ class MonitoringSyncService {
   }
 
   static Future<void> _registerDevice(String deviceId) async {
-    final endpoint = Uri.tryParse(_endpoint);
+    final endpoint = Uri.tryParse(await _getEndpoint());
     if (endpoint == null ||
         !endpoint.hasScheme ||
         (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {
@@ -80,7 +89,7 @@ class MonitoringSyncService {
 
   static Future<String> _ensureSession(String deviceId) async {
     final sessionId = await _getOrCreateSessionId();
-    final endpoint = Uri.tryParse(_endpoint);
+    final endpoint = Uri.tryParse(await _getEndpoint());
     if (endpoint == null ||
         !endpoint.hasScheme ||
         (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {
@@ -123,7 +132,7 @@ class MonitoringSyncService {
   }
 
   static Future<bool> syncCompletedScan(RecentTreeScan scan) async {
-    final endpoint = Uri.tryParse(_endpoint);
+    final endpoint = Uri.tryParse(await _getEndpoint());
     if (endpoint == null ||
         !endpoint.hasScheme ||
         (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {
@@ -188,7 +197,7 @@ class MonitoringSyncService {
   }
 
   static Future<bool> pingServer() async {
-    final endpoint = Uri.tryParse(_endpoint);
+    final endpoint = Uri.tryParse(await _getEndpoint());
     if (endpoint == null ||
         !endpoint.hasScheme ||
         (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {
@@ -221,7 +230,7 @@ class MonitoringSyncService {
     List<RecentTreeScan> recentScans,
     Function(int index) onScanSynced,
   ) async {
-    final endpoint = Uri.tryParse(_endpoint);
+    final endpoint = Uri.tryParse(await _getEndpoint());
     if (endpoint == null ||
         !endpoint.hasScheme ||
         (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {

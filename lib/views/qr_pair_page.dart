@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -108,12 +109,14 @@ class _QrPairPageState extends State<QrPairPage> {
 
     await _stopScanner(silent: true);
 
-    final success = await _attemptPairing(uri.toString());
+    final baseUrl = uri.origin.replaceAll(RegExp(r'/+$'), '');
+    final token = uri.queryParameters['token'];
+    final success = await _attemptPairing(baseUrl, token);
     if (!mounted) return;
 
     if (success) {
       setState(() {
-        _pairedServerUrl = uri.toString();
+        _pairedServerUrl = baseUrl;
         _isPaired = true;
         _isScanning = false;
         _errorMessage = null;
@@ -127,11 +130,9 @@ class _QrPairPageState extends State<QrPairPage> {
     }
   }
 
-  Future<bool> _attemptPairing(String baseUrl) async {
-    final normalizedUrl = baseUrl.replaceAll(RegExp(r'/+$'), '');
+  Future<bool> _attemptPairing(String baseUrl, String? token) async {
     final endpoints = [
-      Uri.parse('$normalizedUrl/api/pair/verify'),
-      Uri.parse('$normalizedUrl/api/pair/qr'),
+      Uri.parse('$baseUrl/api/scans'),
     ];
 
     for (final endpoint in endpoints) {
@@ -140,7 +141,36 @@ class _QrPairPageState extends State<QrPairPage> {
             .get(endpoint)
             .timeout(const Duration(seconds: 5));
         if (response.statusCode == 200) {
-          await _savePairing(normalizedUrl);
+          if (token != null && token.isNotEmpty) {
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              final deviceId = prefs.getString('mangrove_device_id') ?? 'device-${DateTime.now().millisecondsSinceEpoch}';
+              if (!prefs.containsKey('mangrove_device_id')) {
+                await prefs.setString('mangrove_device_id', deviceId);
+              }
+
+              final confirmResponse = await http
+                  .post(
+                    Uri.parse('$baseUrl/api/pair/confirm'),
+                    headers: {'Content-Type': 'application/json'},
+                    body: jsonEncode({
+                      'token': token,
+                      'deviceId': deviceId,
+                      'deviceName': 'Field Device',
+                    }),
+                  )
+                  .timeout(const Duration(seconds: 5));
+              if (confirmResponse.statusCode >= 400) {
+                debugPrint('Pair confirm rejected: ${confirmResponse.statusCode}');
+                return false;
+              }
+            } catch (e) {
+              debugPrint('Pair confirm failed: $e');
+              return false;
+            }
+          }
+
+          await _savePairing(baseUrl);
           return true;
         }
       } on SocketException {
@@ -151,16 +181,7 @@ class _QrPairPageState extends State<QrPairPage> {
         continue;
       }
     }
-
-    try {
-      await http
-          .get(Uri.parse('$normalizedUrl/api/scans'))
-          .timeout(const Duration(seconds: 5));
-      await _savePairing(normalizedUrl);
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return false;
   }
 
   Future<void> _savePairing(String baseUrl) async {
