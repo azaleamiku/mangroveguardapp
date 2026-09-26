@@ -12,7 +12,7 @@ import '../views/recent_scan_page.dart';
 class MonitoringSyncService {
   static const String _endpoint = String.fromEnvironment(
     'MANGROVE_GUARD_API_URL',
-    defaultValue: 'http://192.168.1.56:8080',
+    defaultValue: 'http://192.168.1.44:8080',
   );
   static const String _deviceIdKey = 'mangrove_device_id';
   static const String _sessionIdKey = 'mangrove_session_id';

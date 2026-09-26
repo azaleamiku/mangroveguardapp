@@ -8,6 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mangroveguardapp/models/mangrove_tree.dart';
 import 'package:mangroveguardapp/services/mangrove_detector.dart';
 
@@ -364,6 +367,32 @@ class ScannerPage extends StatefulWidget {
   State<ScannerPage> createState() => _ScannerPageState();
 }
 
+  class _QrDimOverlayPainter extends CustomPainter {
+    @override
+    void paint(Canvas canvas, Size size) {
+      final paint = Paint()
+        ..color = Colors.black.withValues(alpha: 0.6)
+        ..style = PaintingStyle.fill;
+
+      final path = Path();
+      final cutoutSize = 250.0;
+      final frameTop = (size.height - cutoutSize) / 2 - 40;
+      final frameLeft = (size.width - cutoutSize) / 2;
+      final cutoutRect = Rect.fromLTWH(frameLeft, frameTop, cutoutSize, cutoutSize);
+
+      path.addRect(Rect.fromLTWH(0, 0, size.width, size.height));
+      path.addRRect(RRect.fromRectAndRadius(cutoutRect, const Radius.circular(8)));
+      path.fillType = PathFillType.evenOdd;
+
+      canvas.drawPath(path, paint);
+    }
+
+    @override
+    bool shouldRepaint(CustomPainter oldDelegate) => false;
+  }
+
+
+
 class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
   static const double _minPredictionConfidence = 0.25;
   static const Duration _realtimeInterval = Duration(milliseconds: 380);
@@ -395,6 +424,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   Size? _lastViewportSize;
   bool _isRealtimeAssessment = false;
   bool _isRealtimeProcessing = false;
+  bool _isQrScanning = false;
+  bool _isQrVerifying = false;
+  String? _qrVerificationMessage;
+  String? _qrTemporaryError;
+  MobileScannerController? _qrScannerController;
+  StreamSubscription<BarcodeCapture>? _qrBarcodeSubscription;
+  Timer? _qrErrorDismissTimer;
   DateTime _lastRealtimeRun = DateTime.fromMillisecondsSinceEpoch(0);
   StabilityAssessment? _liveAssessment;
   double? _liveConfidence;
@@ -459,6 +495,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     _disposeLiveIsolate();
     unawaited(_disposeCameraController());
     _detector?.dispose();
+    unawaited(_pauseQrScanning());
+    _clearQrErrorDismiss();
     super.dispose();
   }
 
@@ -467,7 +505,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     if (state == AppLifecycleState.resumed) {
       if (_isPermissionDenied) {
         unawaited(_recheckDeniedPermission());
-      } else {
+      } else if (!_isQrScanning) {
         _scheduleCameraInit();
       }
       return;
@@ -480,6 +518,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       _disposeLiveIsolate();
       unawaited(_disposeCameraController());
       _cameraController = null;
+      if (_isQrScanning) {
+        unawaited(_pauseQrScanning());
+      }
     }
   }
 
@@ -1176,34 +1217,37 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       backgroundColor: richBlack,
       body: Stack(
         children: [
-          Positioned.fill(child: _buildCameraPreview()),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.58),
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.66),
-                    ],
-                    stops: const [0, 0.42, 1],
+          if (!_isQrScanning) Positioned.fill(child: _buildCameraPreview()),
+          if (_isQrScanning) _buildQrScannerOverlay(),
+          if (!_isQrScanning)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.58),
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.66),
+                      ],
+                      stops: const [0, 0.42, 1],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          Positioned.fill(
-            child: IgnorePointer(
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 120),
-                opacity: _isCapturing ? 1 : 0,
-                child: Container(color: Colors.white.withValues(alpha: 0.14)),
+          if (!_isQrScanning)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 120),
+                  opacity: _isCapturing ? 1 : 0,
+                  child: Container(color: Colors.white.withValues(alpha: 0.14)),
+                ),
               ),
             ),
-          ),
           _buildScannerHud(),
           if (_isRealtimeAssessment) _buildBoundingBoxOverlay(),
         ],
@@ -1219,31 +1263,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
           children: [
             Row(
               children: [
-                _buildStatusChip(
-                  icon: _isCapturing
-                      ? Icons.camera
-                      : (_isRealtimeAssessment
-                            ? Icons.sensors
-                            : Icons.check_circle),
-                  label: _isRealtimeAssessment ? 'Assessing' : 'Ready',
-                  glow: _isCapturing
-                      ? const Color(0xFFFFA34D)
-                      : (_isRealtimeAssessment
-                            ? const Color(0xFF56E0D4)
-                            : caribbeanGreen),
-                  trailing: (_isCapturing || _isRealtimeAssessment)
-                      ? const SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              antiFlashWhite,
-                            ),
-                          ),
-                        )
-                      : null,
-                ),
+                _buildQrToggleButton(),
                 const Spacer(),
                 _buildStatusChip(
                   icon: _detectorError != null
@@ -1272,29 +1292,121 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: 0.85,
-                  child: Container(
-                    key: _frameGuideInnerKey,
-                    decoration: !_isRealtimeAssessment
-                        ? BoxDecoration(
-                            border: Border.all(
-                              color: caribbeanGreen.withValues(alpha: 0.22),
-                              width: 2,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          )
-                        : null,
+            if (_isQrScanning && _qrTemporaryError != null)
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _qrTemporaryError!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: antiFlashWhite.withValues(alpha: 0.9),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (!_isQrScanning) ...[
+              const SizedBox(height: 12),
+              Expanded(
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: 0.85,
+                    child: Container(
+                      key: _frameGuideInnerKey,
+                      decoration: !_isRealtimeAssessment
+                          ? BoxDecoration(
+                              border: Border.all(
+                                color: caribbeanGreen.withValues(alpha: 0.22),
+                                width: 2,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            )
+                          : null,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            _buildGuidancePanel(),
+              const SizedBox(height: 12),
+              _buildGuidancePanel(),
+            ],
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQrToggleButton() {
+    final isScanning = _isQrScanning;
+
+    return Semantics(
+      button: true,
+      label: isScanning ? 'Cancel QR scan' : 'Scan QR code',
+      child: GestureDetector(
+        onTap: _toggleQrScanning,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 100),
+          curve: Curves.easeOutCubic,
+          scale: 1.0,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: darkGreen.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: isScanning
+                    ? Colors.redAccent.withValues(alpha: 0.7)
+                    : caribbeanGreen.withValues(alpha: 0.85),
+                width: 1.6,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: isScanning
+                      ? Colors.redAccent.withValues(alpha: 0.28)
+                      : caribbeanGreen.withValues(alpha: 0.28),
+                  blurRadius: 14,
+                  spreadRadius: 0.4,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isScanning ? Icons.close_rounded : Icons.qr_code_scanner_rounded,
+                  size: 17,
+                  color: antiFlashWhite,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  isScanning ? 'Cancel' : 'Scan QR',
+                  style: const TextStyle(
+                    color: antiFlashWhite,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1307,34 +1419,38 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     Widget? trailing,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
         color: darkGreen.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: glow.withValues(alpha: 0.48)),
+        border: Border.all(
+          color: glow.withValues(alpha: 0.85),
+          width: 1.6,
+        ),
         boxShadow: [
           BoxShadow(
-            color: glow.withValues(alpha: 0.24),
-            blurRadius: 12,
-            spreadRadius: 0.5,
+            color: glow.withValues(alpha: 0.28),
+            blurRadius: 14,
+            spreadRadius: 0.4,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: antiFlashWhite),
-          const SizedBox(width: 7),
+          Icon(icon, size: 17, color: antiFlashWhite),
+          const SizedBox(width: 8),
           Text(
             label.toUpperCase(),
             style: const TextStyle(
               color: antiFlashWhite,
-              fontSize: 10,
+              fontSize: 11.5,
               fontWeight: FontWeight.w800,
-              letterSpacing: 0.8,
+              letterSpacing: 0.4,
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: 6), trailing],
+          if (trailing != null) ...[const SizedBox(width: 8), trailing],
         ],
       ),
     );
@@ -1836,6 +1952,149 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     );
   }
 
+  Widget _buildQrScannerOverlay() {
+    final controller = _qrScannerController;
+    if (controller == null) {
+      return const ColoredBox(color: Colors.transparent);
+    }
+
+    return Positioned.fill(
+      child: IgnorePointer(
+        ignoring: true,
+        child: Stack(
+          children: [
+            MobileScanner(
+              controller: controller,
+              onDetect: _onQrCodeDetected,
+            ),
+            _buildQrDimOverlay(),
+            _buildQrViewfinder(),
+            _buildQrInfoCard(),
+            if (_isQrVerifying) _buildQrVerifyingOverlay(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQrDimOverlay() {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _QrDimOverlayPainter(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQrViewfinder() {
+    final size = MediaQuery.of(context).size;
+    const cutoutSize = 250.0;
+    final frameTop = (size.height - cutoutSize) / 2 - 40;
+
+    return Positioned(
+      top: frameTop,
+      left: (size.width - cutoutSize) / 2,
+      child: IgnorePointer(
+        child: Container(
+          width: cutoutSize,
+          height: cutoutSize,
+          decoration: BoxDecoration(
+            border: Border.all(color: caribbeanGreen, width: 2.5),
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQrVerifyingOverlay() {
+    final isSuccess = _qrVerificationMessage?.contains('success') ?? false;
+
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        decoration: BoxDecoration(
+          color: richBlack.withValues(alpha: 0.88),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSuccess
+                ? caribbeanGreen.withValues(alpha: 0.8)
+                : caribbeanGreen.withValues(alpha: 0.5),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isSuccess)
+              const Icon(
+                Icons.check_circle_rounded,
+                color: caribbeanGreen,
+                size: 48,
+              )
+            else
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(caribbeanGreen),
+                strokeWidth: 3,
+              ),
+            const SizedBox(height: 16),
+            Text(
+              _qrVerificationMessage ?? 'Verifying connection...',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: antiFlashWhite,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQrInfoCard() {
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: 100,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        decoration: BoxDecoration(
+          color: darkGreen.withValues(alpha: 0.76),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: caribbeanGreen.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'QR Scanner Guidance',
+              style: TextStyle(
+                color: antiFlashWhite,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              '1) Scan the QR code displayed on the mangroveguardweb dashboard.\n'
+              '2) Ensure the server URL is reachable from this device.\n'
+              '3) Once paired, this device can sync scans to the configured server.',
+              style: TextStyle(
+                color: antiFlashWhite,
+                fontSize: 12,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _startRealtimeAssessment() async {
     if (_isRealtimeAssessment) return;
     final controller = _cameraController;
@@ -2068,6 +2327,209 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     final extension = path.substring(dotIndex).toLowerCase();
     if (extension.length > 8 || extension.contains('/')) return '.jpg';
     return extension;
+  }
+
+  Future<void> _toggleQrScanning() async {
+    if (_isQrScanning) {
+      await _stopQrScanning();
+    } else {
+      await _startQrScanning();
+    }
+  }
+
+  Future<void> _startQrScanning() async {
+    if (_isQrScanning) return;
+
+    await _disposeCameraController();
+
+    setState(() {
+      _isQrScanning = true;
+    });
+
+    try {
+      final controller = MobileScannerController(
+        detectionSpeed: DetectionSpeed.normal,
+        facing: CameraFacing.back,
+        torchEnabled: false,
+      );
+
+      await controller.start();
+
+      setState(() {
+        _qrScannerController = controller;
+      });
+
+      _qrBarcodeSubscription = controller.barcodes.listen(
+        _onQrCodeDetected,
+        onError: (error) {
+          if (mounted) {
+            _showTopNotification('QR scanner error: $error');
+            setState(() {
+              _isQrScanning = false;
+            });
+            _scheduleCameraInit();
+          }
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        _showTopNotification('Failed to start QR scanner: ${e.toString()}');
+        setState(() {
+          _isQrScanning = false;
+        });
+        _scheduleCameraInit();
+      }
+    }
+  }
+
+  Future<void> _stopQrScanning() async {
+    await _pauseQrScanning();
+    _qrScannerController = null;
+    _clearQrErrorDismiss();
+    if (mounted) {
+      setState(() {
+        _isQrScanning = false;
+        _isQrVerifying = false;
+        _qrVerificationMessage = null;
+        _qrTemporaryError = null;
+      });
+    }
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scheduleCameraInit();
+    });
+  }
+
+  Future<void> _pauseQrScanning() async {
+    final controller = _qrScannerController;
+    if (controller != null) {
+      try {
+        await controller.stop();
+      } catch (_) {}
+    }
+    await _qrBarcodeSubscription?.cancel();
+    _qrBarcodeSubscription = null;
+    try {
+      controller?.dispose();
+    } catch (_) {}
+  }
+
+  void _onQrCodeDetected(BarcodeCapture capture) {
+    if (_isQrVerifying || _qrScannerController == null) return;
+
+    final barcode = capture.barcodes.firstOrNull;
+    if (barcode == null || barcode.rawValue == null) return;
+
+    final rawValue = barcode.rawValue!.trim();
+    if (rawValue.isEmpty) return;
+
+    final uri = Uri.tryParse(rawValue);
+    if (uri == null || (!uri.isScheme('http') && !uri.isScheme('https'))) {
+      _showTopNotification('Invalid QR code. Expected a server URL.');
+      return;
+    }
+
+    _pauseQrAndVerify(uri.toString());
+  }
+
+  void _pauseQrAndVerify(String serverUrl) {
+    final controller = _qrScannerController;
+    if (controller != null) {
+      try {
+        controller.stop();
+      } catch (_) {}
+    }
+
+    setState(() {
+      _isQrVerifying = true;
+      _qrVerificationMessage = 'Pairing device...';
+    });
+
+    _processQrCode(serverUrl);
+  }
+
+  Future<void> _processQrCode(String serverUrl) async {
+    final normalizedUrl = serverUrl.replaceAll(RegExp(r'/+$'), '');
+    final success = await _attemptPairing(normalizedUrl);
+    if (!mounted) return;
+
+    if (success) {
+      setState(() {
+        _qrVerificationMessage = 'Paired successfully!';
+      });
+
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      _showTopNotification('Device paired successfully!');
+      widget.controller?.setLatestMeasuredTree(
+        tree: const MangroveTree(),
+        capturedImagePath: normalizedUrl,
+        outcome: ScanOutcome.captureOnly,
+      );
+      widget.onScanCompleted?.call();
+
+      await _stopQrScanning();
+    } else {
+      _qrTemporaryError = 'Connection failed. Please try scanning again.';
+      _scheduleQrErrorDismiss();
+
+      setState(() {
+        _isQrVerifying = false;
+        _qrVerificationMessage = null;
+      });
+
+      final controller = _qrScannerController;
+      if (controller != null) {
+        try {
+          await controller.start();
+        } catch (_) {}
+      }
+    }
+  }
+
+  void _scheduleQrErrorDismiss() {
+    _qrErrorDismissTimer?.cancel();
+    _qrErrorDismissTimer = Timer(const Duration(milliseconds: 3000), () {
+      if (mounted) {
+        setState(() {
+          _qrTemporaryError = null;
+        });
+      }
+    });
+  }
+
+  void _clearQrErrorDismiss() {
+    _qrErrorDismissTimer?.cancel();
+    _qrErrorDismissTimer = null;
+  }
+
+  Future<bool> _attemptPairing(String baseUrl) async {
+    final endpoints = [
+      Uri.parse('$baseUrl/api/pair/qr'),
+      Uri.parse('$baseUrl/api/scans'),
+    ];
+
+    for (final endpoint in endpoints) {
+      try {
+        setState(() {
+          _qrVerificationMessage = 'Connecting to ${endpoint.host}...';
+        });
+
+        final response = await http.get(endpoint).timeout(const Duration(seconds: 5));
+        if (response.statusCode == 200) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('paired_server_url', baseUrl);
+          return true;
+        }
+      } on SocketException {
+        continue;
+      } on TimeoutException {
+        continue;
+      } catch (_) {
+        continue;
+      }
+    }
+    return false;
   }
 
   void _showTopNotification(String message) {

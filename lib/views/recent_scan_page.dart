@@ -1934,14 +1934,14 @@ class _TreeHighlightPainter extends CustomPainter {
         Offset(right, bottom - radius * 0.6 - tick),
         Offset(right, bottom - radius * 0.6),
         tickPaint,
-      );
-    }
-  }
+   );
+   }
+}
 
   @override
   bool shouldRepaint(covariant _TreeHighlightPainter oldDelegate) {
     return oldDelegate.color != color || !listEquals(oldDelegate.rects, rects);
-  }
+   }
 }
 
 class _PeekHighlightButton extends StatelessWidget {
@@ -2307,16 +2307,16 @@ class _EmptyRecentScanCard extends StatelessWidget {
       children: [
         Positioned.fill(
           child: DecoratedBox(
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  richBlack,
-                  darkGreen.withValues(alpha: 0.9),
-                  richBlack,
+                  Color(0xFF021B1A),
+                  Color(0xFF032221),
+                  Color(0xFF021B1A),
                 ],
-                stops: const [0.0, 0.55, 1.0],
+                stops: [0.0, 0.55, 1.0],
               ),
             ),
           ),
