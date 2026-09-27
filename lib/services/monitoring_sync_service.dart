@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as image;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 import '../models/mangrove_tree.dart';
 import '../views/recent_scan_page.dart';
@@ -44,6 +45,27 @@ class MonitoringSyncService {
     return sessionId;
   }
 
+  static Future<String> _getDeviceName() async {
+    final deviceInfo = DeviceInfoPlugin();
+    if (Platform.isAndroid) {
+      final info = await deviceInfo.androidInfo;
+      return info.device ?? info.model ?? 'Android Device';
+    } else if (Platform.isIOS) {
+      final info = await deviceInfo.iosInfo;
+      return info.name ?? 'iOS Device';
+    } else if (Platform.isLinux) {
+      final info = await deviceInfo.linuxInfo;
+      return info.prettyName ?? info.name ?? 'Linux Device';
+    } else if (Platform.isWindows) {
+      final info = await deviceInfo.windowsInfo;
+      return info.computerName ?? 'Windows Device';
+    } else if (Platform.isMacOS) {
+      final info = await deviceInfo.macOsInfo;
+      return info.computerName ?? 'macOS Device';
+    }
+    return 'Unknown Device';
+  }
+
   static Future<void> _registerDevice(String deviceId) async {
     final endpoint = Uri.tryParse(await _getEndpoint());
     if (endpoint == null ||
@@ -67,7 +89,7 @@ class MonitoringSyncService {
       request.write(
         jsonEncode({
           'device_id': deviceId,
-          'device_name': 'Field Device',
+          'device_name': await _getDeviceName(),
         }),
       );
       final response = await request.close().timeout(const Duration(seconds: 5));

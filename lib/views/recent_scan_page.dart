@@ -1389,6 +1389,8 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
   }
 
   Future<void> _syncPending() async {
+    if (_isSyncing) return;
+
     final scans = widget.scansListenable.value;
     final pending = scans.where((scan) => !scan.isSynced).toList();
     if (pending.isEmpty) {
@@ -1704,15 +1706,6 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _endpoint ?? '',
-                      style: TextStyle(
-                        color: antiFlashWhite.withValues(alpha: 0.8),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
                     ),
                   ],
                 ),

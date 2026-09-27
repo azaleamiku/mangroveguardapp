@@ -12,6 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:mangroveguardapp/models/mangrove_tree.dart';
 import 'package:mangroveguardapp/services/mangrove_detector.dart';
 
@@ -427,6 +428,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   bool _isRealtimeProcessing = false;
   bool _isQrScanning = false;
   bool _isQrVerifying = false;
+  bool _isPaired = false;
   String? _qrVerificationMessage;
   String? _qrTemporaryError;
   MobileScannerController? _qrScannerController;
@@ -460,6 +462,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     widget.controller?.addListener(_handleControllerSignal);
     _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
     _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
+    _restorePairedState();
     if (widget.isActive) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _scheduleCameraInit(),
@@ -467,6 +470,18 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     }
     _initDetector();
     unawaited(_ensureLiveIsolateReady());
+  }
+
+  Future<void> _restorePairedState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedUrl = prefs.getString('paired_server_url');
+      if (savedUrl != null && savedUrl.isNotEmpty) {
+        setState(() {
+          _isPaired = true;
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -1354,10 +1369,15 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
   Widget _buildQrToggleButton() {
     final isScanning = _isQrScanning;
+    final isPaired = _isPaired;
 
     return Semantics(
       button: true,
-      label: isScanning ? 'Cancel QR scan' : 'Scan QR code',
+      label: isPaired
+          ? 'Unpair device'
+          : isScanning
+              ? 'Cancel QR scan'
+              : 'Scan QR code',
       child: GestureDetector(
         onTap: _toggleQrScanning,
         behavior: HitTestBehavior.opaque,
@@ -1371,18 +1391,22 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
               color: darkGreen.withValues(alpha: 0.72),
               borderRadius: BorderRadius.circular(999),
               border: Border.all(
-                color: isScanning
-                    ? Colors.redAccent.withValues(alpha: 0.7)
-                    : caribbeanGreen.withValues(alpha: 0.85),
+                color: isPaired
+                    ? Colors.orangeAccent.withValues(alpha: 0.8)
+                    : isScanning
+                        ? Colors.redAccent.withValues(alpha: 0.7)
+                        : caribbeanGreen.withValues(alpha: 0.85),
                 width: 1.6,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: isScanning
-                      ? Colors.redAccent.withValues(alpha: 0.28)
-                      : caribbeanGreen.withValues(alpha: 0.28),
-                  blurRadius: 14,
-                  spreadRadius: 0.4,
+                  color: isPaired
+                      ? Colors.orangeAccent.withValues(alpha: 0.18)
+                      : isScanning
+                          ? Colors.redAccent.withValues(alpha: 0.18)
+                          : caribbeanGreen.withValues(alpha: 0.18),
+                  blurRadius: 10,
+                  spreadRadius: 0.2,
                   offset: const Offset(0, 6),
                 ),
               ],
@@ -1391,13 +1415,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  isScanning ? Icons.close_rounded : Icons.qr_code_scanner_rounded,
+                  isPaired
+                      ? Icons.link_off_rounded
+                      : isScanning
+                          ? Icons.close_rounded
+                          : Icons.qr_code_scanner_rounded,
                   size: 17,
                   color: antiFlashWhite,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  isScanning ? 'Cancel' : 'Scan QR',
+                  isPaired
+                      ? 'Unpair'
+                      : isScanning
+                          ? 'Cancel'
+                          : 'Scan QR',
                   style: const TextStyle(
                     color: antiFlashWhite,
                     fontSize: 11.5,
@@ -1430,9 +1462,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
         ),
         boxShadow: [
           BoxShadow(
-            color: glow.withValues(alpha: 0.28),
-            blurRadius: 14,
-            spreadRadius: 0.4,
+            color: glow.withValues(alpha: 0.18),
+            blurRadius: 10,
+            spreadRadius: 0.2,
             offset: const Offset(0, 6),
           ),
         ],
@@ -1970,7 +2002,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
             ),
             _buildQrDimOverlay(),
             _buildQrViewfinder(),
-            _buildQrInfoCard(),
+            if (!_isPaired) _buildQrInfoCard(),
             if (_isQrVerifying) _buildQrVerifyingOverlay(),
           ],
         ),
@@ -2058,7 +2090,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     return Positioned(
       left: 16,
       right: 16,
-      bottom: 100,
+      bottom: 130,
       child: Container(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         decoration: BoxDecoration(
@@ -2331,11 +2363,61 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   Future<void> _toggleQrScanning() async {
+    if (_isPaired) {
+      await _unpair();
+      return;
+    }
+
     if (_isQrScanning) {
       await _stopQrScanning();
     } else {
       await _startQrScanning();
     }
+  }
+
+  Future<void> _unpair() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: darkGreen.withValues(alpha: 0.9),
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: caribbeanGreen.withValues(alpha: 0.4), width: 1),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        elevation: 0,
+        title: const Text(
+          'Unpair device?',
+          style: TextStyle(color: antiFlashWhite, fontWeight: FontWeight.w800),
+        ),
+        content: Text(
+          'This will remove the saved server connection.',
+          style: TextStyle(color: antiFlashWhite.withValues(alpha: 0.7), fontSize: 14, height: 1.4),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(foregroundColor: caribbeanGreen),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: caribbeanGreen),
+            child: const Text('Unpair'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('paired_server_url');
+    setState(() {
+      _isPaired = false;
+      _qrVerificationMessage = null;
+      _qrTemporaryError = null;
+    });
   }
 
   Future<void> _startQrScanning() async {
@@ -2416,7 +2498,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   void _onQrCodeDetected(BarcodeCapture capture) {
-    if (_isQrVerifying || _qrScannerController == null) return;
+    if (_isQrVerifying || _qrScannerController == null || _isPaired) return;
 
     final barcode = capture.barcodes.firstOrNull;
     if (barcode == null || barcode.rawValue == null) return;
@@ -2459,6 +2541,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     if (success) {
       setState(() {
         _qrVerificationMessage = 'Paired successfully!';
+        _isPaired = true;
       });
 
       await Future.delayed(const Duration(milliseconds: 800));
@@ -2500,6 +2583,27 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     _qrErrorDismissTimer = null;
   }
 
+  Future<String> _getDeviceName() async {
+    final deviceInfo = DeviceInfoPlugin();
+    if (Platform.isAndroid) {
+      final info = await deviceInfo.androidInfo;
+      return info.device ?? info.model ?? 'Android Device';
+    } else if (Platform.isIOS) {
+      final info = await deviceInfo.iosInfo;
+      return info.name ?? 'iOS Device';
+    } else if (Platform.isLinux) {
+      final info = await deviceInfo.linuxInfo;
+      return info.prettyName ?? info.name ?? 'Linux Device';
+    } else if (Platform.isWindows) {
+      final info = await deviceInfo.windowsInfo;
+      return info.computerName ?? 'Windows Device';
+    } else if (Platform.isMacOS) {
+      final info = await deviceInfo.macOsInfo;
+      return info.computerName ?? 'macOS Device';
+    }
+    return 'Unknown Device';
+  }
+
   Future<bool> _attemptPairing(String baseUrl, String? token) async {
     final endpoints = [
       Uri.parse('$baseUrl/api/scans'),
@@ -2526,11 +2630,11 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                   .post(
                     Uri.parse('$baseUrl/api/pair/confirm'),
                     headers: {'Content-Type': 'application/json'},
-                    body: jsonEncode({
-                      'token': token,
-                      'deviceId': deviceId,
-                      'deviceName': 'Field Device',
-                    }),
+                     body: jsonEncode({
+                       'token': token,
+                       'deviceId': deviceId,
+                       'deviceName': await _getDeviceName(),
+                     }),
                   )
                   .timeout(const Duration(seconds: 5));
               if (confirmResponse.statusCode >= 400) {

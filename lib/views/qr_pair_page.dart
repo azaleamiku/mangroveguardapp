@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:device_info_plus/device_info_plus.dart';
 
 const Color caribbeanGreen = Color(0xFF00DF81);
 const Color antiFlashWhite = Color(0xFFF1F7F6);
@@ -28,6 +29,7 @@ class _QrPairPageState extends State<QrPairPage> {
   String? _errorMessage;
   String? _pairedServerUrl;
   bool _isPaired = false;
+  bool _isProcessingQr = false;
   Timer? _statusTimer;
 
   @override
@@ -52,6 +54,27 @@ class _QrPairPageState extends State<QrPairPage> {
         _isPaired = true;
       });
     }
+  }
+
+  Future<String> _getDeviceName() async {
+    final deviceInfo = DeviceInfoPlugin();
+    if (Platform.isAndroid) {
+      final info = await deviceInfo.androidInfo;
+      return info.device ?? info.model ?? 'Android Device';
+    } else if (Platform.isIOS) {
+      final info = await deviceInfo.iosInfo;
+      return info.name ?? 'iOS Device';
+    } else if (Platform.isLinux) {
+      final info = await deviceInfo.linuxInfo;
+      return info.prettyName ?? info.name ?? 'Linux Device';
+    } else if (Platform.isWindows) {
+      final info = await deviceInfo.windowsInfo;
+      return info.computerName ?? 'Windows Device';
+    } else if (Platform.isMacOS) {
+      final info = await deviceInfo.macOsInfo;
+      return info.computerName ?? 'macOS Device';
+    }
+    return 'Unknown Device';
   }
 
   Future<void> _startScanner() async {
@@ -95,6 +118,8 @@ class _QrPairPageState extends State<QrPairPage> {
   }
 
   Future<void> _onBarcodeDetected(BarcodeCapture capture) async {
+    if (_isPaired || _isProcessingQr) return;
+
     final barcode = capture.barcodes.firstOrNull;
     if (barcode == null || barcode.rawValue == null) return;
 
@@ -107,26 +132,27 @@ class _QrPairPageState extends State<QrPairPage> {
       return;
     }
 
-    await _stopScanner(silent: true);
+    _isProcessingQr = true;
+    try {
+      final baseUrl = uri.origin.replaceAll(RegExp(r'/+$'), '');
+      final token = uri.queryParameters['token'];
+      final success = await _attemptPairing(baseUrl, token);
+      if (!mounted) return;
 
-    final baseUrl = uri.origin.replaceAll(RegExp(r'/+$'), '');
-    final token = uri.queryParameters['token'];
-    final success = await _attemptPairing(baseUrl, token);
-    if (!mounted) return;
-
-    if (success) {
-      setState(() {
-        _pairedServerUrl = baseUrl;
-        _isPaired = true;
-        _isScanning = false;
-        _errorMessage = null;
-      });
-      widget.onPaired?.call();
-    } else {
-      setState(() {
-        _errorMessage = 'Connection failed. Server unreachable.';
-        _isScanning = false;
-      });
+      if (success) {
+        setState(() {
+          _pairedServerUrl = baseUrl;
+          _isPaired = true;
+          _errorMessage = null;
+        });
+        widget.onPaired?.call();
+      } else {
+        setState(() {
+          _errorMessage = 'Connection failed. Server unreachable.';
+        });
+      }
+    } finally {
+      _isProcessingQr = false;
     }
   }
 
@@ -149,6 +175,8 @@ class _QrPairPageState extends State<QrPairPage> {
                 await prefs.setString('mangrove_device_id', deviceId);
               }
 
+              final deviceName = await _getDeviceName();
+
               final confirmResponse = await http
                   .post(
                     Uri.parse('$baseUrl/api/pair/confirm'),
@@ -156,7 +184,7 @@ class _QrPairPageState extends State<QrPairPage> {
                     body: jsonEncode({
                       'token': token,
                       'deviceId': deviceId,
-                      'deviceName': 'Field Device',
+                      'deviceName': deviceName,
                     }),
                   )
                   .timeout(const Duration(seconds: 5));
@@ -272,11 +300,9 @@ class _QrPairPageState extends State<QrPairPage> {
                 ),
               ),
             Expanded(
-              child: _isPaired && _pairedServerUrl != null
-                  ? _buildPairedView()
-                  : _isScanning
-                      ? _buildScannerView()
-                      : _buildIdleView(),
+              child: _isScanning
+                  ? _buildScannerView()
+                  : _buildIdleView(),
             ),
             _buildToggleButton(),
           ],
@@ -393,71 +419,6 @@ class _QrPairPageState extends State<QrPairPage> {
     );
   }
 
-  Widget _buildPairedView() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 88,
-              height: 88,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: caribbeanGreen.withValues(alpha: 0.18),
-                border: Border.all(
-                  color: caribbeanGreen.withValues(alpha: 0.8),
-                  width: 1.8,
-                ),
-              ),
-              child: const Icon(
-                Icons.cloud_done_rounded,
-                size: 42,
-                color: caribbeanGreen,
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Device Paired',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: antiFlashWhite,
-                fontSize: 19,
-                fontWeight: FontWeight.w800,
-                height: 1.25,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: darkGreen.withValues(alpha: 0.75),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: caribbeanGreen.withValues(alpha: 0.45)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.dns_rounded, size: 16, color: caribbeanGreen),
-                  const SizedBox(width: 8),
-                  Text(
-                    _pairedServerUrl ?? '',
-                    style: TextStyle(
-                      color: antiFlashWhite.withValues(alpha: 0.88),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildToggleButton() {
     final isScanning = _isScanning;
     final isPaired = _isPaired;
@@ -511,12 +472,12 @@ class _QrPairPageState extends State<QrPairPage> {
                     color: antiFlashWhite,
                   ),
                   const SizedBox(width: 10),
-                  Text(
-                    isPaired
-                        ? 'Unpair Device'
-                        : isScanning
-                            ? 'Cancel'
-                            : 'Scan QR',
+                   Text(
+                     isPaired
+                         ? 'Unpair'
+                         : isScanning
+                             ? 'Cancel'
+                             : 'Scan QR',
                     style: const TextStyle(
                       color: antiFlashWhite,
                       fontSize: 14.5,
