@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-
-const Color appHeaderBackground = Color(0xFF032221);
-const Color appHeaderForeground = Color(0xFFF1F7F6);
+import 'package:mangroveguardapp/theme/colors.dart';
 
 PreferredSizeWidget buildAppHeader(String title) {
   return AppBar(
@@ -11,7 +9,7 @@ PreferredSizeWidget buildAppHeader(String title) {
     ),
     centerTitle: true,
     elevation: 0,
-    backgroundColor: appHeaderBackground,
-    foregroundColor: appHeaderForeground,
+    backgroundColor: AppColors.darkGreen,
+    foregroundColor: AppColors.antiFlashWhite,
   );
 }

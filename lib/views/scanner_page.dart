@@ -13,13 +13,11 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:mangroveguardapp/models/mangrove_tree.dart';
 import 'package:mangroveguardapp/services/mangrove_detector.dart';
+import '../constants/app_constants.dart';
 
-const Color caribbeanGreen = Color(0xFF00DF81);
-const Color antiFlashWhite = Color(0xFFF1F7F6);
-const Color darkGreen = Color(0xFF032221);
-const Color richBlack = Color(0xFF021B1A);
 
 const String _liveIsolateReady = 'ready';
 const String _liveIsolateProcess = 'process';
@@ -434,6 +432,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   MobileScannerController? _qrScannerController;
   StreamSubscription<BarcodeCapture>? _qrBarcodeSubscription;
   Timer? _qrErrorDismissTimer;
+  Timer? _pairingStatusTimer;
   DateTime _lastRealtimeRun = DateTime.fromMillisecondsSinceEpoch(0);
   StabilityAssessment? _liveAssessment;
   double? _liveConfidence;
@@ -463,6 +462,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     _lastShutterSignal = widget.controller?.shutterSignal ?? 0;
     _lastRealtimeSignal = widget.controller?.isRealtimeAssessment ?? false;
     _restorePairedState();
+    _startPairingStatusPolling();
     if (widget.isActive) {
       WidgetsBinding.instance.addPostFrameCallback(
         (_) => _scheduleCameraInit(),
@@ -475,13 +475,63 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   Future<void> _restorePairedState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedUrl = prefs.getString('paired_server_url');
+      final savedUrl = prefs.getString(AppConstants.pairedServerUrlKey);
       if (savedUrl != null && savedUrl.isNotEmpty) {
         setState(() {
           _isPaired = true;
         });
       }
     } catch (_) {}
+  }
+
+  void _startPairingStatusPolling() {
+    _pairingStatusTimer?.cancel();
+    _pairingStatusTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (!mounted) return;
+      await _verifyServerPairing();
+    });
+  }
+
+  Future<void> _verifyServerPairing() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUrl = prefs.getString(AppConstants.pairedServerUrlKey);
+    final deviceId = prefs.getString(AppConstants.deviceIdKey);
+
+    if (savedUrl == null || savedUrl.isEmpty || deviceId == null || deviceId.isEmpty) {
+      return;
+    }
+
+    try {
+      final baseUrl = savedUrl.replaceAll(RegExp(r'/+$'), '');
+      final response = await http
+          .get(Uri.parse('$baseUrl/${AppConstants.apiDevices}'))
+          .timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final devices = jsonDecode(response.body) as List<dynamic>;
+        final device = devices.cast<Map<String, dynamic>>().firstWhere(
+          (d) => d['deviceId'] == deviceId,
+          orElse: () => <String, dynamic>{},
+        );
+
+        final lastPairedToken = device['lastPairedToken'] as String?;
+        if (lastPairedToken == null || lastPairedToken.isEmpty) {
+          if (_isPaired) {
+            await prefs.remove(AppConstants.pairedServerUrlKey);
+            if (mounted) {
+              setState(() {
+                _isPaired = false;
+                _qrVerificationMessage = null;
+                _qrTemporaryError = null;
+              });
+            }
+          }
+        }
+      }
+    } on SocketException catch (_) {}
+    on TimeoutException catch (_) {}
+    on HttpException catch (_) {}
+    catch (_) {}
   }
 
   @override
@@ -513,6 +563,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     _detector?.dispose();
     unawaited(_pauseQrScanning());
     _clearQrErrorDismiss();
+    _pairingStatusTimer?.cancel();
     super.dispose();
   }
 
@@ -1089,16 +1140,16 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
     if (_isInitializing) {
       return const Scaffold(
-        backgroundColor: richBlack,
+        backgroundColor: AppColors.richBlack,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(color: caribbeanGreen),
+              CircularProgressIndicator(color: AppColors.caribbeanGreen),
               SizedBox(height: 20),
               Text(
                 'Initializing Scanner...',
-                style: TextStyle(color: antiFlashWhite, fontSize: 16),
+                style: TextStyle(color: AppColors.antiFlashWhite, fontSize: 16),
               ),
             ],
           ),
@@ -1108,7 +1159,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
     if (_isPermissionDenied) {
       return Scaffold(
-        backgroundColor: richBlack,
+        backgroundColor: AppColors.richBlack,
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -1125,7 +1176,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                   _cameraError ??
                       'Camera permission is required to scan mangroves.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: antiFlashWhite, fontSize: 15),
+                  style: const TextStyle(color: AppColors.antiFlashWhite, fontSize: 15),
                 ),
                 const SizedBox(height: 20),
                 Wrap(
@@ -1138,7 +1189,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                           ? () => openAppSettings()
                           : _resetPermissionStateAndRetry,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: caribbeanGreen,
+                        backgroundColor: AppColors.caribbeanGreen,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 20,
                           vertical: 12,
@@ -1147,7 +1198,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                       child: Text(
                         _isPermanentlyDenied ? 'Open Settings' : 'Retry',
                         style: const TextStyle(
-                          color: richBlack,
+                          color: AppColors.richBlack,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -1166,7 +1217,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
           _cameraError!.contains('permanently denied') ||
           _cameraError!.contains('app settings');
       return Scaffold(
-        backgroundColor: richBlack,
+        backgroundColor: AppColors.richBlack,
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -1182,7 +1233,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                 Text(
                   _cameraError!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: antiFlashWhite, fontSize: 15),
+                  style: const TextStyle(color: AppColors.antiFlashWhite, fontSize: 15),
                 ),
                 const SizedBox(height: 20),
                 Wrap(
@@ -1193,7 +1244,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                     ElevatedButton(
                       onPressed: _initCamera,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: caribbeanGreen,
+                        backgroundColor: AppColors.caribbeanGreen,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 20,
                           vertical: 12,
@@ -1202,7 +1253,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                       child: const Text(
                         'Retry',
                         style: TextStyle(
-                          color: richBlack,
+                          color: AppColors.richBlack,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -1211,8 +1262,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                       OutlinedButton(
                         onPressed: () => openAppSettings(),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: antiFlashWhite,
-                          side: const BorderSide(color: caribbeanGreen),
+                          foregroundColor: AppColors.antiFlashWhite,
+                          side: const BorderSide(color: AppColors.caribbeanGreen),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 12,
@@ -1230,7 +1281,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     }
 
     return Scaffold(
-      backgroundColor: richBlack,
+      backgroundColor: AppColors.richBlack,
       body: Stack(
         children: [
           if (!_isQrScanning) Positioned.fill(child: _buildCameraPreview()),
@@ -1291,7 +1342,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                   glow: _detectorError != null
                       ? Colors.redAccent
                       : (_isDetectorReady
-                            ? caribbeanGreen
+                            ? AppColors.caribbeanGreen
                             : const Color(0xFFFFA34D)),
                   trailing: (!_isDetectorReady && _detectorError == null)
                       ? const SizedBox(
@@ -1300,7 +1351,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             valueColor: AlwaysStoppedAnimation<Color>(
-                              antiFlashWhite,
+                              AppColors.antiFlashWhite,
                             ),
                           ),
                         )
@@ -1328,7 +1379,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: antiFlashWhite.withValues(alpha: 0.9),
+                          color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                         ),
@@ -1348,7 +1399,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                       decoration: !_isRealtimeAssessment
                           ? BoxDecoration(
                               border: Border.all(
-                                color: caribbeanGreen.withValues(alpha: 0.22),
+                                color: AppColors.caribbeanGreen.withValues(alpha: 0.22),
                                 width: 2,
                               ),
                               borderRadius: BorderRadius.circular(12),
@@ -1388,14 +1439,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             decoration: BoxDecoration(
-              color: darkGreen.withValues(alpha: 0.72),
+              color: AppColors.darkGreen.withValues(alpha: 0.72),
               borderRadius: BorderRadius.circular(999),
               border: Border.all(
                 color: isPaired
                     ? Colors.orangeAccent.withValues(alpha: 0.8)
                     : isScanning
                         ? Colors.redAccent.withValues(alpha: 0.7)
-                        : caribbeanGreen.withValues(alpha: 0.85),
+                        : AppColors.caribbeanGreen.withValues(alpha: 0.85),
                 width: 1.6,
               ),
               boxShadow: [
@@ -1404,7 +1455,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                       ? Colors.orangeAccent.withValues(alpha: 0.18)
                       : isScanning
                           ? Colors.redAccent.withValues(alpha: 0.18)
-                          : caribbeanGreen.withValues(alpha: 0.18),
+                          : AppColors.caribbeanGreen.withValues(alpha: 0.18),
                   blurRadius: 10,
                   spreadRadius: 0.2,
                   offset: const Offset(0, 6),
@@ -1421,7 +1472,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                           ? Icons.close_rounded
                           : Icons.qr_code_scanner_rounded,
                   size: 17,
-                  color: antiFlashWhite,
+                  color: AppColors.antiFlashWhite,
                 ),
                 const SizedBox(width: 8),
                 Text(
@@ -1431,7 +1482,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                           ? 'Cancel'
                           : 'Scan QR',
                   style: const TextStyle(
-                    color: antiFlashWhite,
+                    color: AppColors.antiFlashWhite,
                     fontSize: 11.5,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.4,
@@ -1454,7 +1505,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
-        color: darkGreen.withValues(alpha: 0.72),
+        color: AppColors.darkGreen.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: glow.withValues(alpha: 0.85),
@@ -1472,12 +1523,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 17, color: antiFlashWhite),
+          Icon(icon, size: 17, color: AppColors.antiFlashWhite),
           const SizedBox(width: 8),
           Text(
             label.toUpperCase(),
             style: const TextStyle(
-              color: antiFlashWhite,
+              color: AppColors.antiFlashWhite,
               fontSize: 11.5,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.4,
@@ -1495,9 +1546,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
-        color: darkGreen.withValues(alpha: 0.76),
+        color: AppColors.darkGreen.withValues(alpha: 0.76),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: caribbeanGreen.withValues(alpha: 0.3)),
+        border: Border.all(color: AppColors.caribbeanGreen.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1506,7 +1557,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
           Text(
             _isRealtimeAssessment ? 'Live Assessment' : 'Field Guidance',
             style: const TextStyle(
-              color: antiFlashWhite,
+              color: AppColors.antiFlashWhite,
               fontSize: 12,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.4,
@@ -1522,12 +1573,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                         : 'MODEL LOADING...'),
               style: TextStyle(
                 color: _liveAssessment == StabilityAssessment.high
-                    ? caribbeanGreen
+                    ? AppColors.caribbeanGreen
                     : _liveAssessment == StabilityAssessment.moderate
                     ? const Color(0xFFFFA34D)
                     : _liveAssessment == StabilityAssessment.low
                     ? Colors.redAccent
-                    : antiFlashWhite.withValues(alpha: 0.7),
+                    : AppColors.antiFlashWhite.withValues(alpha: 0.7),
                 fontSize: 13,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.5,
@@ -1558,7 +1609,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                 return Text(
                   description,
                   style: const TextStyle(
-                    color: antiFlashWhite,
+                    color: AppColors.antiFlashWhite,
                     fontSize: 12,
                     height: 1.4,
                   ),
@@ -1569,7 +1620,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
             const Text(
               '1) Position the tree within the frame, capturing from the roots up to the visible trunk.\n2) Keep steady and tap or hold the shutter button.\n3) Re-capture if any part of the tree (roots or trunk) is cut off.',
               style: TextStyle(
-                color: antiFlashWhite,
+                color: AppColors.antiFlashWhite,
                 fontSize: 12,
                 height: 1.4,
               ),
@@ -1578,7 +1629,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
             const Text(
               'Hold the shutter to start live assessment. Hold again to stop.',
               style: TextStyle(
-                color: antiFlashWhite,
+                color: AppColors.antiFlashWhite,
                 fontSize: 12,
                 height: 1.3,
               ),
@@ -1591,10 +1642,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
               child: OutlinedButton.icon(
                 onPressed: canUpload ? _handleUploadPhoto : null,
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: antiFlashWhite,
-                  backgroundColor: darkGreen.withValues(alpha: 0.45),
+                  foregroundColor: AppColors.antiFlashWhite,
+                  backgroundColor: AppColors.darkGreen.withValues(alpha: 0.45),
                   side: BorderSide(
-                    color: caribbeanGreen.withValues(alpha: 0.5),
+                    color: AppColors.caribbeanGreen.withValues(alpha: 0.5),
                   ),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 14,
@@ -1627,7 +1678,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     Color boxColor;
     switch (_liveAssessment) {
       case StabilityAssessment.high:
-        boxColor = caribbeanGreen;
+        boxColor = AppColors.caribbeanGreen;
         break;
       case StabilityAssessment.moderate:
         boxColor = const Color(0xFFFFA34D);
@@ -1636,7 +1687,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
         boxColor = Colors.redAccent;
         break;
       default:
-        boxColor = caribbeanGreen;
+        boxColor = AppColors.caribbeanGreen;
     }
 
     return Positioned(
@@ -2033,7 +2084,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
           width: cutoutSize,
           height: cutoutSize,
           decoration: BoxDecoration(
-            border: Border.all(color: caribbeanGreen, width: 2.5),
+            border: Border.all(color: AppColors.caribbeanGreen, width: 2.5),
             borderRadius: BorderRadius.circular(8),
           ),
         ),
@@ -2048,12 +2099,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
         decoration: BoxDecoration(
-          color: richBlack.withValues(alpha: 0.88),
+          color: AppColors.richBlack.withValues(alpha: 0.88),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSuccess
-                ? caribbeanGreen.withValues(alpha: 0.8)
-                : caribbeanGreen.withValues(alpha: 0.5),
+                ? AppColors.caribbeanGreen.withValues(alpha: 0.8)
+                : AppColors.caribbeanGreen.withValues(alpha: 0.5),
           ),
         ),
         child: Column(
@@ -2062,12 +2113,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
             if (isSuccess)
               const Icon(
                 Icons.check_circle_rounded,
-                color: caribbeanGreen,
+                color: AppColors.caribbeanGreen,
                 size: 48,
               )
             else
               const CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(caribbeanGreen),
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.caribbeanGreen),
                 strokeWidth: 3,
               ),
             const SizedBox(height: 16),
@@ -2075,7 +2126,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
               _qrVerificationMessage ?? 'Verifying connection...',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: antiFlashWhite,
+                color: AppColors.antiFlashWhite,
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
               ),
@@ -2094,9 +2145,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       child: Container(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         decoration: BoxDecoration(
-          color: darkGreen.withValues(alpha: 0.76),
+          color: AppColors.darkGreen.withValues(alpha: 0.76),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: caribbeanGreen.withValues(alpha: 0.3)),
+          border: Border.all(color: AppColors.caribbeanGreen.withValues(alpha: 0.3)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2105,7 +2156,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
             const Text(
               'QR Scanner Guidance',
               style: TextStyle(
-                color: antiFlashWhite,
+                color: AppColors.antiFlashWhite,
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
                 letterSpacing: 0.4,
@@ -2117,7 +2168,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
               '2) Ensure the server URL is reachable from this device.\n'
               '3) Once paired, this device can sync scans to the configured server.',
               style: TextStyle(
-                color: antiFlashWhite,
+                color: AppColors.antiFlashWhite,
                 fontSize: 12,
                 height: 1.4,
               ),
@@ -2379,30 +2430,30 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: darkGreen.withValues(alpha: 0.9),
+        backgroundColor: AppColors.darkGreen.withValues(alpha: 0.9),
         shape: RoundedRectangleBorder(
-          side: BorderSide(color: caribbeanGreen.withValues(alpha: 0.4), width: 1),
+          side: BorderSide(color: AppColors.caribbeanGreen.withValues(alpha: 0.4), width: 1),
           borderRadius: BorderRadius.circular(16),
         ),
         elevation: 0,
         title: const Text(
           'Unpair device?',
-          style: TextStyle(color: antiFlashWhite, fontWeight: FontWeight.w800),
+          style: TextStyle(color: AppColors.antiFlashWhite, fontWeight: FontWeight.w800),
         ),
         content: Text(
           'This will remove the saved server connection.',
-          style: TextStyle(color: antiFlashWhite.withValues(alpha: 0.7), fontSize: 14, height: 1.4),
+          style: TextStyle(color: AppColors.antiFlashWhite.withValues(alpha: 0.7), fontSize: 14, height: 1.4),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            style: TextButton.styleFrom(foregroundColor: caribbeanGreen),
+            style: TextButton.styleFrom(foregroundColor: AppColors.caribbeanGreen),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: caribbeanGreen),
+            style: TextButton.styleFrom(foregroundColor: AppColors.caribbeanGreen),
             child: const Text('Unpair'),
           ),
         ],
@@ -2412,7 +2463,25 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     if (confirmed != true) return;
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('paired_server_url');
+    final savedUrl = prefs.getString(AppConstants.pairedServerUrlKey);
+    final deviceId = prefs.getString(AppConstants.deviceIdKey);
+
+    if (savedUrl != null && deviceId != null && deviceId.isNotEmpty) {
+      try {
+        final baseUrl = savedUrl.replaceAll(RegExp(r'/+$'), '');
+        await http
+            .post(
+              Uri.parse('$baseUrl/${AppConstants.apiPairUnpair}'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'deviceId': deviceId}),
+            )
+            .timeout(const Duration(seconds: 5));
+      } on SocketException catch (_) {}
+      on TimeoutException catch (_) {}
+      on HttpException catch (_) {}
+    }
+
+    await prefs.remove(AppConstants.pairedServerUrlKey);
     setState(() {
       _isPaired = false;
       _qrVerificationMessage = null;
@@ -2606,8 +2675,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
   Future<bool> _attemptPairing(String baseUrl, String? token) async {
     final endpoints = [
-      Uri.parse('$baseUrl/api/scans'),
-      Uri.parse('$baseUrl/api/pair/qr'),
+      Uri.parse('$baseUrl/${AppConstants.apiScans}'),
+      Uri.parse('$baseUrl/${AppConstants.apiPairQr}'),
     ];
 
     for (final endpoint in endpoints) {
@@ -2621,14 +2690,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
           if (token != null && token.isNotEmpty) {
             try {
               final prefs = await SharedPreferences.getInstance();
-              final deviceId = prefs.getString('mangrove_device_id') ?? 'device-${DateTime.now().millisecondsSinceEpoch}';
-              if (!prefs.containsKey('mangrove_device_id')) {
-                await prefs.setString('mangrove_device_id', deviceId);
+              final deviceId = prefs.getString(AppConstants.deviceIdKey) ?? 'device-${DateTime.now().millisecondsSinceEpoch}';
+              if (!prefs.containsKey(AppConstants.deviceIdKey)) {
+                await prefs.setString(AppConstants.deviceIdKey, deviceId);
               }
 
               final confirmResponse = await http
                   .post(
-                    Uri.parse('$baseUrl/api/pair/confirm'),
+                    Uri.parse('$baseUrl/${AppConstants.apiPairConfirm}'),
                     headers: {'Content-Type': 'application/json'},
                      body: jsonEncode({
                        'token': token,
@@ -2638,7 +2707,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                   )
                   .timeout(const Duration(seconds: 5));
               if (confirmResponse.statusCode >= 400) {
-                debugPrint('Pair confirm rejected: ${confirmResponse.statusCode}');
+                String errorMessage = 'Pair confirm rejected: ${confirmResponse.statusCode}';
+                try {
+                  final decoded = jsonDecode(confirmResponse.body);
+                  if (decoded is Map<String, dynamic>) {
+                    final serverError = decoded['error'] as String?;
+                    final serverCode = decoded['code'] as String?;
+                    if (serverError != null && serverError.isNotEmpty) {
+                      errorMessage = serverCode != null && serverCode.isNotEmpty
+                          ? '$serverError (code: $serverCode)'
+                          : serverError;
+                    }
+                  }
+                } on FormatException catch (_) {}
+                on ArgumentError catch (_) {}
+                debugPrint(errorMessage);
                 return false;
               }
             } catch (e) {
@@ -2648,7 +2731,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
           }
 
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('paired_server_url', baseUrl);
+          await prefs.setString(AppConstants.pairedServerUrlKey, baseUrl);
           return true;
         }
       } on SocketException {
@@ -2747,10 +2830,10 @@ class _TopNotificationContentState extends State<_TopNotificationContent> {
             vertical: 12,
           ),
           decoration: BoxDecoration(
-            color: const Color(0xFF032221).withValues(alpha: 0.94),
+            color: AppColors.darkGreen.withValues(alpha: 0.94),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: const Color(0xFF00DF81).withValues(alpha: 0.35),
+              color: AppColors.caribbeanGreen.withValues(alpha: 0.35),
             ),
             boxShadow: [
               BoxShadow(
@@ -2765,7 +2848,7 @@ class _TopNotificationContentState extends State<_TopNotificationContent> {
             children: [
               const Icon(
                 Icons.notifications_active,
-                color: Color(0xFF00DF81),
+                color: AppColors.caribbeanGreen,
                 size: 20,
               ),
               const SizedBox(width: 10),
@@ -2773,7 +2856,7 @@ class _TopNotificationContentState extends State<_TopNotificationContent> {
                   child: Text(
                     widget.message,
                   style: const TextStyle(
-                    color: Color(0xFFF1F7F6),
+                    color: AppColors.antiFlashWhite,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),

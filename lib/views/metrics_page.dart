@@ -3,19 +3,16 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:mangroveguardapp/models/mangrove_tree.dart';
-import 'recent_scan_page.dart';
+import '../models/recent_tree_scan.dart';
 
 class MetricsPage extends StatefulWidget {
   final ValueListenable<List<RecentTreeScan>> scansListenable;
 
   const MetricsPage({super.key, required this.scansListenable});
 
-  static const Color caribbeanGreen = Color(0xFF00DF81);
-  static const Color antiFlashWhite = Color(0xFFF1F7F6);
-  static const Color bangladeshGreen = Color(0xFF03624C);
-  static const Color darkGreen = Color(0xFF032221);
-  static const Color richBlack = Color(0xFF021B1A);
+
 
   @override
   State<MetricsPage> createState() => _MetricsPageState();
@@ -267,7 +264,7 @@ class _MetricsPageState extends State<MetricsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: MetricsPage.richBlack,
+      backgroundColor: AppColors.richBlack,
       body: MediaQuery.removePadding(
         context: context,
         removeTop: true,
@@ -395,12 +392,12 @@ class _AboutOverscrollNotice extends StatelessWidget {
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
-                color: MetricsPage.darkGreen.withValues(alpha: 0.94),
+                color: AppColors.darkGreen.withValues(alpha: 0.94),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: isArmed
-                      ? MetricsPage.caribbeanGreen.withValues(alpha: 0.9)
-                      : MetricsPage.bangladeshGreen.withValues(alpha: 0.9),
+                      ? AppColors.caribbeanGreen.withValues(alpha: 0.9)
+                      : AppColors.bangladeshGreen.withValues(alpha: 0.9),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -416,7 +413,7 @@ class _AboutOverscrollNotice extends StatelessWidget {
                     isArmed
                         ? Icons.touch_app_rounded
                         : Icons.swipe_up_alt_rounded,
-                    color: MetricsPage.caribbeanGreen,
+                    color: AppColors.caribbeanGreen,
                     size: 16,
                   ),
                   const SizedBox(width: 8),
@@ -426,7 +423,7 @@ class _AboutOverscrollNotice extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: MetricsPage.antiFlashWhite.withValues(
+                        color: AppColors.antiFlashWhite.withValues(
                           alpha: 0.9,
                         ),
                         fontSize: 11.5,
@@ -454,10 +451,10 @@ class _AboutAppSheet extends StatelessWidget {
       bottom: false,
       child: Container(
         decoration: BoxDecoration(
-          color: MetricsPage.richBlack,
+          color: AppColors.richBlack,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           border: Border.all(
-            color: MetricsPage.bangladeshGreen.withValues(alpha: 0.95),
+            color: AppColors.bangladeshGreen.withValues(alpha: 0.95),
           ),
           boxShadow: [
             BoxShadow(
@@ -485,7 +482,7 @@ class _AboutAppSheet extends StatelessWidget {
                         width: 44,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: MetricsPage.antiFlashWhite.withValues(
+                          color: AppColors.antiFlashWhite.withValues(
                             alpha: 0.3,
                           ),
                           borderRadius: BorderRadius.circular(999),
@@ -499,19 +496,19 @@ class _AboutAppSheet extends StatelessWidget {
                           width: 42,
                           height: 42,
                           decoration: BoxDecoration(
-                            color: MetricsPage.bangladeshGreen.withValues(
+                            color: AppColors.bangladeshGreen.withValues(
                               alpha: 0.9,
                             ),
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(
-                              color: MetricsPage.caribbeanGreen.withValues(
+                              color: AppColors.caribbeanGreen.withValues(
                                 alpha: 0.7,
                               ),
                             ),
                           ),
                           child: const Icon(
                             Icons.forest_rounded,
-                            color: MetricsPage.caribbeanGreen,
+                            color: AppColors.caribbeanGreen,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -522,7 +519,7 @@ class _AboutAppSheet extends StatelessWidget {
                               Text(
                                 'About Mangrove Guard',
                                 style: TextStyle(
-                                  color: MetricsPage.antiFlashWhite.withValues(
+                                  color: AppColors.antiFlashWhite.withValues(
                                     alpha: 0.94,
                                   ),
                                   fontSize: 16,
@@ -533,7 +530,7 @@ class _AboutAppSheet extends StatelessWidget {
                               Text(
                                 'AI-assisted mangrove scanning in the field.',
                                 style: TextStyle(
-                                  color: MetricsPage.antiFlashWhite.withValues(
+                                  color: AppColors.antiFlashWhite.withValues(
                                     alpha: 0.66,
                                   ),
                                   fontSize: 12,
@@ -558,12 +555,12 @@ class _AboutAppSheet extends StatelessWidget {
                                 vertical: 10,
                               ),
                               decoration: BoxDecoration(
-                                color: MetricsPage.darkGreen.withValues(
+                                color: AppColors.darkGreen.withValues(
                                   alpha: 0.9,
                                 ),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: MetricsPage.bangladeshGreen.withValues(
+                                  color: AppColors.bangladeshGreen.withValues(
                                     alpha: 0.9,
                                   ),
                                 ),
@@ -574,7 +571,7 @@ class _AboutAppSheet extends StatelessWidget {
                                   Text(
                                     'Mangroves',
                                     style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
+                                      color: AppColors.antiFlashWhite
                                           .withValues(alpha: 0.9),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w800,
@@ -585,7 +582,7 @@ class _AboutAppSheet extends StatelessWidget {
                                   Text(
                                     'Mangroves anchor shorelines with dense roots, filter sediments, shelter juvenile marine life, and thrive in salty tidal water.',
                                     style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
+                                      color: AppColors.antiFlashWhite
                                           .withValues(alpha: 0.8),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
@@ -603,12 +600,12 @@ class _AboutAppSheet extends StatelessWidget {
                                 vertical: 10,
                               ),
                               decoration: BoxDecoration(
-                                color: MetricsPage.darkGreen.withValues(
+                                color: AppColors.darkGreen.withValues(
                                   alpha: 0.9,
                                 ),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: MetricsPage.bangladeshGreen.withValues(
+                                  color: AppColors.bangladeshGreen.withValues(
                                     alpha: 0.9,
                                   ),
                                 ),
@@ -619,7 +616,7 @@ class _AboutAppSheet extends StatelessWidget {
                                   Text(
                                     'The App',
                                     style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
+                                      color: AppColors.antiFlashWhite
                                           .withValues(alpha: 0.9),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w800,
@@ -630,7 +627,7 @@ class _AboutAppSheet extends StatelessWidget {
                                   Text(
                                                                          'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device object detection for real-time mangrove tree analysis. The system evaluates structural stability into High, Moderate, or Low categories directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality.',
                                     style: TextStyle(
-                                      color: MetricsPage.antiFlashWhite
+                                      color: AppColors.antiFlashWhite
                                           .withValues(alpha: 0.82),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
@@ -665,7 +662,7 @@ class _AboutAppSheet extends StatelessWidget {
                             Text(
                               'Built and maintained by the Mangrove Guard team.',
                               style: TextStyle(
-                                color: MetricsPage.antiFlashWhite.withValues(
+                                color: AppColors.antiFlashWhite.withValues(
                                   alpha: 0.82,
                                 ),
                                 fontSize: 12,
@@ -683,8 +680,8 @@ class _AboutAppSheet extends StatelessWidget {
                       width: double.infinity,
                       child: FilledButton(
                         style: FilledButton.styleFrom(
-                          backgroundColor: MetricsPage.caribbeanGreen,
-                          foregroundColor: MetricsPage.richBlack,
+                          backgroundColor: AppColors.caribbeanGreen,
+                          foregroundColor: AppColors.richBlack,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
@@ -724,20 +721,20 @@ class _AboutPillMetric extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
-        color: MetricsPage.darkGreen.withValues(alpha: 0.92),
+        color: AppColors.darkGreen.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.95),
+          color: AppColors.bangladeshGreen.withValues(alpha: 0.95),
         ),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 15, color: MetricsPage.caribbeanGreen),
+          Icon(icon, size: 15, color: AppColors.caribbeanGreen),
           const SizedBox(height: 4),
           Text(
             value,
             style: const TextStyle(
-              color: MetricsPage.antiFlashWhite,
+              color: AppColors.antiFlashWhite,
               fontSize: 11,
               fontWeight: FontWeight.w800,
             ),
@@ -745,7 +742,7 @@ class _AboutPillMetric extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.65),
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.65),
               fontSize: 10,
               fontWeight: FontWeight.w700,
             ),
@@ -771,12 +768,12 @@ class _HeroSummaryCard extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            MetricsPage.bangladeshGreen.withValues(alpha: 0.86),
-            MetricsPage.darkGreen,
+            AppColors.bangladeshGreen.withValues(alpha: 0.86),
+            AppColors.darkGreen,
           ],
         ),
         border: Border.all(
-          color: MetricsPage.caribbeanGreen.withValues(alpha: 0.44),
+          color: AppColors.caribbeanGreen.withValues(alpha: 0.44),
         ),
         boxShadow: [
           BoxShadow(
@@ -792,7 +789,7 @@ class _HeroSummaryCard extends StatelessWidget {
           Text(
             'Live metrics from your recent scans',
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.68),
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.68),
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -856,15 +853,15 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
         : 'No data yet';
     final statusColor = hasData
         ? _statusColorForAssessment(majorityAssessment!)
-        : MetricsPage.antiFlashWhite.withValues(alpha: 0.6);
+        : AppColors.antiFlashWhite.withValues(alpha: 0.6);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: MetricsPage.darkGreen,
+        color: AppColors.darkGreen,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.95),
+          color: AppColors.bangladeshGreen.withValues(alpha: 0.95),
         ),
       ),
       child: Column(
@@ -873,7 +870,7 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
           Text(
             'Average Stability of the Mangroves',
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
               fontSize: 13,
               fontWeight: FontWeight.w800,
             ),
@@ -883,7 +880,7 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
             Text(
               'Scan a mangrove to begin',
               style: TextStyle(
-                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
+                color: AppColors.antiFlashWhite.withValues(alpha: 0.62),
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
@@ -906,7 +903,7 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
 
   Color _statusColorForAssessment(StabilityAssessment assessment) {
     return switch (assessment) {
-      StabilityAssessment.high => MetricsPage.caribbeanGreen,
+      StabilityAssessment.high => AppColors.caribbeanGreen,
       StabilityAssessment.moderate => const Color(0xFFF59E0B),
       StabilityAssessment.low => const Color(0xFFEF4444),
     };
@@ -932,10 +929,10 @@ class _StabilityBreakdownCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: MetricsPage.darkGreen,
+        color: AppColors.darkGreen,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.95),
+          color: AppColors.bangladeshGreen.withValues(alpha: 0.95),
         ),
         boxShadow: [
           BoxShadow(
@@ -951,7 +948,7 @@ class _StabilityBreakdownCard extends StatelessWidget {
           Text(
             'Stability Breakdown',
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
               fontSize: 13,
               fontWeight: FontWeight.w800,
             ),
@@ -960,7 +957,7 @@ class _StabilityBreakdownCard extends StatelessWidget {
           Text(
             subtitle,
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.62),
               fontSize: 11,
               fontWeight: FontWeight.w600,
             ),
@@ -990,7 +987,7 @@ class _StabilityBreakdownCard extends StatelessWidget {
                 child: _BreakdownMetric(
                   label: 'High',
                   value: '$highCount',
-                  color: MetricsPage.caribbeanGreen,
+                  color: AppColors.caribbeanGreen,
                   icon: Icons.trending_up_rounded,
                 ),
               ),
@@ -1031,7 +1028,7 @@ class _BreakdownMetric extends StatelessWidget {
           Text(
             value,
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite,
+              color: AppColors.antiFlashWhite,
               fontSize: 14,
               fontWeight: FontWeight.w800,
             ),
@@ -1040,7 +1037,7 @@ class _BreakdownMetric extends StatelessWidget {
           Text(
             label,
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.7),
               fontSize: 10,
               fontWeight: FontWeight.w700,
             ),
@@ -1103,7 +1100,7 @@ class _AverageStabilityGauge extends StatelessWidget {
                     Text(
                       valueLabel,
                       style: const TextStyle(
-                        color: MetricsPage.antiFlashWhite,
+                        color: AppColors.antiFlashWhite,
                         fontSize: 42,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.2,
@@ -1114,7 +1111,7 @@ class _AverageStabilityGauge extends StatelessWidget {
                       Text(
                         caption,
                         style: TextStyle(
-                          color: MetricsPage.antiFlashWhite.withValues(
+                          color: AppColors.antiFlashWhite.withValues(
                             alpha: 0.68,
                           ),
                           fontSize: 11,
@@ -1173,7 +1170,7 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     if (radius <= 0) return;
 
     final labelStyle = TextStyle(
-      color: MetricsPage.antiFlashWhite.withValues(alpha: 0.7),
+      color: AppColors.antiFlashWhite.withValues(alpha: 0.7),
       fontSize: 10,
       fontWeight: FontWeight.w700,
       shadows: [
@@ -1192,7 +1189,7 @@ class _AverageStabilityGaugePainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = trackThickness
       ..strokeCap = StrokeCap.round
-      ..color = MetricsPage.antiFlashWhite.withValues(alpha: 0.22);
+      ..color = AppColors.antiFlashWhite.withValues(alpha: 0.22);
 
     final total = lowCount + moderateCount + highCount;
     final List<double> stabilityStops;
@@ -1220,7 +1217,7 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     var currentAngle = startAngle;
     const scaleGap = 0.095;
     final scaleSegments = <(double, Color)>[
-      (stabilityStops[1] - stabilityStops[0], MetricsPage.caribbeanGreen),
+      (stabilityStops[1] - stabilityStops[0], AppColors.caribbeanGreen),
       (stabilityStops[2] - stabilityStops[1], const Color(0xFFF59E0B)),
       (stabilityStops[3] - stabilityStops[2], const Color(0xFFEF4444)),
     ];
@@ -1305,7 +1302,7 @@ class _AverageStabilityGaugePainter extends CustomPainter {
     final markerBorder = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.2
-      ..color = MetricsPage.antiFlashWhite.withValues(alpha: 0.9);
+      ..color = AppColors.antiFlashWhite.withValues(alpha: 0.9);
     canvas
       ..drawCircle(progressEnd, 7, markerFill)
       ..drawCircle(progressEnd, 7, markerBorder);
@@ -1341,12 +1338,12 @@ class _HeroValueBlock extends StatelessWidget {
         color: Colors.black.withValues(alpha: 0.18),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: MetricsPage.antiFlashWhite.withValues(alpha: 0.12),
+          color: AppColors.antiFlashWhite.withValues(alpha: 0.12),
         ),
       ),
       child: Row(
         children: [
-          Icon(icon, color: MetricsPage.caribbeanGreen, size: 18),
+          Icon(icon, color: AppColors.caribbeanGreen, size: 18),
           const SizedBox(width: 9),
           Expanded(
             child: Column(
@@ -1355,7 +1352,7 @@ class _HeroValueBlock extends StatelessWidget {
                 Text(
                   value,
                   style: const TextStyle(
-                    color: MetricsPage.antiFlashWhite,
+                    color: AppColors.antiFlashWhite,
                     fontSize: 22,
                     fontWeight: FontWeight.w900,
                   ),
@@ -1365,7 +1362,7 @@ class _HeroValueBlock extends StatelessWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: MetricsPage.antiFlashWhite.withValues(alpha: 0.78),
+                    color: AppColors.antiFlashWhite.withValues(alpha: 0.78),
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                   ),
@@ -1394,10 +1391,10 @@ class _WeeklyScanVolumeTrendCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: MetricsPage.darkGreen,
+        color: AppColors.darkGreen,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.95),
+          color: AppColors.bangladeshGreen.withValues(alpha: 0.95),
         ),
       ),
       child: Column(
@@ -1406,7 +1403,7 @@ class _WeeklyScanVolumeTrendCard extends StatelessWidget {
           Text(
             'Weekly Scan Volume Trend',
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
               fontSize: 13,
               fontWeight: FontWeight.w800,
             ),
@@ -1415,7 +1412,7 @@ class _WeeklyScanVolumeTrendCard extends StatelessWidget {
           Text(
             hasData ? 'Last ${buckets.length} weeks' : 'No scans yet',
             style: TextStyle(
-              color: MetricsPage.antiFlashWhite.withValues(alpha: 0.62),
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.62),
               fontSize: 11,
               fontWeight: FontWeight.w600,
             ),
@@ -1492,9 +1489,9 @@ class _WeeklyScanSparklineState extends State<_WeeklyScanSparkline> {
   @override
   Widget build(BuildContext context) {
     final lineColor = widget.hasData
-        ? MetricsPage.caribbeanGreen.withValues(alpha: 0.9)
-        : MetricsPage.antiFlashWhite.withValues(alpha: 0.3);
-    final labelColor = MetricsPage.antiFlashWhite.withValues(alpha: 0.7);
+        ? AppColors.caribbeanGreen.withValues(alpha: 0.9)
+        : AppColors.antiFlashWhite.withValues(alpha: 0.3);
+    final labelColor = AppColors.antiFlashWhite.withValues(alpha: 0.7);
     final firstLabel = widget.buckets.isEmpty
         ? ''
         : _formatWeekLabel(widget.buckets.first.weekStart);
@@ -1685,10 +1682,10 @@ class _SparklineTooltip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: MetricsPage.richBlack.withValues(alpha: 0.95),
+          color: AppColors.richBlack.withValues(alpha: 0.95),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: MetricsPage.caribbeanGreen.withValues(alpha: 0.6),
+            color: AppColors.caribbeanGreen.withValues(alpha: 0.6),
           ),
           boxShadow: [
             BoxShadow(
@@ -1703,7 +1700,7 @@ class _SparklineTooltip extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            color: MetricsPage.antiFlashWhite.withValues(alpha: 0.9),
+            color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
             fontSize: 11,
             fontWeight: FontWeight.w700,
           ),
@@ -1845,7 +1842,7 @@ class _WeeklyScanSparklinePainter extends CustomPainter {
       ..color = lineColor.withValues(alpha: 0.9)
       ..style = PaintingStyle.fill;
     final pointInnerPaint = Paint()
-      ..color = MetricsPage.antiFlashWhite.withValues(alpha: 0.9)
+      ..color = AppColors.antiFlashWhite.withValues(alpha: 0.9)
       ..style = PaintingStyle.fill;
     for (final point in points) {
       canvas.drawCircle(point, 3.6, pointPaint);
@@ -1893,17 +1890,17 @@ class _EmptyStateHintCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: MetricsPage.darkGreen.withValues(alpha: 0.92),
+        color: AppColors.darkGreen.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: MetricsPage.bangladeshGreen.withValues(alpha: 0.9),
+          color: AppColors.bangladeshGreen.withValues(alpha: 0.9),
         ),
       ),
       child: Row(
         children: [
           Icon(
             Icons.info_outline_rounded,
-            color: MetricsPage.caribbeanGreen.withValues(alpha: 0.9),
+            color: AppColors.caribbeanGreen.withValues(alpha: 0.9),
             size: 20,
           ),
           const SizedBox(width: 10),
@@ -1911,7 +1908,7 @@ class _EmptyStateHintCard extends StatelessWidget {
             child: Text(
               'Capture your first tree scan to populate dashboard metrics.',
               style: TextStyle(
-                color: MetricsPage.antiFlashWhite.withValues(alpha: 0.78),
+                color: AppColors.antiFlashWhite.withValues(alpha: 0.78),
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),

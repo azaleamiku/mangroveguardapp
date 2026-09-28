@@ -5,15 +5,13 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/mangrove_tree.dart';
+import '../models/recent_tree_scan.dart';
 import '../services/monitoring_sync_service.dart';
 
-const Color caribbeanGreen = Color(0xFF00DF81);
-const Color antiFlashWhite = Color(0xFFF1F7F6);
-const Color bangladeshGreen = Color(0xFF03624C);
-const Color darkGreen = Color(0xFF032221);
-const Color richBlack = Color(0xFF021B1A);
+
 
 enum RecentScanNoticeKind { success, delete, error }
 
@@ -509,7 +507,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
       content: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: darkGreen.withValues(alpha: 0.9),
+          color: AppColors.darkGreen.withValues(alpha: 0.9),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: accentColor.withValues(alpha: 0.4),
@@ -532,7 +530,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
               child: Text(
                 message,
                 style: const TextStyle(
-                  color: antiFlashWhite,
+                  color: AppColors.antiFlashWhite,
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
@@ -605,7 +603,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
   Color _assessmentColor(StabilityAssessment assessment) {
     switch (assessment) {
       case StabilityAssessment.high:
-        return caribbeanGreen;
+        return AppColors.caribbeanGreen;
       case StabilityAssessment.moderate:
         return const Color(0xFFF59E0B);
       case StabilityAssessment.low:
@@ -616,7 +614,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
   Color _noticeAccentColor(_NoticeKind kind) {
     switch (kind) {
       case _NoticeKind.success:
-        return caribbeanGreen;
+        return AppColors.caribbeanGreen;
       case _NoticeKind.delete:
         return const Color(0xFFEF4444);
       case _NoticeKind.error:
@@ -642,7 +640,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: richBlack,
+      backgroundColor: AppColors.richBlack,
       body: MediaQuery.removePadding(
         context: context,
         removeTop: true,
@@ -737,7 +735,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                             stackTrace,
                                                           ) {
                                                             return Container(
-                                                              color: darkGreen
+                                                              color: AppColors.darkGreen
                                                                   .withValues(
                                                                     alpha: 0.55,
                                                                   ),
@@ -746,7 +744,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                                   Icons
                                                                       .broken_image_rounded,
                                                                   color:
-                                                                      antiFlashWhite,
+                                                                      AppColors.antiFlashWhite,
                                                                   size: 36,
                                                                 ),
                                                               ),
@@ -783,7 +781,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                                   stackTrace,
                                                                 ) {
                                                                   return Container(
-                                                                    color: darkGreen
+                                                                    color: AppColors.darkGreen
                                                                         .withValues(
                                                                           alpha:
                                                                               0.55,
@@ -793,7 +791,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                                         Icons
                                                                             .broken_image_rounded,
                                                                         color:
-                                                                            antiFlashWhite,
+                                                                            AppColors.antiFlashWhite,
                                                                         size: 36,
                                                                       ),
                                                                     ),
@@ -809,7 +807,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                                     rects:
                                                                         mangroveRects,
                                                                     color:
-                                                                        caribbeanGreen,
+                                                                        AppColors.caribbeanGreen,
                                                                   ),
                                                                 ),
                                                             ],
@@ -819,13 +817,13 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                     },
                                                   )
                                                 : Container(
-                                                    color: darkGreen.withValues(
+                                                    color: AppColors.darkGreen.withValues(
                                                       alpha: 0.55,
                                                     ),
                                                     child: const Center(
                                                       child: Icon(
                                                         Icons.image_rounded,
-                                                        color: antiFlashWhite,
+                                                        color: AppColors.antiFlashWhite,
                                                         size: 36,
                                                       ),
                                                     ),
@@ -885,8 +883,8 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                                 colors: [
-                                  darkGreen.withValues(alpha: 0.95),
-                                  richBlack,
+                                  AppColors.darkGreen.withValues(alpha: 0.95),
+                                  AppColors.richBlack,
                                 ],
                               ),
                               borderRadius: BorderRadius.circular(18),
@@ -910,7 +908,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     const Text(
                                       'Mangrove Stability',
                                       style: TextStyle(
-                                        color: antiFlashWhite,
+                                        color: AppColors.antiFlashWhite,
                                         fontSize: 15,
                                         fontWeight: FontWeight.w800,
                                         letterSpacing: 0.2,
@@ -952,7 +950,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     Icon(
                                       Icons.access_time_rounded,
                                       size: 14,
-                                      color: antiFlashWhite.withValues(
+                                      color: AppColors.antiFlashWhite.withValues(
                                         alpha: 0.75,
                                       ),
                                     ),
@@ -960,7 +958,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     Text(
                                       _formatTimestamp(scan.scannedAt),
                                       style: TextStyle(
-                                        color: antiFlashWhite.withValues(
+                                        color: AppColors.antiFlashWhite.withValues(
                                           alpha: 0.7,
                                         ),
                                         fontSize: 12,
@@ -971,14 +969,14 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                 ),
                                 const SizedBox(height: 12),
                                 Divider(
-                                  color: bangladeshGreen.withValues(alpha: 0.5),
+                                  color: AppColors.bangladeshGreen.withValues(alpha: 0.5),
                                   height: 1,
                                 ),
                                 const SizedBox(height: 12),
                                 Text(
                                   _recentScanSummary(scan.assessment),
                                   style: TextStyle(
-                                    color: antiFlashWhite.withValues(
+                                    color: AppColors.antiFlashWhite.withValues(
                                       alpha: 0.85,
                                     ),
                                     fontSize: 12,
@@ -1027,7 +1025,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                               backgroundColor:
                                                   Colors.transparent,
                                               shadowColor: Colors.transparent,
-                                              foregroundColor: antiFlashWhite,
+                                              foregroundColor: AppColors.antiFlashWhite,
                                               alignment: Alignment.center,
                                               padding:
                                                   const EdgeInsets.symmetric(
@@ -1068,10 +1066,10 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                   begin: Alignment.topLeft,
                                                   end: Alignment.bottomRight,
                                                   colors: [
-                                                    bangladeshGreen.withValues(
+                                                    AppColors.bangladeshGreen.withValues(
                                                       alpha: 0.7,
                                                     ),
-                                                    darkGreen.withValues(
+                                                    AppColors.darkGreen.withValues(
                                                       alpha: 0.85,
                                                     ),
                                                   ],
@@ -1080,7 +1078,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                   begin: Alignment.topLeft,
                                                   end: Alignment.bottomRight,
                                                   colors: [
-                                                    Color(0xFF03624C),
+                                                    AppColors.bangladeshGreen,
                                                     Color(0xFF014D3C),
                                                   ],
                                                 ),
@@ -1089,17 +1087,17 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                           ),
                                           border: Border.all(
                                             color: scan.isSynced
-                                                ? caribbeanGreen.withValues(
+                                                ? AppColors.caribbeanGreen.withValues(
                                                     alpha: 0.45,
                                                   )
-                                                : antiFlashWhite.withValues(
+                                                : AppColors.antiFlashWhite.withValues(
                                                     alpha: 0.15,
                                                   ),
                                           ),
                                           boxShadow: scan.isSynced
                                               ? [
                                                   BoxShadow(
-                                                    color: caribbeanGreen
+                                                    color: AppColors.caribbeanGreen
                                                         .withValues(
                                                           alpha: 0.18,
                                                         ),
@@ -1127,10 +1125,10 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                               disabledBackgroundColor:
                                                   Colors.transparent,
                                               foregroundColor: scan.isSynced
-                                                  ? caribbeanGreen
-                                                  : antiFlashWhite,
+                                                  ? AppColors.caribbeanGreen
+                                                  : AppColors.antiFlashWhite,
                                               disabledForegroundColor:
-                                                  caribbeanGreen,
+                                                  AppColors.caribbeanGreen,
                                               alignment: Alignment.center,
                                               padding:
                                                   const EdgeInsets.symmetric(
@@ -1155,7 +1153,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                               AlwaysStoppedAnimation<
                                                                 Color
                                                               >(
-                                                            antiFlashWhite,
+                                                            AppColors.antiFlashWhite,
                                                           ),
                                                         ),
                                                       )
@@ -1262,10 +1260,10 @@ class _ConnectionOverscrollNotice extends StatelessWidget {
             ? Icons.cloud_off_rounded
             : Icons.cloud_done_rounded;
     final iconColor = isArmed
-        ? caribbeanGreen
+        ? AppColors.caribbeanGreen
         : hasPending
             ? const Color(0xFFF59E0B)
-            : caribbeanGreen;
+            : AppColors.caribbeanGreen;
 
     return IgnorePointer(
       child: AnimatedSlide(
@@ -1284,12 +1282,12 @@ class _ConnectionOverscrollNotice extends StatelessWidget {
               ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
-                color: darkGreen.withValues(alpha: 0.94),
+                color: AppColors.darkGreen.withValues(alpha: 0.94),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: isArmed
-                      ? caribbeanGreen.withValues(alpha: 0.9)
-                      : bangladeshGreen.withValues(alpha: 0.9),
+                      ? AppColors.caribbeanGreen.withValues(alpha: 0.9)
+                      : AppColors.bangladeshGreen.withValues(alpha: 0.9),
                 ),
                 boxShadow: [
                   BoxShadow(
@@ -1310,7 +1308,7 @@ class _ConnectionOverscrollNotice extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: antiFlashWhite.withValues(alpha: 0.9),
+                        color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
                       ),
@@ -1457,10 +1455,10 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
         content: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: darkGreen.withValues(alpha: 0.9),
+            color: AppColors.darkGreen.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: caribbeanGreen.withValues(alpha: 0.4),
+              color: AppColors.caribbeanGreen.withValues(alpha: 0.4),
               width: 1,
             ),
             boxShadow: [
@@ -1479,7 +1477,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                     ? Icons.cloud_done_rounded
                     : Icons.cloud_off_rounded,
                 color: _pendingCount == 0
-                    ? caribbeanGreen
+                    ? AppColors.caribbeanGreen
                     : const Color(0xFFF59E0B),
                 size: 20,
               ),
@@ -1488,7 +1486,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                 child: Text(
                   message,
                   style: const TextStyle(
-                    color: antiFlashWhite,
+                    color: AppColors.antiFlashWhite,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1505,19 +1503,19 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: darkGreen.withValues(alpha: 0.9),
+        backgroundColor: AppColors.darkGreen.withValues(alpha: 0.9),
         shape: RoundedRectangleBorder(
-          side: BorderSide(color: caribbeanGreen.withValues(alpha: 0.4), width: 1),
+          side: BorderSide(color: AppColors.caribbeanGreen.withValues(alpha: 0.4), width: 1),
           borderRadius: BorderRadius.circular(16),
         ),
         elevation: 0,
         title: const Text(
           'Clear Queued Scans?',
-          style: TextStyle(color: antiFlashWhite, fontWeight: FontWeight.w800),
+          style: TextStyle(color: AppColors.antiFlashWhite, fontWeight: FontWeight.w800),
         ),
         content: const Text(
           'This will permanently remove all offline pending scans from your device that haven\'t been synced to the server.',
-          style: TextStyle(color: antiFlashWhite, fontSize: 14, height: 1.4),
+          style: TextStyle(color: AppColors.antiFlashWhite, fontSize: 14, height: 1.4),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
@@ -1525,7 +1523,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(
               'Cancel',
-              style: TextStyle(color: antiFlashWhite.withValues(alpha: 0.7)),
+              style: TextStyle(color: AppColors.antiFlashWhite.withValues(alpha: 0.7)),
             ),
           ),
           OutlinedButton(
@@ -1572,10 +1570,10 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
       bottom: false,
       child: Container(
         decoration: BoxDecoration(
-          color: darkGreen,
+          color: AppColors.darkGreen,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           border: Border.all(
-            color: bangladeshGreen.withValues(alpha: 0.95),
+            color: AppColors.bangladeshGreen.withValues(alpha: 0.95),
           ),
           boxShadow: [
             BoxShadow(
@@ -1596,7 +1594,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                   width: 44,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: antiFlashWhite.withValues(alpha: 0.3),
+                    color: AppColors.antiFlashWhite.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
@@ -1611,7 +1609,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                         Text(
                           'Server & Sync Status',
                           style: TextStyle(
-                            color: antiFlashWhite.withValues(alpha: 0.94),
+                            color: AppColors.antiFlashWhite.withValues(alpha: 0.94),
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.2,
@@ -1624,7 +1622,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                                   ? 'Connected to server'
                                   : 'Server unreachable',
                           style: TextStyle(
-                            color: antiFlashWhite.withValues(alpha: 0.66),
+                            color: AppColors.antiFlashWhite.withValues(alpha: 0.66),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -1642,10 +1640,10 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color: darkGreen.withValues(alpha: 0.9),
+                  color: AppColors.darkGreen.withValues(alpha: 0.9),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: bangladeshGreen.withValues(alpha: 0.9),
+                    color: AppColors.bangladeshGreen.withValues(alpha: 0.9),
                   ),
                 ),
                 child: Column(
@@ -1656,14 +1654,14 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                         Icon(
                           Icons.dns_rounded,
                           size: 15,
-                          color: caribbeanGreen,
+                          color: AppColors.caribbeanGreen,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Target Endpoint',
                             style: TextStyle(
-                              color: antiFlashWhite.withValues(alpha: 0.9),
+                              color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.2,
@@ -1677,14 +1675,14 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                           ),
                           decoration: BoxDecoration(
                             color: _isConnected
-                                ? caribbeanGreen.withValues(alpha: 0.18)
+                                ? AppColors.caribbeanGreen.withValues(alpha: 0.18)
                                 : const Color(0xFFEF4444).withValues(
                                     alpha: 0.18,
                                   ),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: _isConnected
-                                  ? caribbeanGreen.withValues(alpha: 0.6)
+                                  ? AppColors.caribbeanGreen.withValues(alpha: 0.6)
                                   : const Color(0xFFEF4444).withValues(
                                       alpha: 0.6,
                                     ),
@@ -1698,7 +1696,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                                     : 'Unreachable',
                             style: TextStyle(
                               color: _isConnected
-                                  ? caribbeanGreen
+                                  ? AppColors.caribbeanGreen
                                   : const Color(0xFFEF4444),
                               fontSize: 11,
                               fontWeight: FontWeight.w800,
@@ -1718,10 +1716,10 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color: darkGreen.withValues(alpha: 0.9),
+                  color: AppColors.darkGreen.withValues(alpha: 0.9),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                    color: bangladeshGreen.withValues(alpha: 0.9),
+                    color: AppColors.bangladeshGreen.withValues(alpha: 0.9),
                   ),
                 ),
                 child: Column(
@@ -1730,7 +1728,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                     Text(
                       'Sync Queue',
                       style: TextStyle(
-                        color: antiFlashWhite.withValues(alpha: 0.9),
+                        color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
                         fontSize: 12,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.2,
@@ -1740,7 +1738,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                     Text(
                       '$_pendingCount scans queued locally',
                       style: TextStyle(
-                        color: antiFlashWhite.withValues(alpha: 0.8),
+                        color: AppColors.antiFlashWhite.withValues(alpha: 0.8),
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1749,7 +1747,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                     Text(
                       'Background auto-retry active on resume.',
                       style: TextStyle(
-                        color: antiFlashWhite.withValues(alpha: 0.6),
+                        color: AppColors.antiFlashWhite.withValues(alpha: 0.6),
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
@@ -1762,8 +1760,8 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                 width: double.infinity,
                 child: FilledButton(
                   style: FilledButton.styleFrom(
-                    backgroundColor: caribbeanGreen,
-                    foregroundColor: richBlack,
+                    backgroundColor: AppColors.caribbeanGreen,
+                    foregroundColor: AppColors.richBlack,
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -1777,7 +1775,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             valueColor: AlwaysStoppedAnimation<Color>(
-                              richBlack,
+                              AppColors.richBlack,
                             ),
                           ),
                         )
@@ -1948,9 +1946,9 @@ class _PeekHighlightButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = pressed ? antiFlashWhite : caribbeanGreen;
+    final accent = pressed ? AppColors.antiFlashWhite : AppColors.caribbeanGreen;
     final semanticLabel = pressed ? 'Show overlay' : 'Hide overlay';
-    final labelColor = antiFlashWhite.withValues(alpha: pressed ? 0.78 : 0.86);
+    final labelColor = AppColors.antiFlashWhite.withValues(alpha: pressed ? 0.78 : 0.86);
     return Semantics(
       label: semanticLabel,
       button: true,
@@ -1964,8 +1962,8 @@ class _PeekHighlightButton extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                darkGreen.withValues(alpha: 0.84),
-                richBlack.withValues(alpha: 0.9),
+                AppColors.darkGreen.withValues(alpha: 0.84),
+                AppColors.richBlack.withValues(alpha: 0.9),
               ],
             ),
             borderRadius: BorderRadius.circular(999),
@@ -1996,7 +1994,7 @@ class _PeekHighlightButton extends StatelessWidget {
                           ? Icons.visibility_off_rounded
                           : Icons.visibility_rounded,
                       size: 18,
-                      color: antiFlashWhite.withValues(
+                      color: AppColors.antiFlashWhite.withValues(
                         alpha: pressed ? 0.96 : 0.86,
                       ),
                     ),
@@ -2035,8 +2033,8 @@ class _DetectionBadge extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            darkGreen.withValues(alpha: 0.85),
-            richBlack.withValues(alpha: 0.92),
+            AppColors.darkGreen.withValues(alpha: 0.85),
+            AppColors.richBlack.withValues(alpha: 0.92),
           ],
         ),
         borderRadius: BorderRadius.circular(12),
@@ -2062,7 +2060,7 @@ class _DetectionBadge extends StatelessWidget {
                 Text(
                   'Mangrove detected',
                   style: TextStyle(
-                    color: antiFlashWhite.withValues(alpha: 0.9),
+                    color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.2,
@@ -2095,10 +2093,10 @@ class _HighlightLegend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final labelColor = antiFlashWhite.withValues(
+    final labelColor = AppColors.antiFlashWhite.withValues(
       alpha: showHighlights ? 0.82 : 0.62,
     );
-    final borderColor = bangladeshGreen.withValues(
+    final borderColor = AppColors.bangladeshGreen.withValues(
       alpha: showHighlights ? 0.55 : 0.35,
     );
 
@@ -2110,8 +2108,8 @@ class _HighlightLegend extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            darkGreen.withValues(alpha: 0.78),
-            richBlack.withValues(alpha: 0.88),
+            AppColors.darkGreen.withValues(alpha: 0.78),
+            AppColors.richBlack.withValues(alpha: 0.88),
           ],
         ),
         borderRadius: BorderRadius.circular(16),
@@ -2132,7 +2130,7 @@ class _HighlightLegend extends StatelessWidget {
             ),
           ),
           _HighlightLegendChip(
-            color: caribbeanGreen,
+            color: AppColors.caribbeanGreen,
             label: label,
             dim: !showHighlights,
           ),
@@ -2156,7 +2154,7 @@ class _HighlightLegendChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dotColor = dim ? color.withValues(alpha: 0.6) : color;
-    final textColor = antiFlashWhite.withValues(alpha: dim ? 0.68 : 0.86);
+    final textColor = AppColors.antiFlashWhite.withValues(alpha: dim ? 0.68 : 0.86);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -2190,104 +2188,6 @@ class _HighlightLegendChip extends StatelessWidget {
 
 enum _NoticeKind { success, delete, error }
 
-class RecentTreeScan {
-  final String treeId;
-  final DateTime scannedAt;
-  final MangroveTree tree;
-  final double? predictionConfidence;
-  final StabilityAssessment? predictedAssessment;
-  final String? capturedImagePath;
-  final bool isSynced;
-
-  const RecentTreeScan({
-    required this.treeId,
-    required this.scannedAt,
-    required this.tree,
-    this.predictionConfidence,
-    this.predictedAssessment,
-    this.capturedImagePath,
-    this.isSynced = false,
-  });
-
-  StabilityAssessment get assessment =>
-      predictedAssessment ?? StabilityAssessment.low;
-
-  Map<String, dynamic> toJson() {
-    return {
-      'treeId': treeId,
-      'scannedAt': scannedAt.toIso8601String(),
-      if (predictionConfidence != null)
-        'predictionConfidence': predictionConfidence,
-      if (predictedAssessment != null)
-        'predictedAssessment': predictedAssessment!.name,
-      if (capturedImagePath != null) 'capturedImagePath': capturedImagePath,
-      'isSynced': isSynced,
-      'tree': {
-        if (tree.treeBounds != null)
-          'treeBounds': {
-            'left': tree.treeBounds!.left,
-            'top': tree.treeBounds!.top,
-            'right': tree.treeBounds!.right,
-            'bottom': tree.treeBounds!.bottom,
-          },
-      },
-    };
-  }
-
-  factory RecentTreeScan.fromJson(Map<String, dynamic> json) {
-    final treeMap = (json['tree'] as Map?)?.cast<String, dynamic>() ?? const {};
-
-    final treeBoundsRaw = (treeMap['treeBounds'] as Map?)
-        ?.cast<String, dynamic>();
-    TreeBounds? treeBounds;
-    if (treeBoundsRaw != null) {
-      final left = (treeBoundsRaw['left'] as num?)?.toDouble();
-      final top = (treeBoundsRaw['top'] as num?)?.toDouble();
-      final right = (treeBoundsRaw['right'] as num?)?.toDouble();
-      final bottom = (treeBoundsRaw['bottom'] as num?)?.toDouble();
-      if (left != null && top != null && right != null && bottom != null) {
-        treeBounds = TreeBounds(
-          left: left,
-          top: top,
-          right: right,
-          bottom: bottom,
-        );
-      }
-    }
-
-    final scannedAtRaw = json['scannedAt'] as String?;
-    final predictedAssessmentRaw = json['predictedAssessment'] as String?;
-    StabilityAssessment? predictedAssessment;
-    if (predictedAssessmentRaw != null) {
-      for (final assessment in StabilityAssessment.values) {
-        if (assessment.name.toLowerCase() ==
-            predictedAssessmentRaw.toLowerCase()) {
-          predictedAssessment = assessment;
-          break;
-        }
-      }
-    }
-    return RecentTreeScan(
-      treeId: (json['treeId'] as String?)?.trim().isNotEmpty == true
-          ? json['treeId'] as String
-          : 'Tree',
-      scannedAt: scannedAtRaw == null
-          ? DateTime.now()
-          : (DateTime.tryParse(scannedAtRaw) ?? DateTime.now()),
-      predictionConfidence: (json['predictionConfidence'] as num?)?.toDouble(),
-      predictedAssessment: predictedAssessment,
-      capturedImagePath:
-          ((json['capturedImagePath'] as String?)?.trim().isNotEmpty ?? false)
-              ? (json['capturedImagePath'] as String).trim()
-              : null,
-      isSynced: (json['isSynced'] as bool?) ?? false,
-      tree: MangroveTree(
-        treeBounds: treeBounds,
-      ),
-    );
-  }
-}
-
 class _EmptyRecentScanCard extends StatelessWidget {
   const _EmptyRecentScanCard();
 
@@ -2305,9 +2205,9 @@ class _EmptyRecentScanCard extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Color(0xFF021B1A),
-                  Color(0xFF032221),
-                  Color(0xFF021B1A),
+                  AppColors.richBlack,
+                  AppColors.darkGreen,
+                  AppColors.richBlack,
                 ],
                 stops: [0.0, 0.55, 1.0],
               ),
@@ -2326,16 +2226,16 @@ class _EmptyRecentScanCard extends StatelessWidget {
                     height: 68,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: bangladeshGreen.withValues(alpha: 0.2),
+                      color: AppColors.bangladeshGreen.withValues(alpha: 0.2),
                       border: Border.all(
-                        color: bangladeshGreen.withValues(alpha: 0.5),
+                        color: AppColors.bangladeshGreen.withValues(alpha: 0.5),
                         width: 1.2,
                       ),
                     ),
                     child: Icon(
                       Icons.search_off_rounded,
                       size: 34,
-                      color: caribbeanGreen.withValues(alpha: 0.85),
+                      color: AppColors.caribbeanGreen.withValues(alpha: 0.85),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -2343,7 +2243,7 @@ class _EmptyRecentScanCard extends StatelessWidget {
                     'No scans yet',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: antiFlashWhite,
+                      color: AppColors.antiFlashWhite,
                       fontSize: 18,
                       fontWeight: FontWeight.w700,
                       height: 1.2,
@@ -2354,7 +2254,7 @@ class _EmptyRecentScanCard extends StatelessWidget {
                     'Capture a mangrove scan to see results here.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: antiFlashWhite.withValues(alpha: 0.7),
+                      color: AppColors.antiFlashWhite.withValues(alpha: 0.7),
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
                       height: 1.35,

@@ -2,16 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:device_info_plus/device_info_plus.dart';
+import '../constants/app_constants.dart';
 
-const Color caribbeanGreen = Color(0xFF00DF81);
-const Color antiFlashWhite = Color(0xFFF1F7F6);
-const Color darkGreen = Color(0xFF032221);
-const Color richBlack = Color(0xFF021B1A);
-const Color bangladeshGreen = Color(0xFF03624C);
+
 
 class QrPairPage extends StatefulWidget {
   final VoidCallback? onPaired;
@@ -47,7 +45,7 @@ class _QrPairPageState extends State<QrPairPage> {
 
   Future<void> _checkExistingPairing() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedUrl = prefs.getString('paired_server_url');
+    final savedUrl = prefs.getString(AppConstants.pairedServerUrlKey);
     if (savedUrl != null && savedUrl.isNotEmpty) {
       setState(() {
         _pairedServerUrl = savedUrl;
@@ -158,7 +156,7 @@ class _QrPairPageState extends State<QrPairPage> {
 
   Future<bool> _attemptPairing(String baseUrl, String? token) async {
     final endpoints = [
-      Uri.parse('$baseUrl/api/scans'),
+      Uri.parse('$baseUrl/${AppConstants.apiScans}'),
     ];
 
     for (final endpoint in endpoints) {
@@ -170,16 +168,16 @@ class _QrPairPageState extends State<QrPairPage> {
           if (token != null && token.isNotEmpty) {
             try {
               final prefs = await SharedPreferences.getInstance();
-              final deviceId = prefs.getString('mangrove_device_id') ?? 'device-${DateTime.now().millisecondsSinceEpoch}';
-              if (!prefs.containsKey('mangrove_device_id')) {
-                await prefs.setString('mangrove_device_id', deviceId);
+              final deviceId = prefs.getString(AppConstants.deviceIdKey) ?? 'device-${DateTime.now().millisecondsSinceEpoch}';
+              if (!prefs.containsKey(AppConstants.deviceIdKey)) {
+                await prefs.setString(AppConstants.deviceIdKey, deviceId);
               }
 
               final deviceName = await _getDeviceName();
 
               final confirmResponse = await http
                   .post(
-                    Uri.parse('$baseUrl/api/pair/confirm'),
+                     Uri.parse('$baseUrl/${AppConstants.apiPairConfirm}'),
                     headers: {'Content-Type': 'application/json'},
                     body: jsonEncode({
                       'token': token,
@@ -189,7 +187,21 @@ class _QrPairPageState extends State<QrPairPage> {
                   )
                   .timeout(const Duration(seconds: 5));
               if (confirmResponse.statusCode >= 400) {
-                debugPrint('Pair confirm rejected: ${confirmResponse.statusCode}');
+                String errorMessage = 'Pair confirm rejected: ${confirmResponse.statusCode}';
+                try {
+                  final decoded = jsonDecode(confirmResponse.body);
+                  if (decoded is Map<String, dynamic>) {
+                    final serverError = decoded['error'] as String?;
+                    final serverCode = decoded['code'] as String?;
+                    if (serverError != null && serverError.isNotEmpty) {
+                      errorMessage = serverCode != null && serverCode.isNotEmpty
+                          ? '$serverError (code: $serverCode)'
+                          : serverError;
+                    }
+                  }
+                } on FormatException catch (_) {}
+                on ArgumentError catch (_) {}
+                debugPrint(errorMessage);
                 return false;
               }
             } catch (e) {
@@ -214,7 +226,7 @@ class _QrPairPageState extends State<QrPairPage> {
 
   Future<void> _savePairing(String baseUrl) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('paired_server_url', baseUrl);
+    await prefs.setString(AppConstants.pairedServerUrlKey, baseUrl);
   }
 
   Future<void> _stopScanner({bool silent = false}) async {
@@ -257,7 +269,30 @@ class _QrPairPageState extends State<QrPairPage> {
 
   Future<void> _clearPairing() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('paired_server_url');
+    final savedUrl = prefs.getString(AppConstants.pairedServerUrlKey);
+    final deviceId = prefs.getString(AppConstants.deviceIdKey);
+    final sessionId = prefs.getString(AppConstants.sessionIdKey);
+
+    if (savedUrl != null && deviceId != null && deviceId.isNotEmpty) {
+      try {
+        final baseUrl = savedUrl.replaceAll(RegExp(r'/+$'), '');
+        await http
+            .post(
+              Uri.parse('$baseUrl/${AppConstants.apiPairUnpair}'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'deviceId': deviceId}),
+            )
+            .timeout(const Duration(seconds: 5));
+      } on SocketException catch (_) {}
+      on TimeoutException catch (_) {}
+      on HttpException catch (_) {}
+    }
+
+    if (sessionId != null && sessionId.isNotEmpty) {
+      unawaited(MonitoringSyncService.endSession(sessionId));
+    }
+
+    await prefs.remove(AppConstants.pairedServerUrlKey);
     setState(() {
       _pairedServerUrl = null;
       _isPaired = false;
@@ -268,7 +303,7 @@ class _QrPairPageState extends State<QrPairPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: richBlack,
+      backgroundColor: AppColors.richBlack,
       body: SafeArea(
         child: Column(
           children: [
@@ -290,7 +325,7 @@ class _QrPairPageState extends State<QrPairPage> {
                       child: Text(
                         _errorMessage!,
                         style: TextStyle(
-                          color: antiFlashWhite.withValues(alpha: 0.9),
+                          color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
                         ),
@@ -323,16 +358,16 @@ class _QrPairPageState extends State<QrPairPage> {
               height: 88,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: bangladeshGreen.withValues(alpha: 0.18),
+                color: AppColors.bangladeshGreen.withValues(alpha: 0.18),
                 border: Border.all(
-                  color: caribbeanGreen.withValues(alpha: 0.55),
+                  color: AppColors.caribbeanGreen.withValues(alpha: 0.55),
                   width: 1.8,
                 ),
               ),
               child: Icon(
                 Icons.qr_code_scanner_rounded,
                 size: 42,
-                color: caribbeanGreen.withValues(alpha: 0.88),
+                color: AppColors.caribbeanGreen.withValues(alpha: 0.88),
               ),
             ),
             const SizedBox(height: 20),
@@ -342,7 +377,7 @@ class _QrPairPageState extends State<QrPairPage> {
                   : 'Scan QR to Pair',
               textAlign: TextAlign.center,
               style: const TextStyle(
-                color: antiFlashWhite,
+                color: AppColors.antiFlashWhite,
                 fontSize: 19,
                 fontWeight: FontWeight.w800,
                 height: 1.25,
@@ -353,7 +388,7 @@ class _QrPairPageState extends State<QrPairPage> {
               'Scan a MangroveGuard server QR code to connect your device and sync scans from anywhere.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: antiFlashWhite.withValues(alpha: 0.68),
+                color: AppColors.antiFlashWhite.withValues(alpha: 0.68),
                 fontSize: 13,
                 height: 1.45,
               ),
@@ -367,7 +402,7 @@ class _QrPairPageState extends State<QrPairPage> {
   Widget _buildScannerView() {
     final controller = _scannerController;
     if (controller == null) {
-      return const Center(child: CircularProgressIndicator(color: caribbeanGreen));
+      return const Center(child: CircularProgressIndicator(color: AppColors.caribbeanGreen));
     }
 
     return Stack(
@@ -399,7 +434,7 @@ class _QrPairPageState extends State<QrPairPage> {
             width: 260,
             height: 260,
             decoration: BoxDecoration(
-              border: Border.all(color: caribbeanGreen.withValues(alpha: 0.35), width: 2),
+              border: Border.all(color: AppColors.caribbeanGreen.withValues(alpha: 0.35), width: 2),
               borderRadius: BorderRadius.circular(18),
             ),
             child: Center(
@@ -407,7 +442,7 @@ class _QrPairPageState extends State<QrPairPage> {
                 'Align QR code within frame',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: antiFlashWhite.withValues(alpha: 0.8),
+                  color: AppColors.antiFlashWhite.withValues(alpha: 0.8),
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
                 ),
@@ -432,19 +467,19 @@ class _QrPairPageState extends State<QrPairPage> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: isPaired
-                ? [bangladeshGreen.withValues(alpha: 0.85), darkGreen.withValues(alpha: 0.95)]
+                ? [AppColors.bangladeshGreen.withValues(alpha: 0.85), AppColors.darkGreen.withValues(alpha: 0.95)]
                 : [const Color(0xFF14B8A6), const Color(0xFF0F766E)],
           ),
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: isPaired
-                ? caribbeanGreen.withValues(alpha: 0.55)
-                : caribbeanGreen.withValues(alpha: 0.85),
+                ? AppColors.caribbeanGreen.withValues(alpha: 0.55)
+                : AppColors.caribbeanGreen.withValues(alpha: 0.85),
             width: isPaired ? 1.4 : 1.8,
           ),
           boxShadow: [
             BoxShadow(
-              color: caribbeanGreen.withValues(alpha: isPaired ? 0.18 : 0.28),
+              color: AppColors.caribbeanGreen.withValues(alpha: isPaired ? 0.18 : 0.28),
               blurRadius: 16,
               spreadRadius: 0.4,
               offset: const Offset(0, 8),
@@ -469,7 +504,7 @@ class _QrPairPageState extends State<QrPairPage> {
                             ? Icons.close_rounded
                             : Icons.qr_code_scanner_rounded,
                     size: 20,
-                    color: antiFlashWhite,
+                    color: AppColors.antiFlashWhite,
                   ),
                   const SizedBox(width: 10),
                    Text(
@@ -479,7 +514,7 @@ class _QrPairPageState extends State<QrPairPage> {
                              ? 'Cancel'
                              : 'Scan QR',
                     style: const TextStyle(
-                      color: antiFlashWhite,
+                      color: AppColors.antiFlashWhite,
                       fontSize: 14.5,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.3,
@@ -492,7 +527,7 @@ class _QrPairPageState extends State<QrPairPage> {
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(antiFlashWhite),
+                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.antiFlashWhite),
                       ),
                     ),
                   ],

@@ -1,13 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mangroveguardapp/views/main_nav_page.dart';
 
-const Color caribbeanGreen = Color(0xFF00DF81);
-const Color antiFlashWhite = Color(0xFFF1F7F6);
-const Color darkGreen = Color(0xFF032221);
-const Color richBlack = Color(0xFF021B1A);
+
 
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
@@ -194,16 +192,16 @@ class _HeaderRow extends StatelessWidget {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: darkGreen,
+            color: AppColors.darkGreen,
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: caribbeanGreen.withOpacity(0.2),
+                color: AppColors.caribbeanGreen.withOpacity(0.2),
                 blurRadius: 16,
                 offset: const Offset(0, 8),
               ),
             ],
-            border: Border.all(color: caribbeanGreen.withOpacity(0.4)),
+            border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.4)),
           ),
           child: Padding(
             padding: const EdgeInsets.all(8.0),
@@ -217,7 +215,7 @@ class _HeaderRow extends StatelessWidget {
             Text(
               'Mangrove Guard',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: antiFlashWhite,
+                color: AppColors.antiFlashWhite,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.3,
               ),
@@ -225,7 +223,7 @@ class _HeaderRow extends StatelessWidget {
             Text(
               'Field-ready coastal insights',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: antiFlashWhite.withOpacity(0.7),
+                color: AppColors.antiFlashWhite.withOpacity(0.7),
                 letterSpacing: 0.4,
               ),
             ),
@@ -236,14 +234,14 @@ class _HeaderRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: caribbeanGreen.withOpacity(0.12),
+              color: AppColors.caribbeanGreen.withOpacity(0.12),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: caribbeanGreen.withOpacity(0.4)),
+              border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.4)),
             ),
             child: Text(
               'LIVE BUILD',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: caribbeanGreen,
+                color: AppColors.caribbeanGreen,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 1.2,
               ),
@@ -266,7 +264,7 @@ class _HeroCopy extends StatelessWidget {
         Text(
           'Live scan mangroves for instant stability insights.',
           style: textTheme.displaySmall?.copyWith(
-            color: antiFlashWhite,
+            color: AppColors.antiFlashWhite,
             fontWeight: FontWeight.w700,
             height: 1.1,
             letterSpacing: -0.6,
@@ -276,7 +274,7 @@ class _HeroCopy extends StatelessWidget {
         Text(
           'Realtime AI analyzes root structure and stability directly through your camera, with privacy-focused local processing and live metrics.',
           style: textTheme.bodyLarge?.copyWith(
-            color: antiFlashWhite.withOpacity(0.78),
+            color: AppColors.antiFlashWhite.withOpacity(0.78),
             height: 1.5,
           ),
         ),
@@ -309,7 +307,7 @@ class _HeroVisual extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              darkGreen.withOpacity(0.95),
+              AppColors.darkGreen.withOpacity(0.95),
               const Color(0xFF0E3D35),
               const Color(0xFF0F4734),
             ],
@@ -321,7 +319,7 @@ class _HeroVisual extends StatelessWidget {
               offset: const Offset(0, 14),
             ),
           ],
-          border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+          border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.2)),
         ),
         child: Stack(
           children: [
@@ -344,11 +342,11 @@ class _HeroVisual extends StatelessWidget {
                     children: [
                       _SignalPill(
                         label: 'Live Analysis',
-                        color: caribbeanGreen,
+                        color: AppColors.caribbeanGreen,
                       ),
                       Icon(
                         Icons.track_changes,
-                        color: caribbeanGreen.withOpacity(0.85),
+                        color: AppColors.caribbeanGreen.withOpacity(0.85),
                         size: 28,
                       ),
                     ],
@@ -357,7 +355,7 @@ class _HeroVisual extends StatelessWidget {
                   Text(
                     'Live assessment active',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: antiFlashWhite,
+                      color: AppColors.antiFlashWhite,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -365,7 +363,7 @@ class _HeroVisual extends StatelessWidget {
                   Text(
                     'Realtime root analysis and stability scoring via camera feed.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: antiFlashWhite.withOpacity(0.7),
+                      color: AppColors.antiFlashWhite.withOpacity(0.7),
                       height: 1.4,
                     ),
                   ),
@@ -456,7 +454,7 @@ class _FeatureCard extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: const Color(0xFF0B2E2A).withOpacity(0.9),
-        border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+        border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.2)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.24),
@@ -472,16 +470,16 @@ class _FeatureCard extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: caribbeanGreen.withOpacity(0.12),
+              color: AppColors.caribbeanGreen.withOpacity(0.12),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: caribbeanGreen),
+            child: Icon(icon, color: AppColors.caribbeanGreen),
           ),
           const SizedBox(height: 14),
           Text(
             title,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: antiFlashWhite,
+              color: AppColors.antiFlashWhite,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -489,7 +487,7 @@ class _FeatureCard extends StatelessWidget {
           Text(
             description,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: antiFlashWhite.withOpacity(0.72),
+              color: AppColors.antiFlashWhite.withOpacity(0.72),
               height: 1.4,
             ),
           ),
@@ -510,7 +508,7 @@ class _CallToAction extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: const Color(0xFF0C2A25).withOpacity(0.9),
-        border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+        border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -518,7 +516,7 @@ class _CallToAction extends StatelessWidget {
           Text(
             'Ready to scan today? ',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: antiFlashWhite,
+              color: AppColors.antiFlashWhite,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -526,7 +524,7 @@ class _CallToAction extends StatelessWidget {
           Text(
             'Hold shutter for live analysis or jump to recent scans & metrics. Move at your own pace.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: antiFlashWhite.withOpacity(0.72),
+              color: AppColors.antiFlashWhite.withOpacity(0.72),
               height: 1.4,
             ),
           ),
@@ -535,8 +533,8 @@ class _CallToAction extends StatelessWidget {
             width: double.infinity,
             child: FilledButton(
               style: FilledButton.styleFrom(
-                backgroundColor: caribbeanGreen,
-                foregroundColor: richBlack,
+                backgroundColor: AppColors.caribbeanGreen,
+                foregroundColor: AppColors.richBlack,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 textStyle: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
@@ -561,14 +559,14 @@ class _TagPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: caribbeanGreen.withOpacity(0.12),
+        color: AppColors.caribbeanGreen.withOpacity(0.12),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: caribbeanGreen.withOpacity(0.4)),
+        border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.4)),
       ),
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: caribbeanGreen,
+          color: AppColors.caribbeanGreen,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.4,
         ),
@@ -614,8 +612,8 @@ class _ProgressBar extends StatelessWidget {
       child: LinearProgressIndicator(
         minHeight: 8,
         value: value,
-        backgroundColor: antiFlashWhite.withOpacity(0.08),
-        valueColor: const AlwaysStoppedAnimation<Color>(caribbeanGreen),
+        backgroundColor: AppColors.antiFlashWhite.withOpacity(0.08),
+        valueColor: const AlwaysStoppedAnimation<Color>(AppColors.caribbeanGreen),
       ),
     );
   }
@@ -657,11 +655,11 @@ class _MangroveAuraPainter extends CustomPainter {
     final glowPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.4
-      ..color = caribbeanGreen.withOpacity(0.08);
+      ..color = AppColors.caribbeanGreen.withOpacity(0.08);
 
     final accentPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = caribbeanGreen.withOpacity(0.06);
+      ..color = AppColors.caribbeanGreen.withOpacity(0.06);
 
     final center = Offset(size.width * 0.82, size.height * 0.2);
     for (int i = 0; i < 4; i++) {
@@ -771,7 +769,7 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
                         Text(
                           'Feature Walkthrough',
                           style: textTheme.titleLarge?.copyWith(
-                            color: antiFlashWhite,
+                            color: AppColors.antiFlashWhite,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -808,8 +806,8 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
                         const Spacer(),
                         FilledButton(
                           style: FilledButton.styleFrom(
-                            backgroundColor: caribbeanGreen,
-                            foregroundColor: richBlack,
+                            backgroundColor: AppColors.caribbeanGreen,
+                            foregroundColor: AppColors.richBlack,
                             padding: const EdgeInsets.symmetric(
                               horizontal: 24,
                               vertical: 14,
@@ -891,7 +889,7 @@ class _WalkthroughCard extends StatelessWidget {
               const Color(0xFF0E4735).withOpacity(0.9),
             ],
           ),
-          border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+          border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.2)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.35),
@@ -910,15 +908,15 @@ class _WalkthroughCard extends StatelessWidget {
                 height: 64,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: caribbeanGreen.withOpacity(0.15),
+                  color: AppColors.caribbeanGreen.withOpacity(0.15),
                 ),
-                child: Icon(step.icon, color: caribbeanGreen, size: 34),
+                child: Icon(step.icon, color: AppColors.caribbeanGreen, size: 34),
               ),
               const SizedBox(height: 24),
               Text(
                 step.title,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: antiFlashWhite,
+                  color: AppColors.antiFlashWhite,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -926,7 +924,7 @@ class _WalkthroughCard extends StatelessWidget {
               Text(
                 step.description,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: antiFlashWhite.withOpacity(0.75),
+                  color: AppColors.antiFlashWhite.withOpacity(0.75),
                   height: 1.5,
                 ),
               ),
@@ -938,13 +936,13 @@ class _WalkthroughCard extends StatelessWidget {
                 ),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
-                  color: darkGreen.withOpacity(0.7),
-                  border: Border.all(color: caribbeanGreen.withOpacity(0.2)),
+                  color: AppColors.darkGreen.withOpacity(0.7),
+                  border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.2)),
                 ),
                 child: Text(
                   'Step ${index + 1} of $total',
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: caribbeanGreen,
+                    color: AppColors.caribbeanGreen,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -976,11 +974,11 @@ class _WalkthroughIndicators extends StatelessWidget {
           margin: const EdgeInsets.only(right: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(999),
-            color: isActive ? caribbeanGreen : antiFlashWhite.withOpacity(0.2),
+            color: isActive ? AppColors.caribbeanGreen : AppColors.antiFlashWhite.withOpacity(0.2),
             boxShadow: isActive
                 ? [
                     BoxShadow(
-                      color: caribbeanGreen.withOpacity(0.35),
+                      color: AppColors.caribbeanGreen.withOpacity(0.35),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),

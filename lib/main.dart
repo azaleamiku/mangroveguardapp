@@ -3,14 +3,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'views/onboarding_page.dart';
 import 'views/main_nav_page.dart';
 
-const Color caribbeanGreen = Color(0xFF00DF81);
-const Color antiFlashWhite = Color(0xFFF1F7F6);
-const Color bangladeshGreen = Color(0xFF03624C);
-const Color darkGreen = Color(0xFF032221);
-const Color richBlack = Color(0xFF021B1A);
+import 'package:mangroveguardapp/theme/colors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    if (details.silent) return;
+    debugPrint('Unhandled Flutter error: ${details.exception}');
+  };
   final prefs = await SharedPreferences.getInstance();
   final showHome = prefs.getBool('showHome') ?? false;
 
@@ -31,29 +31,29 @@ class MangroveGuardApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme(
           brightness: Brightness.dark,
-          primary: caribbeanGreen,
-          onPrimary: richBlack,
-          secondary: bangladeshGreen,
-          onSecondary: antiFlashWhite,
-          surface: darkGreen,
-          onSurface: antiFlashWhite,
+          primary: AppColors.caribbeanGreen,
+          onPrimary: AppColors.richBlack,
+          secondary: AppColors.bangladeshGreen,
+          onSecondary: AppColors.antiFlashWhite,
+          surface: AppColors.darkGreen,
+          onSurface: AppColors.antiFlashWhite,
           error: Colors.redAccent,
-          onError: antiFlashWhite,
+          onError: AppColors.antiFlashWhite,
         ),
         useMaterial3: true,
-        scaffoldBackgroundColor: richBlack,
+        scaffoldBackgroundColor: AppColors.richBlack,
         appBarTheme: const AppBarTheme(
-          backgroundColor: darkGreen,
-          foregroundColor: antiFlashWhite,
+          backgroundColor: AppColors.darkGreen,
+          foregroundColor: AppColors.antiFlashWhite,
           elevation: 0,
           scrolledUnderElevation: 0,
           surfaceTintColor: Colors.transparent,
           shadowColor: Colors.transparent,
         ),
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: darkGreen,
-          selectedItemColor: caribbeanGreen,
-          unselectedItemColor: antiFlashWhite,
+          backgroundColor: AppColors.darkGreen,
+          selectedItemColor: AppColors.caribbeanGreen,
+          unselectedItemColor: AppColors.antiFlashWhite,
         ),
       ),
 

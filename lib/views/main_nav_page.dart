@@ -7,9 +7,13 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/monitoring_sync_service.dart';
+import '../constants/app_constants.dart';
+import 'package:mangroveguardapp/theme/colors.dart';
 import 'scanner_page.dart';
 import 'recent_scan_page.dart';
 import 'metrics_page.dart';
+import '../models/recent_tree_scan.dart';
+import '../widgets/error_boundary.dart';
 
 class MainNavPage extends StatefulWidget {
   const MainNavPage({super.key});
@@ -21,10 +25,7 @@ class MainNavPage extends StatefulWidget {
 class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   static const String _recentScansStorageKey = 'recent_tree_scans_v1';
   static const int _maxRecentScans = 10000;
-  static const Color caribbeanGreen = Color(0xFF00DF81);
-  static const Color antiFlashWhite = Color(0xFFF1F7F6);
-  static const Color bangladeshGreen = Color(0xFF03624C);
-  static const Color darkGreen = Color(0xFF032221);
+
 
   int _selectedIndex = 0;
   final ScannerPageController _scannerController = ScannerPageController();
@@ -35,10 +36,12 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
 
   List<Widget> _buildPages() => [
     MetricsPage(scansListenable: _recentScans),
-    ScannerPage(
-      controller: _scannerController,
-      onScanCompleted: _handleScanCompleted,
-      isActive: _selectedIndex == 1,
+    ErrorBoundary(
+      child: ScannerPage(
+        controller: _scannerController,
+        onScanCompleted: _handleScanCompleted,
+        isActive: _selectedIndex == 1,
+      ),
     ),
     RecentScanPage(
       scansListenable: _recentScans,
@@ -56,6 +59,20 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _markOnboardingComplete();
     unawaited(_loadRecentScans());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      final prefs = SharedPreferences.getInstance();
+      prefs.then((p) {
+        final sessionId = p.getString(AppConstants.sessionIdKey);
+        if (sessionId != null && sessionId.isNotEmpty) {
+          unawaited(MonitoringSyncService.endSession(sessionId));
+        }
+      });
+    }
   }
 
   Future<void> _markOnboardingComplete() async {
@@ -397,10 +414,10 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
                   child: Container(
                     height: 85,
                     decoration: BoxDecoration(
-                      color: darkGreen.withValues(alpha: 0.9),
+                      color: AppColors.darkGreen.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(35),
                       border: Border.all(
-                        color: bangladeshGreen.withValues(alpha: 0.85),
+                        color: AppColors.bangladeshGreen.withValues(alpha: 0.85),
                         width: 1.5,
                       ),
                       boxShadow: [
@@ -417,8 +434,8 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
                         _NavItem(
                           icon: Icons.dashboard_rounded,
                           isSelected: _selectedIndex == 0,
-                          selectedColor: caribbeanGreen,
-                          unselectedColor: antiFlashWhite.withValues(
+                          selectedColor: AppColors.caribbeanGreen,
+                          unselectedColor: AppColors.antiFlashWhite.withValues(
                             alpha: 0.58,
                           ),
                           onTap: () => _setSelectedIndex(0),
@@ -427,8 +444,8 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
                         _NavItem(
                           icon: Icons.auto_stories_rounded,
                           isSelected: _selectedIndex == 2,
-                          selectedColor: caribbeanGreen,
-                          unselectedColor: antiFlashWhite.withValues(
+                          selectedColor: AppColors.caribbeanGreen,
+                          unselectedColor: AppColors.antiFlashWhite.withValues(
                             alpha: 0.58,
                           ),
                           onTap: () => _setSelectedIndex(2),
@@ -447,9 +464,9 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
                   return _ScannerFab(
                     isScannerActive: _selectedIndex == 1,
                     showLiveAnimation: _scannerController.isRealtimeAssessment,
-                    selectedColor: caribbeanGreen,
-                    baseColor: bangladeshGreen,
-                    iconColor: antiFlashWhite,
+                    selectedColor: AppColors.caribbeanGreen,
+                    baseColor: AppColors.bangladeshGreen,
+                    iconColor: AppColors.antiFlashWhite,
                     onTap: _handleScannerFabTap,
                     onHoldStart: _handleScannerHoldStart,
                     onHoldEnd: _handleScannerHoldEnd,
@@ -854,7 +871,7 @@ class _ShutterVisualState extends State<_ShutterVisual>
                 height: 28,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: const Color(0xFFF1F7F6),
+                  color: AppColors.antiFlashWhite,
                   border: Border.all(
                     color: Colors.black.withValues(alpha: 0.2),
                     width: 1.2,
