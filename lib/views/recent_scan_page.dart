@@ -652,6 +652,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
             }
 
             final scan = scans.first;
+            final index = scans.indexOf(scan);
             final imagePath = scan.capturedImagePath?.trim();
             final hasImage = imagePath != null && imagePath.isNotEmpty;
             final statusColor = _assessmentColor(scan.assessment);
@@ -1117,7 +1118,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                         _uploadAttempted
                                                     ? null
                                                     : () =>
-                                                        _handleUploadScan(0),
+                                                        _handleUploadScan(index),
                                             style: FilledButton.styleFrom(
                                               backgroundColor:
                                                   Colors.transparent,
@@ -1143,7 +1144,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                               ),
                                             ),
                                             child:
-                                                _uploadingIndices.contains(0)
+                                                _uploadingIndices.contains(index)
                                                     ? const SizedBox(
                                                         height: 18,
                                                         width: 18,
