@@ -2604,6 +2604,21 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     final uri = Uri.parse(serverUrl);
     final normalizedUrl = uri.origin.replaceAll(RegExp(r'/+$'), '');
     final token = uri.queryParameters['token'];
+    if (token == null || token.isEmpty) {
+      _qrTemporaryError = 'Invalid QR code. Missing pairing token.';
+      _scheduleQrErrorDismiss();
+      setState(() {
+        _isQrVerifying = false;
+        _qrVerificationMessage = null;
+      });
+      final controller = _qrScannerController;
+      if (controller != null) {
+        try {
+          await controller.start();
+        } catch (_) {}
+      }
+      return;
+    }
     final success = await _attemptPairing(normalizedUrl, token);
     if (!mounted) return;
 
@@ -2674,6 +2689,36 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   Future<bool> _attemptPairing(String baseUrl, String? token) async {
+    try {
+      setState(() {
+        _qrVerificationMessage = 'Verifying server...';
+      });
+
+      final healthResponse = await http
+          .get(Uri.parse('$baseUrl/api/health'))
+          .timeout(const Duration(seconds: 5));
+      if (healthResponse.statusCode != 200) {
+        return false;
+      }
+
+      final healthDecoded = jsonDecode(healthResponse.body);
+      if (healthDecoded is! Map<String, dynamic> ||
+          healthDecoded['status'] != 'ok' ||
+          healthDecoded['db'] != true) {
+        return false;
+      }
+    } on SocketException {
+      return false;
+    } on TimeoutException {
+      return false;
+    } on FormatException catch (_) {
+      return false;
+    } on ArgumentError catch (_) {
+      return false;
+    } catch (_) {
+      return false;
+    }
+
     final endpoints = [
       Uri.parse('$baseUrl/${AppConstants.apiScans}'),
       Uri.parse('$baseUrl/${AppConstants.apiPairQr}'),
@@ -2704,7 +2749,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                        'deviceId': deviceId,
                        'deviceName': await _getDeviceName(),
                      }),
-                  )
+                   )
                   .timeout(const Duration(seconds: 5));
               if (confirmResponse.statusCode >= 400) {
                 String errorMessage = 'Pair confirm rejected: ${confirmResponse.statusCode}';
