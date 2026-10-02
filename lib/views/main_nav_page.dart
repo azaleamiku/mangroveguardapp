@@ -171,15 +171,33 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     _setSelectedIndex(2);
   }
 
-  String _nextTreeId() {
-    var highestNumber = 0;
-    final pattern = RegExp(r'^Tree #(\d+)$');
-    for (final scan in _recentScans.value) {
-      final match = pattern.firstMatch(scan.treeId.trim());
-      final number = int.tryParse(match?.group(1) ?? '') ?? 0;
-      if (number > highestNumber) highestNumber = number;
+  Future<String> _nextTreeId() async {
+    final prefs = await SharedPreferences.getInstance();
+    final deviceId = prefs.getString(AppConstants.deviceIdKey) ?? '';
+
+    final alphanumeric = deviceId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final suffix = alphanumeric.length <= 4
+        ? alphanumeric
+        : alphanumeric.substring(alphanumeric.length - 4);
+
+    final now = DateTime.now();
+    final timePart = '${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}'
+        '${now.second.toString().padLeft(2, '0')}';
+
+    final baseId = 'MG-$suffix-$timePart';
+
+    if (!_recentScans.value.any((s) => s.treeId.trim() == baseId)) {
+      return baseId;
     }
-    return 'Tree #${highestNumber + 1}';
+
+    var collisionIndex = 1;
+    while (true) {
+      final candidate = '$baseId-${collisionIndex++}';
+      if (!_recentScans.value.any((s) => s.treeId.trim() == candidate)) {
+        return candidate;
+      }
+    }
   }
 
   Future<void> _storeLatestMeasuredTree() async {
@@ -187,7 +205,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     if (measuredResult == null) return;
 
     final timestamp = DateTime.now();
-    final treeId = _nextTreeId();
+    final treeId = await _nextTreeId();
     final capturedImagePath = await _persistCapturedImage(
       sourcePath: measuredResult.capturedImagePath,
       treeId: treeId,
