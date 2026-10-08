@@ -516,27 +516,27 @@ class _AboutAppSheet extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                'About Mangrove Guard',
-                                style: TextStyle(
-                                  color: AppColors.antiFlashWhite.withValues(
-                                    alpha: 0.94,
-                                  ),
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                              Text(
-                                'AI-assisted mangrove scanning in the field.',
-                                style: TextStyle(
-                                  color: AppColors.antiFlashWhite.withValues(
-                                    alpha: 0.66,
-                                  ),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+                               Text(
+                                 'About MangroveGuard',
+                                 style: TextStyle(
+                                   color: AppColors.antiFlashWhite.withValues(
+                                     alpha: 0.94,
+                                   ),
+                                   fontSize: 16,
+                                   fontWeight: FontWeight.w900,
+                                   letterSpacing: 0.2,
+                                 ),
+                               ),
+                               Text(
+                                 'Field capture meets web intelligence.',
+                                 style: TextStyle(
+                                   color: AppColors.antiFlashWhite.withValues(
+                                     alpha: 0.66,
+                                   ),
+                                   fontSize: 12,
+                                   fontWeight: FontWeight.w600,
+                                 ),
+                               ),
                             ],
                           ),
                         ),
@@ -625,8 +625,8 @@ class _AboutAppSheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                                                         'Our platform utilizes YOLOv8-Nano and TensorFlow Lite (LiteRT) to deliver high-speed, on-device object detection for real-time mangrove tree analysis. The system evaluates structural stability into High, Moderate, or Low categories directly through the camera feed. All data is processed and stored locally to ensure privacy and offline functionality.',
-                                    style: TextStyle(
+                                                                    'MangroveGuard is a coastal mangrove monitoring platform that turns field scans into actionable stability assessments. The mobile client captures and classifies scans on-site, while the web dashboard lets conservation teams review observations, monitor activity, and compare stability trends.',
+                                                                     style: TextStyle(
                                       color: AppColors.antiFlashWhite
                                           .withValues(alpha: 0.82),
                                       fontSize: 12,
@@ -635,32 +635,40 @@ class _AboutAppSheet extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 10),
-                                  Row(
-                                    children: const [
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.memory_rounded,
-                                          label: 'Inference',
-                                          value: 'On-device',
-                                        ),
-                                      ),
-                                      SizedBox(width: 10),
-                                      Expanded(
-                                        child: _AboutPillMetric(
-                                          icon: Icons.history_rounded,
-                                          label: 'History',
-                                          value: 'Local',
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                                   Row(
+                                     children: const [
+                                       Expanded(
+                                         child: _AboutPillMetric(
+                                           icon: Icons.memory_rounded,
+                                           label: 'Inference',
+                                           value: 'On-device',
+                                         ),
+                                       ),
+                                       SizedBox(width: 10),
+                                       Expanded(
+                                         child: _AboutPillMetric(
+                                           icon: Icons.history_rounded,
+                                           label: 'History',
+                                           value: 'Local',
+                                         ),
+                                       ),
+                                       SizedBox(width: 10),
+                                       Expanded(
+                                         child: _AboutPillMetric(
+                                           icon: Icons.cloud_sync_rounded,
+                                           label: 'Sync',
+                                           value: 'Web',
+                                         ),
+                                       ),
+                                     ],
+                                   ),
                                 ],
                               ),
                             ),
                             const SizedBox(height: 12),
 
-                            Text(
-                              'Built and maintained by the Mangrove Guard team.',
+                              Text(
+                              'Built and maintained by the MangroveGuard team.',
                               style: TextStyle(
                                 color: AppColors.antiFlashWhite.withValues(
                                   alpha: 0.82,

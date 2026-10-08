@@ -1,7 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mangroveguardapp/views/scanner_page.dart';
+import 'package:mangroveguardapp/views/scanner_camera.dart';
 import 'package:mangroveguardapp/main.dart';
 
 void main() {

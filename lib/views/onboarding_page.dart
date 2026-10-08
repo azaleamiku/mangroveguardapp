@@ -5,8 +5,6 @@ import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mangroveguardapp/views/main_nav_page.dart';
 
-
-
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
 
@@ -141,9 +139,7 @@ class _OnboardingPageState extends State<OnboardingPage>
                         _FadeSlide(
                           animation: _ctaAnimation,
                           yOffset: 24,
-                          child: _CallToAction(
-                            onGetStarted: _handleGetStarted,
-                          ),
+                          child: _CallToAction(onGetStarted: _handleGetStarted),
                         ),
                       ],
                     ),
@@ -201,7 +197,9 @@ class _HeaderRow extends StatelessWidget {
                 offset: const Offset(0, 8),
               ),
             ],
-            border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.4)),
+            border: Border.all(
+              color: AppColors.caribbeanGreen.withOpacity(0.4),
+            ),
           ),
           child: Padding(
             padding: const EdgeInsets.all(8.0),
@@ -213,7 +211,7 @@ class _HeaderRow extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Mangrove Guard',
+              'MangroveGuard',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 color: AppColors.antiFlashWhite,
                 fontWeight: FontWeight.w700,
@@ -221,7 +219,7 @@ class _HeaderRow extends StatelessWidget {
               ),
             ),
             Text(
-              'Field-ready coastal insights',
+              'Field capture meets web intelligence',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AppColors.antiFlashWhite.withOpacity(0.7),
                 letterSpacing: 0.4,
@@ -236,7 +234,9 @@ class _HeaderRow extends StatelessWidget {
             decoration: BoxDecoration(
               color: AppColors.caribbeanGreen.withOpacity(0.12),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.4)),
+              border: Border.all(
+                color: AppColors.caribbeanGreen.withOpacity(0.4),
+              ),
             ),
             child: Text(
               'LIVE BUILD',
@@ -262,7 +262,7 @@ class _HeroCopy extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Live scan mangroves for instant stability insights.',
+          'Capture in the field. Analyze everywhere.',
           style: textTheme.displaySmall?.copyWith(
             color: AppColors.antiFlashWhite,
             fontWeight: FontWeight.w700,
@@ -272,7 +272,7 @@ class _HeroCopy extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         Text(
-          'Realtime AI analyzes root structure and stability directly through your camera, with privacy-focused local processing and live metrics.',
+          'Scan mangroves on-site with your device, then review detailed stability trends, historical comparisons, and team insights from the web dashboard.',
           style: textTheme.bodyLarge?.copyWith(
             color: AppColors.antiFlashWhite.withOpacity(0.78),
             height: 1.5,
@@ -283,9 +283,9 @@ class _HeroCopy extends StatelessWidget {
           spacing: 12,
           runSpacing: 12,
           children: const [
-            _TagPill(label: 'Live Assessment'),
-            _TagPill(label: 'Stability Metrics'),
-            _TagPill(label: 'Recent Scans'),
+            _TagPill(label: 'Field Scans'),
+            _TagPill(label: 'Web Analytics'),
+            _TagPill(label: 'Sync History'),
           ],
         ),
       ],
@@ -353,7 +353,7 @@ class _HeroVisual extends StatelessWidget {
                   ),
                   const Spacer(),
                   Text(
-                    'Live assessment active',
+                    'Cross-device sync active',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       color: AppColors.antiFlashWhite,
                       fontWeight: FontWeight.w600,
@@ -361,7 +361,7 @@ class _HeroVisual extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Realtime root analysis and stability scoring via camera feed.',
+                    'Field scans, web analytics, and stability trends — all connected.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: AppColors.antiFlashWhite.withOpacity(0.7),
                       height: 1.4,
@@ -387,28 +387,28 @@ class _FeatureGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final cards = [
       const _FeatureCard(
-        title: 'Live Camera Assessment',
+        title: 'Field Scanning',
         description:
-            'Tap shutter for photo capture & analysis, hold for realtime root analysis & stability scoring.\n\n*App will request camera permission on first scan.*',
+            'Use your device camera to capture and assess mangrove root stability on-site. Works offline and syncs when you reconnect.',
         icon: Icons.videocam,
       ),
       const _FeatureCard(
-        title: 'Permissions Note',
+        title: 'Web Analytics',
         description:
-            'Camera access required for mangrove scanning. Grant permission when prompted for best experience.',
+            'Review stability trends, compare scan history, and explore detailed environmental metrics on the MangroveGuard web dashboard.',
+        icon: Icons.web,
+      ),
+      const _FeatureCard(
+        title: 'Synced History',
+        description:
+            'All scans are synced across your mobile app and web dashboard. Pick up where you left off on any device.',
+        icon: Icons.sync,
+      ),
+      const _FeatureCard(
+        title: 'Multi-Device Access',
+        description:
+            'Pair your device once, then manage scans from any connected device. Camera permission is only needed for field scans.',
         icon: Icons.security,
-      ),
-      const _FeatureCard(
-        title: 'Stability Gauge',
-        description:
-            'Live metrics dashboard shows average stability from your recent scans.',
-        icon: Icons.analytics,
-      ),
-      const _FeatureCard(
-        title: 'Recent Scans History',
-        description:
-            'View overlays, summaries, and rescan from your scan history anytime.',
-        icon: Icons.history,
       ),
     ];
 
@@ -514,7 +514,7 @@ class _CallToAction extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Ready to scan today? ',
+            'Ready to explore MangroveGuard? ',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               color: AppColors.antiFlashWhite,
               fontWeight: FontWeight.w600,
@@ -522,7 +522,7 @@ class _CallToAction extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Hold shutter for live analysis or jump to recent scans & metrics. Move at your own pace.',
+            'Start with a field scan or open the web dashboard to review your coastal data.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: AppColors.antiFlashWhite.withOpacity(0.72),
               height: 1.4,
@@ -536,9 +536,9 @@ class _CallToAction extends StatelessWidget {
                 backgroundColor: AppColors.caribbeanGreen,
                 foregroundColor: AppColors.richBlack,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                textStyle: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                textStyle: Theme.of(
+                  context,
+                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
               ),
               onPressed: onGetStarted,
               child: const Text('Get Started'),
@@ -613,7 +613,9 @@ class _ProgressBar extends StatelessWidget {
         minHeight: 8,
         value: value,
         backgroundColor: AppColors.antiFlashWhite.withOpacity(0.08),
-        valueColor: const AlwaysStoppedAnimation<Color>(AppColors.caribbeanGreen),
+        valueColor: const AlwaysStoppedAnimation<Color>(
+          AppColors.caribbeanGreen,
+        ),
       ),
     );
   }
@@ -697,22 +699,22 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
 
   final List<_WalkthroughStep> _steps = const [
     _WalkthroughStep(
-      title: 'Hold for Live Assessment',
+      title: 'Scan in the Field',
       description:
-          'Tap shutter to capture photo for analysis, hold for live realtime root analysis & stability scoring.',
+          'Use your device camera to capture mangrove root structure. Analysis runs locally on-device and syncs to your web dashboard.',
       icon: Icons.videocam,
     ),
     _WalkthroughStep(
-      title: 'Check Stability Gauge',
+      title: 'Review on Web',
       description:
-          'Live dashboard shows average stability and breakdown from your scans.',
-      icon: Icons.analytics,
+          'Open the MangroveGuard web dashboard to explore stability trends, historical comparisons, and detailed scan analytics.',
+      icon: Icons.web,
     ),
     _WalkthroughStep(
-      title: 'View Recent Scans',
+      title: 'Sync Across Devices',
       description:
-          'Access history with overlays, summaries, and quick rescan options.',
-      icon: Icons.history,
+          'Your scans stay in sync between the mobile app and web dashboard. Resume analysis or manage data from anywhere.',
+      icon: Icons.sync,
     ),
   ];
 
@@ -767,7 +769,7 @@ class _FeatureWalkthroughPageState extends State<FeatureWalkthroughPage> {
                     child: Row(
                       children: [
                         Text(
-                          'Feature Walkthrough',
+                          'Explore MangroveGuard',
                           style: textTheme.titleLarge?.copyWith(
                             color: AppColors.antiFlashWhite,
                             fontWeight: FontWeight.w700,
@@ -910,7 +912,11 @@ class _WalkthroughCard extends StatelessWidget {
                   shape: BoxShape.circle,
                   color: AppColors.caribbeanGreen.withOpacity(0.15),
                 ),
-                child: Icon(step.icon, color: AppColors.caribbeanGreen, size: 34),
+                child: Icon(
+                  step.icon,
+                  color: AppColors.caribbeanGreen,
+                  size: 34,
+                ),
               ),
               const SizedBox(height: 24),
               Text(
@@ -937,7 +943,9 @@ class _WalkthroughCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
                   color: AppColors.darkGreen.withOpacity(0.7),
-                  border: Border.all(color: AppColors.caribbeanGreen.withOpacity(0.2)),
+                  border: Border.all(
+                    color: AppColors.caribbeanGreen.withOpacity(0.2),
+                  ),
                 ),
                 child: Text(
                   'Step ${index + 1} of $total',
@@ -974,7 +982,9 @@ class _WalkthroughIndicators extends StatelessWidget {
           margin: const EdgeInsets.only(right: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(999),
-            color: isActive ? AppColors.caribbeanGreen : AppColors.antiFlashWhite.withOpacity(0.2),
+            color: isActive
+                ? AppColors.caribbeanGreen
+                : AppColors.antiFlashWhite.withOpacity(0.2),
             boxShadow: isActive
                 ? [
                     BoxShadow(

@@ -3,9 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -17,339 +18,16 @@ import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:mangroveguardapp/models/mangrove_tree.dart';
 import 'package:mangroveguardapp/services/mangrove_detector.dart';
 import '../constants/app_constants.dart';
+import 'scanner_camera.dart';
+import 'scanner_controller.dart';
+import 'scanner_isolate.dart';
+import 'scanner_ui/detection_cards.dart';
+import 'scanner_ui/menu.dart';
+import 'scanner_ui/qr_dim_overlay_painter.dart';
+import 'scanner_ui/frame_dim_overlay_painter.dart';
 
+export 'scanner_controller.dart';
 
-const String _liveIsolateReady = 'ready';
-const String _liveIsolateProcess = 'process';
-const String _liveIsolateResult = 'result';
-const String _liveIsolateError = 'error';
-const String _liveIsolateStop = 'stop';
-
-ImageFormatGroup? resolveCameraFormatGroup({required bool isAndroid}) {
-  if (isAndroid) {
-    return null;
-  }
-  return ImageFormatGroup.bgra8888;
-}
-
-int _clampByte(num value) {
-  if (value < 0) return 0;
-  if (value > 255) return 255;
-  return value.round();
-}
-
-img.Image _convertYuv420ToRgb({
-  required int width,
-  required int height,
-  required Uint8List bytesY,
-  required Uint8List bytesU,
-  required Uint8List bytesV,
-  required int yRowStride,
-  required int uvRowStride,
-  required int uvPixelStride,
-  int? maxDimension,
-}) {
-  final scale = (maxDimension == null)
-      ? 1
-      : math.max(
-          1,
-          ((math.max(width, height) + maxDimension - 1) ~/ maxDimension),
-        );
-  final scaledWidth = (width + scale - 1) ~/ scale;
-  final scaledHeight = (height + scale - 1) ~/ scale;
-  final img.Image imgImage = img.Image(
-    width: scaledWidth,
-    height: scaledHeight,
-  );
-
-  var dy = 0;
-  for (int y = 0; y < height; y += scale) {
-    final int uvRow = uvRowStride * (y >> 1);
-    final int yRow = yRowStride * y;
-    var dx = 0;
-    for (int x = 0; x < width; x += scale) {
-      final int yIndex = yRow + x;
-      final int uvIndex = uvRow + (x >> 1) * uvPixelStride;
-      final int yVal = bytesY[yIndex];
-      final int uVal = bytesU[uvIndex];
-      final int vVal = bytesV[uvIndex];
-      final int r = _clampByte(yVal + (1.403 * (vVal - 128)));
-      final int g = _clampByte(
-        yVal - (0.344 * (uVal - 128)) - (0.714 * (vVal - 128)),
-      );
-      final int b = _clampByte(yVal + (1.770 * (uVal - 128)));
-      imgImage.setPixelRgb(dx, dy, r, g, b);
-      dx++;
-    }
-    dy++;
-  }
-
-  if (scaledWidth > scaledHeight) {
-    return img.copyRotate(imgImage, angle: 90);
-  }
-  return imgImage;
-}
-
-Rect? _cropRectFromNormalized({
-  required double left,
-  required double top,
-  required double right,
-  required double bottom,
-  required int width,
-  required int height,
-}) {
-  final cropLeft = (left * width).round().clamp(0, width - 1);
-  final cropTop = (top * height).round().clamp(0, height - 1);
-  final cropRight = (right * width).round().clamp(cropLeft + 1, width);
-  final cropBottom = (bottom * height).round().clamp(cropTop + 1, height);
-  if (cropRight - cropLeft <= 1 || cropBottom - cropTop <= 1) {
-    return null;
-  }
-  return Rect.fromLTRB(
-    cropLeft.toDouble(),
-    cropTop.toDouble(),
-    cropRight.toDouble(),
-    cropBottom.toDouble(),
-  );
-}
-
-void _liveAssessmentIsolate(Map<String, Object?> config) async {
-  final sendPort = config['sendPort'] as SendPort;
-  final modelData = config['modelData'] as TransferableTypedData;
-  final modelBytes = modelData.materialize().asUint8List();
-
-  MangroveDetector detector;
-  try {
-    detector = await MangroveDetector.createFromBuffer(modelBytes);
-  } catch (e) {
-    sendPort.send({'type': _liveIsolateError, 'error': e.toString()});
-    return;
-  }
-
-  final receivePort = ReceivePort();
-  sendPort.send({'type': _liveIsolateReady, 'sendPort': receivePort.sendPort});
-
-  await for (final message in receivePort) {
-    if (message is! Map<String, Object?>) continue;
-    final type = message['type'];
-    if (type == _liveIsolateStop) {
-      break;
-    }
-    if (type != _liveIsolateProcess) continue;
-
-    final requestId = message['requestId'] as int?;
-    try {
-      final width = message['width'] as int;
-      final height = message['height'] as int;
-      final yRowStride = message['yRowStride'] as int;
-      final uvRowStride = message['uvRowStride'] as int;
-      final uvPixelStride = message['uvPixelStride'] as int;
-      final maxDimension = message['maxDimension'] as int?;
-      final bytesY = (message['bytesY'] as TransferableTypedData)
-          .materialize()
-          .asUint8List();
-      final bytesU = (message['bytesU'] as TransferableTypedData)
-          .materialize()
-          .asUint8List();
-      final bytesV = (message['bytesV'] as TransferableTypedData)
-          .materialize()
-          .asUint8List();
-      final crop = message['crop'] as Map<String, Object?>?;
-
-      var rgb = _convertYuv420ToRgb(
-        width: width,
-        height: height,
-        bytesY: bytesY,
-        bytesU: bytesU,
-        bytesV: bytesV,
-        yRowStride: yRowStride,
-        uvRowStride: uvRowStride,
-        uvPixelStride: uvPixelStride,
-        maxDimension: maxDimension,
-      );
-
-      if (crop != null) {
-        final rect = _cropRectFromNormalized(
-          left: (crop['left'] as num).toDouble(),
-          top: (crop['top'] as num).toDouble(),
-          right: (crop['right'] as num).toDouble(),
-          bottom: (crop['bottom'] as num).toDouble(),
-          width: rgb.width,
-          height: rgb.height,
-        );
-        if (rect != null) {
-          rgb = img.copyCrop(
-            rgb,
-            x: rect.left.round(),
-            y: rect.top.round(),
-            width: rect.width.round(),
-            height: rect.height.round(),
-          );
-        }
-      }
-
-      final detection = await detector.detectFromImage(rgb);
-      sendPort.send({
-        'type': _liveIsolateResult,
-        'requestId': requestId,
-        'assessment': detection.predictedAssessment?.name,
-        'confidence': detection.predictionConfidence,
-        'boundingBox': detection.boundingBox != null
-            ? {
-                'left': detection.boundingBox!.left,
-                'top': detection.boundingBox!.top,
-                'right': detection.boundingBox!.right,
-                'bottom': detection.boundingBox!.bottom,
-              }
-            : null,
-      });
-    } catch (e) {
-      sendPort.send({
-        'type': _liveIsolateError,
-        'requestId': requestId,
-        'error': e.toString(),
-      });
-    }
-  }
-
-  detector.dispose();
-  receivePort.close();
-}
-
-class ScannerPageController extends ChangeNotifier {
-  int _shutterSignal = 0;
-  MeasuredTreeResult? _latestMeasuredTreeResult;
-  bool _isRealtimeAssessment = false;
-  LiveFrameCache? _liveFrameCache;
-
-  int get shutterSignal => _shutterSignal;
-  bool get isRealtimeAssessment => _isRealtimeAssessment;
-
-  void triggerShutter() {
-    _shutterSignal++;
-    notifyListeners();
-  }
-
-  void startRealtimeAssessment() {
-    if (_isRealtimeAssessment) return;
-    _isRealtimeAssessment = true;
-    notifyListeners();
-  }
-
-  void stopRealtimeAssessment() {
-    if (!_isRealtimeAssessment) return;
-    _isRealtimeAssessment = false;
-    notifyListeners();
-  }
-
-  void setLatestMeasuredTree({
-    required MangroveTree tree,
-    double? predictionConfidence,
-    String? capturedImagePath,
-    ScanOutcome outcome = ScanOutcome.detected,
-    StabilityAssessment? predictedAssessment,
-  }) {
-    _latestMeasuredTreeResult = MeasuredTreeResult(
-      tree: tree,
-      predictionConfidence: predictionConfidence,
-      capturedImagePath: capturedImagePath,
-      outcome: outcome,
-      predictedAssessment: predictedAssessment,
-    );
-  }
-
-  MeasuredTreeResult? consumeLatestMeasuredTreeResult() {
-    final result = _latestMeasuredTreeResult;
-    _latestMeasuredTreeResult = null;
-    return result;
-  }
-
-  void cacheLiveFrame(LiveFrameCache cache) {
-    _liveFrameCache = cache;
-    notifyListeners();
-  }
-
-  LiveFrameCache? consumeLiveFrameCache() {
-    final cache = _liveFrameCache;
-    _liveFrameCache = null;
-    if (cache != null) notifyListeners();
-    return cache;
-  }
-
-  void updateLiveFrameDetection({
-    StabilityAssessment? assessment,
-    double? confidence,
-    Rect? boundingBox,
-  }) {
-    final existing = _liveFrameCache;
-    if (existing == null) return;
-    _liveFrameCache = LiveFrameCache(
-      imageBytes: existing.imageBytes,
-      sharpnessScore: existing.sharpnessScore,
-      framingScore: existing.framingScore,
-      assessment: assessment,
-      confidence: confidence,
-      boundingBox: boundingBox,
-    );
-    notifyListeners();
-  }
-
-  void clearLiveFrameCache() {
-    if (_liveFrameCache == null) return;
-    _liveFrameCache = null;
-    notifyListeners();
-  }
-
-  void clearStaleLiveDetection() {
-    _liveFrameCache = _liveFrameCache == null
-        ? null
-        : LiveFrameCache(
-            imageBytes: _liveFrameCache!.imageBytes,
-            sharpnessScore: _liveFrameCache!.sharpnessScore,
-            framingScore: _liveFrameCache!.framingScore,
-            assessment: null,
-            confidence: _liveFrameCache!.confidence,
-            boundingBox: null,
-          );
-    notifyListeners();
-  }
-}
-
-class MeasuredTreeResult {
-  final MangroveTree tree;
-  final double? predictionConfidence;
-  final String? capturedImagePath;
-  final ScanOutcome outcome;
-  final StabilityAssessment? predictedAssessment;
-
-  const MeasuredTreeResult({
-    required this.tree,
-    this.predictionConfidence,
-    this.capturedImagePath,
-    this.outcome = ScanOutcome.detected,
-    this.predictedAssessment,
-  });
-}
-
-class LiveFrameCache {
-  final Uint8List imageBytes;
-  final double? sharpnessScore;
-  final double? framingScore;
-  final StabilityAssessment? assessment;
-  final double? confidence;
-  final Rect? boundingBox;
-
-  const LiveFrameCache({
-    required this.imageBytes,
-    this.sharpnessScore,
-    this.framingScore,
-    this.assessment,
-    this.confidence,
-    this.boundingBox,
-  });
-}
-
-enum ScanOutcome { detected, noMangroveDetected, captureOnly }
 
 class ScannerPage extends StatefulWidget {
   final ScannerPageController? controller;
@@ -367,34 +45,8 @@ class ScannerPage extends StatefulWidget {
   State<ScannerPage> createState() => _ScannerPageState();
 }
 
-  class _QrDimOverlayPainter extends CustomPainter {
-    @override
-    void paint(Canvas canvas, Size size) {
-      final paint = Paint()
-        ..color = Colors.black.withValues(alpha: 0.6)
-        ..style = PaintingStyle.fill;
-
-      final path = Path();
-      final cutoutSize = 250.0;
-      final frameTop = (size.height - cutoutSize) / 2 - 40;
-      final frameLeft = (size.width - cutoutSize) / 2;
-      final cutoutRect = Rect.fromLTWH(frameLeft, frameTop, cutoutSize, cutoutSize);
-
-      path.addRect(Rect.fromLTWH(0, 0, size.width, size.height));
-      path.addRRect(RRect.fromRectAndRadius(cutoutRect, const Radius.circular(8)));
-      path.fillType = PathFillType.evenOdd;
-
-      canvas.drawPath(path, paint);
-    }
-
-    @override
-    bool shouldRepaint(CustomPainter oldDelegate) => false;
-  }
-
-
-
-class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
-  static const double _minPredictionConfidence = 0.25;
+class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStateMixin, WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
+  static const double _minPredictionConfidence = 0.10;
   static const Duration _realtimeInterval = Duration(milliseconds: 380);
   static const int _liveProcessingMaxDimension = 768;
   static const double _liveBoundingBoxSmoothing = 0.35;
@@ -403,15 +55,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   static const double _framingLowEdge = 6;
   static const double _framingHighEdge = 20;
 
-  CameraController? _cameraController;
-  List<CameraDescription> _cameras = [];
-  bool _cameraInitInFlight = false;
-  bool _isInitializing = true;
+  final CameraLifecycle _camera = CameraLifecycle();
   bool _isCapturing = false;
-  bool _isPermissionDenied = false;
-  bool _isPermanentlyDenied = false;
-  bool _isCheckingPermission = false;
-  String? _cameraError;
   MangroveDetector? _detector;
   Future<MangroveDetector?>? _detectorFuture;
   bool _isDetectorReady = false;
@@ -442,14 +87,19 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   Rect? _smoothedBoundingBox;
   Isolate? _liveIsolate;
   ReceivePort? _liveReceivePort;
-  SendPort? _liveSendPort;
-  bool _isLiveIsolateReady = false;
+  final LiveIsolateMessageHandler _liveIsolateHandler =
+      LiveIsolateMessageHandler();
   bool _isLiveIsolateStarting = false;
   Completer<void>? _liveReadyCompleter;
   int _liveRequestId = 0;
-  int _pendingLiveRequestId = 0;
   Uint8List? _liveModelBytes;
   Timer? _liveStaleTimer;
+  bool _isMenuExpanded = false;
+  late final AnimationController _menuController;
+  late final Animation<double> _menuSpin;
+  late final Animation<double> _menuUpload;
+  late final Animation<double> _menuQr;
+  late final Animation<double> _menuGuidance;
 
   @override
   bool get wantKeepAlive => true;
@@ -470,6 +120,25 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     }
     _initDetector();
     unawaited(_ensureLiveIsolateReady());
+    _menuController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
+    _menuSpin = Tween<double>(begin: 0, end: 0.5).animate(
+      CurvedAnimation(parent: _menuController, curve: Curves.easeOutCubic),
+    );
+    _menuUpload = CurvedAnimation(
+      parent: _menuController,
+      curve: const Interval(0.0, 0.42, curve: Curves.easeOutCubic),
+    );
+    _menuQr = CurvedAnimation(
+      parent: _menuController,
+      curve: const Interval(0.12, 0.54, curve: Curves.easeOutCubic),
+    );
+    _menuGuidance = CurvedAnimation(
+      parent: _menuController,
+      curve: const Interval(0.24, 0.66, curve: Curves.easeOutCubic),
+    );
   }
 
   Future<void> _restorePairedState() async {
@@ -545,9 +214,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     }
 
     if (widget.isActive && !oldWidget.isActive) {
-      _resetPermissionState();
+      _camera.resetPermissionState();
       _resumeCameraForTabSwitch();
     } else if (!widget.isActive && oldWidget.isActive) {
+      _collapseMenu();
       _pauseCameraForTabSwitch();
     }
   }
@@ -559,18 +229,19 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     WidgetsBinding.instance.removeObserver(this);
     _stopRealtimeAssessment();
     _disposeLiveIsolate();
-    unawaited(_disposeCameraController());
+    unawaited(_camera.disposeControllerAsync());
     _detector?.dispose();
     unawaited(_pauseQrScanning());
     _clearQrErrorDismiss();
     _pairingStatusTimer?.cancel();
+    _menuController.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (_isPermissionDenied) {
+      if (_camera.isPermissionDenied) {
         unawaited(_recheckDeniedPermission());
       } else if (!_isQrScanning) {
         _scheduleCameraInit();
@@ -583,8 +254,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       widget.controller?.stopRealtimeAssessment();
       _stopRealtimeAssessment();
       _disposeLiveIsolate();
-      unawaited(_disposeCameraController());
-      _cameraController = null;
+      unawaited(_camera.disposeControllerAsync());
+      _camera.controller = null;
       if (_isQrScanning) {
         unawaited(_pauseQrScanning());
       }
@@ -592,26 +263,26 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   Future<void> _recheckDeniedPermission() async {
-    if (!mounted || _isCheckingPermission) return;
-    _isCheckingPermission = true;
+    if (!mounted || _camera.isCheckingPermission) return;
+    _camera.isCheckingPermission = true;
 
     try {
       final status = await Permission.camera.status;
       if (status.isGranted) {
-        _resetPermissionState();
+        _camera.resetPermissionState();
         await _initCamera();
       }
     } catch (_) {
       debugPrint('Permission recheck failed:');
     } finally {
-      _isCheckingPermission = false;
+      _camera.isCheckingPermission = false;
     }
   }
 
   void _scheduleCameraInit() {
     if (!mounted) return;
     if (!widget.isActive) return;
-    if (_isPermissionDenied) return;
+    if (_camera.isPermissionDenied) return;
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     if (lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.detached) {
@@ -620,8 +291,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     unawaited(_ensureLiveIsolateReady());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !widget.isActive) return;
-      if (_isPermissionDenied) return;
-      final controller = _cameraController;
+      if (_camera.isPermissionDenied) return;
+      final controller = _camera.controller;
       if (controller != null && controller.value.isInitialized) {
         unawaited(_resumeCameraForTabSwitch());
       } else {
@@ -630,97 +301,48 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     });
   }
 
-  void _resetPermissionState() {
-    _isPermissionDenied = false;
-    _isPermanentlyDenied = false;
-    _isCheckingPermission = false;
-  }
-
   Future<void> _initCamera() async {
-    if (!mounted || _cameraInitInFlight || _isCheckingPermission) return;
-    if (_isPermissionDenied) return;
-    _cameraInitInFlight = true;
-    _isCheckingPermission = true;
+    if (!mounted || _camera.initInFlight || _camera.isCheckingPermission) {
+      return;
+    }
+    if (_camera.isPermissionDenied) return;
+    _camera.initInFlight = true;
+    _camera.isCheckingPermission = true;
     setState(() {
-      _isInitializing = true;
-      _cameraError = null;
+      _camera.isInitializing = true;
+      _camera.cameraError = null;
     });
 
     try {
-      final status = await Permission.camera.status;
-      if (status.isGranted) {
-        _resetPermissionState();
-      } else if (status.isPermanentlyDenied) {
-        _isPermissionDenied = true;
-        _isPermanentlyDenied = true;
+      final granted = await _camera.requestCameraPermission();
+      if (!granted) {
         if (!mounted) return;
         setState(() {
-          _cameraError =
-              'Camera permission is permanently denied. Please enable camera access in app settings.';
-          _isInitializing = false;
+          _camera.cameraError = _camera.isPermanentlyDenied
+              ? 'Camera permission is permanently denied. Please enable camera access in app settings.'
+              : 'Camera permission is required to scan mangroves.';
+          _camera.isInitializing = false;
         });
         return;
       }
 
-      final granted = await Permission.camera.request();
-      if (granted.isGranted) {
-        _resetPermissionState();
-      } else if (granted.isPermanentlyDenied) {
-        _isPermissionDenied = true;
-        _isPermanentlyDenied = true;
+      final controller = await _camera.createController();
+      if (controller == null) {
         if (!mounted) return;
         setState(() {
-          _cameraError =
-              'Camera permission is permanently denied. Please enable camera access in app settings.';
-          _isInitializing = false;
-        });
-        return;
-      } else {
-        _isPermissionDenied = true;
-        _isPermanentlyDenied = false;
-        if (!mounted) return;
-        setState(() {
-          _cameraError = 'Camera permission is required to scan mangroves.';
-          _isInitializing = false;
+          _camera.cameraError = 'No camera available on this device.';
+          _camera.isInitializing = false;
         });
         return;
       }
-
-      if (_cameras.isEmpty) {
-        _cameras = await availableCameras();
-      }
-      if (_cameras.isEmpty) {
-        if (!mounted) return;
-        setState(() {
-          _cameraError = 'No camera available on this device.';
-          _isInitializing = false;
-        });
-        return;
-      }
-
-      final selectedCamera = _cameras.firstWhere(
-        (camera) => camera.lensDirection == CameraLensDirection.back,
-        orElse: () => _cameras.first,
-      );
-
-      final controller = CameraController(
-        selectedCamera,
-
-        ResolutionPreset.high,
-        enableAudio: false,
-        imageFormatGroup: resolveCameraFormatGroup(
-          isAndroid: Platform.isAndroid,
-        ),
-      );
 
       try {
         await controller.initialize();
       } on CameraException catch (e) {
         if (!mounted) return;
         setState(() {
-          _cameraError =
-              'Camera error: ${e.description ?? e.code}';
-          _isInitializing = false;
+          _camera.cameraError = 'Camera error: ${e.description ?? e.code}';
+          _camera.isInitializing = false;
         });
         return;
       }
@@ -737,14 +359,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
         return;
       }
 
-      await _disposeCameraController();
-      _cameraController = controller;
+      await _camera.disposeControllerAsync();
+      _camera.controller = controller;
       setState(() {
-        _isInitializing = false;
-        _cameraError = null;
+        _camera.isInitializing = false;
+        _camera.cameraError = null;
       });
 
-      unawaited(_configureCameraForFastCapture(controller));
+      unawaited(_camera.configureForFastCapture(controller));
 
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
@@ -752,12 +374,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _cameraError = 'Unable to initialize camera.';
-        _isInitializing = false;
+        _camera.cameraError = 'Unable to initialize camera.';
+        _camera.isInitializing = false;
       });
     } finally {
-      _cameraInitInFlight = false;
-      _isCheckingPermission = false;
+      _camera.initInFlight = false;
+      _camera.isCheckingPermission = false;
     }
   }
 
@@ -803,7 +425,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   Future<void> _ensureLiveIsolateReady() async {
-    if (_isLiveIsolateReady) return;
+    if (_liveIsolateHandler.isReady) return;
     if (_isLiveIsolateStarting) {
       final completer = _liveReadyCompleter;
       if (completer != null) {
@@ -819,7 +441,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       _liveModelBytes ??= await MangroveDetector.loadModelBytes();
       _liveReceivePort ??= ReceivePort();
       _liveReceivePort!.listen(_handleLiveIsolateMessage);
-      _liveIsolate = await Isolate.spawn(_liveAssessmentIsolate, {
+      _liveIsolate = await Isolate.spawn(liveAssessmentIsolate, {
         'sendPort': _liveReceivePort!.sendPort,
         'modelData': TransferableTypedData.fromList([_liveModelBytes!]),
       }, debugName: 'live-assessment');
@@ -843,17 +465,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     }
   }
 
-  Future<void> _disposeCameraController() async {
-    final controller = _cameraController;
-    if (controller == null) return;
-    _cameraController = null;
-    try {
-      await controller.dispose();
-    } catch (e) {
-      debugPrint('Failed to dispose camera controller cleanly: $e');
-    }
-  }
-
   void _clearStaleLiveAssessment() {
     if (!_isRealtimeAssessment) return;
     _liveStaleTimer = null;
@@ -870,7 +481,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   void _disposeLiveIsolate() {
-    _isLiveIsolateReady = false;
+    _liveIsolateHandler.isReady = false;
     _isLiveIsolateStarting = false;
     _liveStaleTimer?.cancel();
     _liveStaleTimer = null;
@@ -880,11 +491,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     }
     _liveReadyCompleter = null;
     try {
-      _liveSendPort?.send({'type': _liveIsolateStop});
+      _liveIsolateHandler.sendPort?.send({'type': liveIsolateStop});
     } catch (_) {}
+    _liveIsolateHandler.sendPort = null;
+    _liveIsolateHandler.pendingRequestId = 0;
     _liveReceivePort?.close();
     _liveReceivePort = null;
-    _liveSendPort = null;
     final isolate = _liveIsolate;
     _liveIsolate = null;
     if (isolate != null) {
@@ -895,11 +507,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   void _handleLiveIsolateMessage(dynamic message) {
-    if (message is! Map) return;
-    final type = message['type'];
-    if (type == _liveIsolateReady) {
-      _liveSendPort = message['sendPort'] as SendPort?;
-      _isLiveIsolateReady = _liveSendPort != null;
+    final event = _liveIsolateHandler.handle(message);
+    if (event is LiveIsolateReadyEvent) {
       final completer = _liveReadyCompleter;
       if (completer != null && !completer.isCompleted) {
         completer.complete();
@@ -907,39 +516,23 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       return;
     }
 
-    if (type == _liveIsolateResult) {
-      final requestId = message['requestId'] as int?;
-      if (requestId == null || requestId != _pendingLiveRequestId) {
-        return;
-      }
+    if (event is LiveIsolateResultEvent) {
       if (!_isRealtimeAssessment) {
         _isRealtimeProcessing = false;
         return;
       }
-      final assessmentName = message['assessment'] as String?;
-      final confidence = message['confidence'] as double?;
-
+      final confidence = event.confidence;
       final bool isConfident =
           confidence != null && confidence >= _minPredictionConfidence;
       StabilityAssessment? assessment;
-      if (assessmentName != null && isConfident) {
+      if (event.assessmentName != null && isConfident) {
         try {
-          assessment = StabilityAssessment.values.byName(assessmentName);
+          assessment = StabilityAssessment.values.byName(event.assessmentName!);
         } on StateError {
           assessment = null;
         }
       }
-
-      final bboxMap = message['boundingBox'] as Map<Object?, Object?>?;
-      Rect? boundingBox;
-      if (bboxMap != null && isConfident) {
-        boundingBox = Rect.fromLTRB(
-          (bboxMap['left'] as num).toDouble(),
-          (bboxMap['top'] as num).toDouble(),
-          (bboxMap['right'] as num).toDouble(),
-          (bboxMap['bottom'] as num).toDouble(),
-        );
-      }
+      final Rect? boundingBox = isConfident ? event.boundingBox : null;
 
       if (mounted) {
         setState(() {
@@ -995,13 +588,13 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       return;
     }
 
-    if (type == _liveIsolateError) {
+    if (event is LiveIsolateErrorEvent) {
       _isRealtimeProcessing = false;
       final completer = _liveReadyCompleter;
       if (completer != null && !completer.isCompleted) {
         completer.complete();
       }
-      debugPrint('Live assessment isolate error: ${message['error']}');
+      debugPrint('Live assessment isolate error: ${event.error}');
     }
   }
 
@@ -1025,67 +618,42 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   void _resetPermissionStateAndRetry() {
-    _resetPermissionState();
+    _camera.resetPermissionState();
     unawaited(_initCamera());
   }
 
   Future<void> _pauseCameraForTabSwitch() async {
     _stopRealtimeAssessment();
     _disposeLiveIsolate();
-    final controller = _cameraController;
-    if (controller != null && controller.value.isInitialized) {
-      try {
-        if (controller.value.isStreamingImages) {
-          await controller.stopImageStream();
-        }
-      } catch (_) {}
-    }
-    _cameraInitInFlight = false;
+    _camera.stopImageStream();
+    _camera.initInFlight = false;
     if (mounted) {
       setState(() {
-        _isInitializing = false;
-        _cameraError = null;
+        _camera.isInitializing = false;
+        _camera.cameraError = null;
       });
     }
   }
 
   Future<void> _resumeCameraForTabSwitch() async {
     if (!mounted) return;
-    if (_isPermissionDenied) return;
+    if (_camera.isPermissionDenied) return;
     
-    final controller = _cameraController;
+    final controller = _camera.controller;
     if (controller != null && controller.value.isInitialized) {
-      try {
-        if (!controller.value.isStreamingImages) {
-          await controller.startImageStream(_handleCameraImage);
-        }
-      } catch (_) {}
+      _camera.startImageStream(_handleCameraImage);
       
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
       }
       
       setState(() {
-        _isInitializing = false;
-        _cameraError = null;
+        _camera.isInitializing = false;
+        _camera.cameraError = null;
       });
     } else {
       _scheduleCameraInit();
     }
-  }
-
-  Future<void> _configureCameraForFastCapture(
-    CameraController controller,
-  ) async {
-    try {
-      await controller.setFlashMode(FlashMode.off);
-    } catch (_) {}
-    try {
-      await controller.setFocusMode(FocusMode.auto);
-    } catch (_) {}
-    try {
-      await controller.setExposureMode(ExposureMode.auto);
-    } catch (_) {}
   }
 
   void _storeCapturedImageResult(String imagePath) {
@@ -1138,7 +706,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       _cacheFrameRectIfPossible();
     });
 
-    if (_isInitializing) {
+    if (_camera.isInitializing) {
       return const Scaffold(
         backgroundColor: AppColors.richBlack,
         body: Center(
@@ -1157,7 +725,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       );
     }
 
-    if (_isPermissionDenied) {
+    if (_camera.isPermissionDenied) {
       return Scaffold(
         backgroundColor: AppColors.richBlack,
         body: Center(
@@ -1173,7 +741,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  _cameraError ??
+                  _camera.cameraError ??
                       'Camera permission is required to scan mangroves.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: AppColors.antiFlashWhite, fontSize: 15),
@@ -1185,7 +753,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                   alignment: WrapAlignment.center,
                   children: [
                     ElevatedButton(
-                      onPressed: _isPermanentlyDenied
+                      onPressed: _camera.isPermanentlyDenied
                           ? () => openAppSettings()
                           : _resetPermissionStateAndRetry,
                       style: ElevatedButton.styleFrom(
@@ -1196,7 +764,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                         ),
                       ),
                       child: Text(
-                        _isPermanentlyDenied ? 'Open Settings' : 'Retry',
+                        _camera.isPermanentlyDenied ? 'Open Settings' : 'Retry',
                         style: const TextStyle(
                           color: AppColors.richBlack,
                           fontWeight: FontWeight.w700,
@@ -1212,10 +780,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       );
     }
 
-    if (_cameraError != null) {
+    if (_camera.cameraError != null) {
       final isPermanentlyDenied =
-          _cameraError!.contains('permanently denied') ||
-          _cameraError!.contains('app settings');
+          _camera.cameraError!.contains('permanently denied') ||
+          _camera.cameraError!.contains('app settings');
       return Scaffold(
         backgroundColor: AppColors.richBlack,
         body: Center(
@@ -1231,7 +799,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  _cameraError!,
+                  _camera.cameraError!,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: AppColors.antiFlashWhite, fontSize: 15),
                 ),
@@ -1285,26 +853,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       body: Stack(
         children: [
           if (!_isQrScanning) Positioned.fill(child: _buildCameraPreview()),
+          if (!_isQrScanning && !_isRealtimeAssessment) Positioned.fill(child: CustomPaint(painter: const FrameDimOverlayPainter())),
+          if (!_isQrScanning) _buildFrameGuide(),
           if (_isQrScanning) _buildQrScannerOverlay(),
-          if (!_isQrScanning)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.58),
-                        Colors.transparent,
-                        Colors.black.withValues(alpha: 0.66),
-                      ],
-                      stops: const [0, 0.42, 1],
-                    ),
-                  ),
-                ),
-              ),
-            ),
           if (!_isQrScanning)
             Positioned.fill(
               child: IgnorePointer(
@@ -1315,398 +866,16 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
                 ),
               ),
             ),
-          _buildScannerHud(),
-          if (_isRealtimeAssessment) _buildBoundingBoxOverlay(),
+          if (_isRealtimeAssessment)
+            BoundingBoxOverlay(
+              boundingBox: _liveBoundingBox,
+              frameRect: _lastFrameRectInViewport,
+              assessment: _liveAssessment,
+            ),
+          if (_isRealtimeAssessment && _liveBoundingBox != null)
+            LiveDetectionCard(assessment: _liveAssessment),
+          _buildScannerMenu(),
         ],
-      ),
-    );
-  }
-
-  Widget _buildScannerHud() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                _buildQrToggleButton(),
-                const Spacer(),
-                _buildStatusChip(
-                  icon: _detectorError != null
-                      ? Icons.error_outline
-                      : (_isDetectorReady ? Icons.memory : Icons.hourglass_top),
-                  label: _detectorError != null
-                      ? 'Model Error'
-                      : (_isDetectorReady ? 'Model Ready' : 'Model Loading'),
-                  glow: _detectorError != null
-                      ? Colors.redAccent
-                      : (_isDetectorReady
-                            ? AppColors.caribbeanGreen
-                            : const Color(0xFFFFA34D)),
-                  trailing: (!_isDetectorReady && _detectorError == null)
-                      ? const SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              AppColors.antiFlashWhite,
-                            ),
-                          ),
-                        )
-                      : null,
-                ),
-              ],
-            ),
-            if (_isQrScanning && _qrTemporaryError != null)
-              Container(
-                margin: const EdgeInsets.only(top: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.5)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                    const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _qrTemporaryError!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            if (!_isQrScanning) ...[
-              const SizedBox(height: 12),
-              Expanded(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: 0.85,
-                    child: Container(
-                      key: _frameGuideInnerKey,
-                      decoration: !_isRealtimeAssessment
-                          ? BoxDecoration(
-                              border: Border.all(
-                                color: AppColors.caribbeanGreen.withValues(alpha: 0.22),
-                                width: 2,
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildGuidancePanel(),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQrToggleButton() {
-    final isScanning = _isQrScanning;
-    final isPaired = _isPaired;
-
-    return Semantics(
-      button: true,
-      label: isPaired
-          ? 'Unpair device'
-          : isScanning
-              ? 'Cancel QR scan'
-              : 'Scan QR code',
-      child: GestureDetector(
-        onTap: _toggleQrScanning,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedScale(
-          duration: const Duration(milliseconds: 100),
-          curve: Curves.easeOutCubic,
-          scale: 1.0,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: BoxDecoration(
-              color: AppColors.darkGreen.withValues(alpha: 0.72),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: isPaired
-                    ? Colors.orangeAccent.withValues(alpha: 0.8)
-                    : isScanning
-                        ? Colors.redAccent.withValues(alpha: 0.7)
-                        : AppColors.caribbeanGreen.withValues(alpha: 0.85),
-                width: 1.6,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isPaired
-                      ? Colors.orangeAccent.withValues(alpha: 0.18)
-                      : isScanning
-                          ? Colors.redAccent.withValues(alpha: 0.18)
-                          : AppColors.caribbeanGreen.withValues(alpha: 0.18),
-                  blurRadius: 10,
-                  spreadRadius: 0.2,
-                  offset: const Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isPaired
-                      ? Icons.link_off_rounded
-                      : isScanning
-                          ? Icons.close_rounded
-                          : Icons.qr_code_scanner_rounded,
-                  size: 17,
-                  color: AppColors.antiFlashWhite,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  isPaired
-                      ? 'Unpair'
-                      : isScanning
-                          ? 'Cancel'
-                          : 'Scan QR',
-                  style: const TextStyle(
-                    color: AppColors.antiFlashWhite,
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusChip({
-    required IconData icon,
-    required String label,
-    required Color glow,
-    Widget? trailing,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        color: AppColors.darkGreen.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: glow.withValues(alpha: 0.85),
-          width: 1.6,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: glow.withValues(alpha: 0.18),
-            blurRadius: 10,
-            spreadRadius: 0.2,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 17, color: AppColors.antiFlashWhite),
-          const SizedBox(width: 8),
-          Text(
-            label.toUpperCase(),
-            style: const TextStyle(
-              color: AppColors.antiFlashWhite,
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.4,
-            ),
-          ),
-          if (trailing != null) ...[const SizedBox(width: 8), trailing],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGuidancePanel() {
-    final canUpload = !_isCapturing && !_isRealtimeAssessment;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      decoration: BoxDecoration(
-        color: AppColors.darkGreen.withValues(alpha: 0.76),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.caribbeanGreen.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            _isRealtimeAssessment ? 'Live Assessment' : 'Field Guidance',
-            style: const TextStyle(
-              color: AppColors.antiFlashWhite,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (_isRealtimeAssessment) ...[
-            Text(
-              _liveAssessment != null
-                  ? '${_liveAssessment!.name.toUpperCase()} STABILITY DETECTED'
-                  : (_isDetectorReady
-                        ? 'SCANNING FOR MANGROVES...'
-                        : 'MODEL LOADING...'),
-              style: TextStyle(
-                color: _liveAssessment == StabilityAssessment.high
-                    ? AppColors.caribbeanGreen
-                    : _liveAssessment == StabilityAssessment.moderate
-                    ? const Color(0xFFFFA34D)
-                    : _liveAssessment == StabilityAssessment.low
-                    ? Colors.redAccent
-                    : AppColors.antiFlashWhite.withValues(alpha: 0.7),
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Builder(
-              builder: (context) {
-                String description;
-                switch (_liveAssessment) {
-                  case StabilityAssessment.high:
-                    description =
-                        "This mangrove shows High Stability. It acts as a primary defense line, capable of absorbing heavy wave energy and resisting gale-force winds. Its deep, interlocking root system makes it highly unlikely to uproot during a storm.";
-                    break;
-                  case StabilityAssessment.moderate:
-                    description =
-                        "This mangrove shows Moderate Stability. While it offers decent protection, it may suffer branch breakage or partial root loosening during a strong storm. It can handle moderate winds, but it needs surrounding support to stay upright in a typhoon.";
-                    break;
-                  case StabilityAssessment.low:
-                    description =
-                        "This mangrove has Low Stability. It provides minimal protection against storm surges and is at high risk of being uprooted by strong winds. In its current state, it may not survive a major weather event and could even become floating debris.";
-                    break;
-                  default:
-                    description = _isDetectorReady
-                        ? 'Scanning for mangroves...'
-                        : 'Model Loading...';
-                }
-                return Text(
-                  description,
-                  style: const TextStyle(
-                    color: AppColors.antiFlashWhite,
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
-                );
-              },
-            ),
-          ] else ...[
-            const Text(
-              '1) Position the tree within the frame, capturing from the roots up to the visible trunk.\n2) Keep steady and tap or hold the shutter button.\n3) Re-capture if any part of the tree (roots or trunk) is cut off.',
-              style: TextStyle(
-                color: AppColors.antiFlashWhite,
-                fontSize: 12,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Hold the shutter to start live assessment. Hold again to stop.',
-              style: TextStyle(
-                color: AppColors.antiFlashWhite,
-                fontSize: 12,
-                height: 1.3,
-              ),
-            ),
-          ],
-          if (!_isRealtimeAssessment) ...[
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: canUpload ? _handleUploadPhoto : null,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.antiFlashWhite,
-                  backgroundColor: AppColors.darkGreen.withValues(alpha: 0.45),
-                  side: BorderSide(
-                    color: AppColors.caribbeanGreen.withValues(alpha: 0.5),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                icon: const Icon(Icons.photo_library_rounded, size: 18),
-                label: const Text('Upload Photo'),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBoundingBoxOverlay() {
-    final bbox = _liveBoundingBox;
-    final frameRect = _lastFrameRectInViewport;
-    if (bbox == null || frameRect == null) return const SizedBox.shrink();
-
-    final left = frameRect.left + bbox.left * frameRect.width;
-    final top = frameRect.top + bbox.top * frameRect.height;
-    final width = bbox.width * frameRect.width;
-    final height = bbox.height * frameRect.height;
-
-    Color boxColor;
-    switch (_liveAssessment) {
-      case StabilityAssessment.high:
-        boxColor = AppColors.caribbeanGreen;
-        break;
-      case StabilityAssessment.moderate:
-        boxColor = const Color(0xFFFFA34D);
-        break;
-      case StabilityAssessment.low:
-        boxColor = Colors.redAccent;
-        break;
-      default:
-        boxColor = AppColors.caribbeanGreen;
-    }
-
-    return Positioned(
-      left: left,
-      top: top,
-      width: width,
-      height: height,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: boxColor, width: 2.5),
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
-            BoxShadow(
-              color: boxColor.withValues(alpha: 0.3),
-              blurRadius: 10,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1929,7 +1098,10 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
   void _handleCameraImage(CameraImage image) {
     if (!_isRealtimeAssessment || _isCapturing) return;
-    if (!_isLiveIsolateReady || _liveSendPort == null) return;
+    if (!_liveIsolateHandler.isReady ||
+        _liveIsolateHandler.sendPort == null) {
+      return;
+    }
     if (image.planes.length < 3) return;
     if (_isRealtimeProcessing) return;
     final now = DateTime.now();
@@ -1944,7 +1116,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       );
       _updateQualityMetrics(image, normalizedCrop);
 
-      var rgb = _convertYuv420ToRgb(
+      var rgb = convertYuv420ToRgb(
         width: image.width,
         height: image.height,
         bytesY: image.planes[0].bytes,
@@ -1957,7 +1129,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       );
 
       if (normalizedCrop != null) {
-        final rect = _cropRectFromNormalized(
+        final rect = cropRectFromNormalized(
           left: normalizedCrop.left,
           top: normalizedCrop.top,
           right: normalizedCrop.right,
@@ -1987,9 +1159,9 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
       ));
 
       final requestId = ++_liveRequestId;
-      _pendingLiveRequestId = requestId;
-      _liveSendPort?.send({
-        'type': _liveIsolateProcess,
+      _liveIsolateHandler.pendingRequestId = requestId;
+      _liveIsolateHandler.sendPort?.send({
+        'type': liveIsolateProcess,
         'requestId': requestId,
         'width': image.width,
         'height': image.height,
@@ -2016,8 +1188,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   Widget _buildCameraPreview() {
-    final controller = _cameraController;
+    final controller = _camera.controller;
     if (controller == null || !controller.value.isInitialized) {
+      return const ColoredBox(color: Colors.black);
+    }
+    final previewSize = controller.value.previewSize;
+    if (previewSize == null) {
       return const ColoredBox(color: Colors.black);
     }
 
@@ -2031,6 +1207,27 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
             height: controller.value.previewSize!.width,
             child: CameraPreview(controller),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFrameGuide() {
+    const width = 260.0;
+    const height = 420.0;
+    return Align(
+      alignment: const Alignment(0, -0.50),
+      child: IgnorePointer(
+        child: Container(
+          key: _frameGuideInnerKey,
+          width: width,
+          height: height,
+          decoration: _isRealtimeAssessment
+              ? null
+              : BoxDecoration(
+                  border: Border.all(color: AppColors.caribbeanGreen, width: 2.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
         ),
       ),
     );
@@ -2053,7 +1250,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
             ),
             _buildQrDimOverlay(),
             _buildQrViewfinder(),
-            if (!_isPaired) _buildQrInfoCard(),
             if (_isQrVerifying) _buildQrVerifyingOverlay(),
           ],
         ),
@@ -2065,7 +1261,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     return Positioned.fill(
       child: IgnorePointer(
         child: CustomPaint(
-          painter: _QrDimOverlayPainter(),
+          painter: const QrDimOverlayPainter(),
         ),
       ),
     );
@@ -2137,54 +1333,12 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     );
   }
 
-  Widget _buildQrInfoCard() {
-    return Positioned(
-      left: 16,
-      right: 16,
-      bottom: 130,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        decoration: BoxDecoration(
-          color: AppColors.darkGreen.withValues(alpha: 0.76),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.caribbeanGreen.withValues(alpha: 0.3)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'QR Scanner Guidance',
-              style: TextStyle(
-                color: AppColors.antiFlashWhite,
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.4,
-              ),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              '1) Scan the QR code displayed on the mangroveguardweb dashboard.\n'
-              '2) Ensure the server URL is reachable from this device.\n'
-              '3) Once paired, this device can sync scans to the configured server.',
-              style: TextStyle(
-                color: AppColors.antiFlashWhite,
-                fontSize: 12,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _startRealtimeAssessment() async {
     if (_isRealtimeAssessment) return;
-    final controller = _cameraController;
+    final controller = _camera.controller;
     if (controller == null || !controller.value.isInitialized) return;
     await _ensureLiveIsolateReady();
-    if (!_isLiveIsolateReady) {
+    if (!_liveIsolateHandler.isReady) {
       if (!mounted) return;
       _showTopNotification('Live assessment failed to initialize.');
       return;
@@ -2235,14 +1389,14 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     if (mounted) {
       setState(() {});
     }
-    final controller = _cameraController;
+    final controller = _camera.controller;
     if (controller == null) return;
     if (!controller.value.isStreamingImages) return;
     unawaited(controller.stopImageStream().catchError((_) {}));
   }
 
   Future<void> _captureShutter() async {
-    final controller = _cameraController;
+    final controller = _camera.controller;
     if (_isCapturing || controller == null || !controller.value.isInitialized) {
       return;
     }
@@ -2336,7 +1490,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 
   Future<String> _cropCapturedImageToFrame(String imagePath) async {
-    final controller = _cameraController;
+    final controller = _camera.controller;
     if (controller == null || !mounted) return imagePath;
 
     final previewSize = controller.value.previewSize;
@@ -2492,7 +1646,8 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   Future<void> _startQrScanning() async {
     if (_isQrScanning) return;
 
-    await _disposeCameraController();
+    _collapseMenu();
+    await _camera.disposeControllerAsync();
 
     setState(() {
       _isQrScanning = true;
@@ -2726,10 +1881,6 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
 
     for (final endpoint in endpoints) {
       try {
-        setState(() {
-          _qrVerificationMessage = 'Connecting to ${endpoint.host}...';
-        });
-
         final response = await http.get(endpoint).timeout(const Duration(seconds: 5));
         if (response.statusCode == 200) {
           if (token != null && token.isNotEmpty) {
@@ -2790,6 +1941,272 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
     return false;
   }
 
+  void _toggleMenu() {
+    if (!mounted) return;
+    setState(() {
+      _isMenuExpanded = !_isMenuExpanded;
+    });
+    if (_isMenuExpanded) {
+      _menuController.forward();
+    } else {
+      _menuController.reverse();
+    }
+  }
+
+  void _collapseMenu() {
+    if (!_isMenuExpanded) return;
+    if (mounted) {
+      setState(() {
+        _isMenuExpanded = false;
+      });
+    } else {
+      _isMenuExpanded = false;
+    }
+    _menuController.reverse();
+  }
+
+  void _handleMenuAction(VoidCallback action) {
+    _collapseMenu();
+    action();
+  }
+
+  Widget _buildScannerMenu() {
+    final isQrScreen = _isQrScanning;
+    final isPaired = _isPaired;
+    return Positioned(
+      right: 16,
+      bottom: 116,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IgnorePointer(
+            ignoring: !_isMenuExpanded,
+            child: ScannerMenuAction(
+              icon: Icons.cloud_upload_rounded,
+              label: 'Upload',
+              animation: _menuUpload,
+              onTap: () => _handleMenuAction(_handleUploadPhoto),
+            ),
+          ),
+          const SizedBox(height: 12),
+          IgnorePointer(
+            ignoring: !_isMenuExpanded,
+            child: ScannerMenuAction(
+              icon: isPaired
+                  ? Icons.link_off_rounded
+                  : isQrScreen
+                      ? Icons.photo_camera_rounded
+                      : Icons.qr_code_scanner_rounded,
+              label: isPaired
+                  ? 'Unpair'
+                  : isQrScreen
+                      ? 'Camera'
+                      : 'Scan QR',
+              animation: _menuQr,
+              onTap: () => _handleMenuAction(
+                isPaired
+                    ? _unpair
+                    : isQrScreen
+                        ? _stopQrScanning
+                        : _toggleQrScanning,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          IgnorePointer(
+            ignoring: !_isMenuExpanded,
+            child: ScannerMenuAction(
+              icon: Icons.info_rounded,
+              label: isQrScreen ? 'QR Scanner Guidance' : 'Field Guidance',
+              animation: _menuGuidance,
+              onTap: () => _handleMenuAction(
+                isQrScreen ? _showQrScannerGuidance : _showFieldGuidance,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _buildScannerMenuButton(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScannerMenuButton() {
+    return Semantics(
+      button: true,
+      label: _isMenuExpanded ? 'Close scanner menu' : 'Open scanner menu',
+      child: GestureDetector(
+        onTap: _toggleMenu,
+        behavior: HitTestBehavior.opaque,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.darkGreen.withValues(alpha: 0.92),
+            border: Border.all(
+              color: _isMenuExpanded
+                  ? AppColors.caribbeanGreen.withValues(alpha: 0.85)
+                  : AppColors.caribbeanGreen.withValues(alpha: 0.55),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.caribbeanGreen.withValues(alpha: 0.18),
+                blurRadius: 10,
+                spreadRadius: 0.2,
+              ),
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.25),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: RotationTransition(
+            turns: _menuSpin,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (child, animation) => ScaleTransition(
+                scale: animation,
+                child: FadeTransition(opacity: animation, child: child),
+              ),
+              child: Icon(
+                _isMenuExpanded ? Icons.close_rounded : Icons.menu_rounded,
+                key: ValueKey<bool>(_isMenuExpanded),
+                color: AppColors.antiFlashWhite,
+                size: 26,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showFieldGuidance() {
+    _showGuidanceDialog(
+      title: 'Field Guidance',
+      steps: const <String>[
+        'Point the camera at the mangrove root structure and keep it centered in the frame guide.',
+        'Hold the central shutter button to start the live stability assessment.',
+        'Wait for the live assessment frame to turn green, then tap the shutter to capture a scan.',
+        'Keep the device steady and avoid harsh backlight for sharper detections.',
+        'Pair the device with the QR scanner to sync scans to the web dashboard.',
+      ],
+    );
+  }
+
+  void _showQrScannerGuidance() {
+    _showGuidanceDialog(
+      title: 'QR Scanner Guidance',
+      steps: const <String>[
+        'Scan the QR code displayed on the MangroveGuard web dashboard.',
+        'Ensure the server URL is reachable from this device.',
+        'The QR code must contain a valid pairing token to connect.',
+        'Once paired, this device can sync scans to the configured server.',
+        'Use the Camera action in this menu to return to field capture.',
+      ],
+    );
+  }
+
+  void _showGuidanceDialog({
+    required String title,
+    required List<String> steps,
+  }) {
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: AppColors.darkGreen.withValues(alpha: 0.96),
+          shape: RoundedRectangleBorder(
+            side: BorderSide(
+              color: AppColors.caribbeanGreen.withValues(alpha: 0.4),
+              width: 1,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 0,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.info_rounded,
+                      color: AppColors.caribbeanGreen,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: AppColors.antiFlashWhite,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                for (final step in steps)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          margin: const EdgeInsets.only(top: 5),
+                          width: 5,
+                          height: 5,
+                          decoration: const BoxDecoration(
+                            color: AppColors.caribbeanGreen,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            step,
+                            style: const TextStyle(
+                              color: AppColors.antiFlashWhite,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.caribbeanGreen,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                    ),
+                    child: const Text('Got it'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showTopNotification(String message) {
     showGeneralDialog<void>(
       context: context,
@@ -2804,7 +2221,7 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
             alignment: Alignment.topCenter,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-              child: _TopNotificationContent(
+              child: TopNotificationContent(
                 message: message,
                 onDismiss: () {
                   if (navigator.mounted && navigator.canPop()) {
@@ -2833,84 +2250,4 @@ class _ScannerPageState extends State<ScannerPage> with WidgetsBindingObserver, 
   }
 }
 
-class _TopNotificationContent extends StatefulWidget {
-  final String message;
-  final VoidCallback onDismiss;
 
-  const _TopNotificationContent({
-    required this.message,
-    required this.onDismiss,
-  });
-
-  @override
-  State<_TopNotificationContent> createState() =>
-      _TopNotificationContentState();
-}
-
-class _TopNotificationContentState extends State<_TopNotificationContent> {
-  bool _fadingOut = false;
-
-  @override
-  void initState() {
-    super.initState();
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() => _fadingOut = true);
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 250),
-      opacity: _fadingOut ? 0 : 1,
-      curve: Curves.easeIn,
-      onEnd: _fadingOut ? widget.onDismiss : null,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 12,
-          ),
-          decoration: BoxDecoration(
-            color: AppColors.darkGreen.withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: AppColors.caribbeanGreen.withValues(alpha: 0.35),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 14,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.notifications_active,
-                color: AppColors.caribbeanGreen,
-                size: 20,
-              ),
-              const SizedBox(width: 10),
-              Flexible(
-                  child: Text(
-                    widget.message,
-                  style: const TextStyle(
-                    color: AppColors.antiFlashWhite,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
