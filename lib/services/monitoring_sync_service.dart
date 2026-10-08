@@ -10,6 +10,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import '../constants/app_constants.dart';
 import '../models/mangrove_tree.dart';
 import '../models/recent_tree_scan.dart';
+import '../models/sync_error.dart';
 
 class MonitoringSyncService {
   static const String _deviceIdKey = AppConstants.deviceIdKey;
@@ -20,7 +21,9 @@ class MonitoringSyncService {
     final savedUrl = prefs.getString(AppConstants.pairedServerUrlKey);
     if (savedUrl != null && savedUrl.trim().isNotEmpty) {
       final uri = Uri.tryParse(savedUrl.trim());
-      if (uri != null && uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https')) {
+      if (uri != null &&
+          uri.hasScheme &&
+          (uri.scheme == 'http' || uri.scheme == 'https')) {
         return savedUrl.trim();
       }
     }
@@ -31,7 +34,8 @@ class MonitoringSyncService {
     final prefs = await SharedPreferences.getInstance();
     final existing = prefs.getString(_deviceIdKey);
     if (existing != null && existing.trim().isNotEmpty) return existing.trim();
-    final deviceId = 'device-${DateTime.now().millisecondsSinceEpoch}-${(DateTime.now().microsecond % 10000).toString().padLeft(4, '0')}';
+    final deviceId =
+        'device-${DateTime.now().millisecondsSinceEpoch}-${(DateTime.now().microsecond % 10000).toString().padLeft(4, '0')}';
     await prefs.setString(_deviceIdKey, deviceId);
     return deviceId;
   }
@@ -40,7 +44,8 @@ class MonitoringSyncService {
     final prefs = await SharedPreferences.getInstance();
     final existing = prefs.getString(_sessionIdKey);
     if (existing != null && existing.trim().isNotEmpty) return existing.trim();
-    final sessionId = 'session-${DateTime.now().millisecondsSinceEpoch}-${(DateTime.now().microsecond % 10000).toString().padLeft(4, '0')}';
+    final sessionId =
+        'session-${DateTime.now().millisecondsSinceEpoch}-${(DateTime.now().microsecond % 10000).toString().padLeft(4, '0')}';
     await prefs.setString(_sessionIdKey, sessionId);
     return sessionId;
   }
@@ -66,13 +71,20 @@ class MonitoringSyncService {
     return 'Unknown Device';
   }
 
-  static Future<T> _withRetry<T>(Future<T> Function() action,
-      {int maxAttempts = 3, Duration? baseDelay}) async {
+  static Future<T> _withRetry<T>(
+    Future<T> Function() action, {
+    int maxAttempts = 3,
+    Duration? baseDelay,
+  }) async {
     final delay = baseDelay ?? const Duration(seconds: 1);
     var attempt = 0;
     while (true) {
       try {
         return await action();
+      } on SyncError catch (error) {
+        attempt++;
+        if (!error.retryable || attempt >= maxAttempts) rethrow;
+        await Future.delayed(delay * attempt);
       } on SocketException catch (_) {
         attempt++;
         if (attempt >= maxAttempts) rethrow;
@@ -87,6 +99,17 @@ class MonitoringSyncService {
         await Future.delayed(delay * attempt);
       }
     }
+  }
+
+  static SyncError _responseToSyncError(int statusCode, String responseBody) {
+    final parsed = _parseServerError(responseBody);
+    final reason = parsed ?? 'Request failed';
+    return switch (statusCode) {
+      >= 500 => SyncServerError(statusCode, reason),
+      401 || 403 => SyncAuthError(reason),
+      >= 400 => SyncValidationError(reason),
+      _ => SyncServerError(statusCode, reason),
+    };
   }
 
   static Future<void> _registerDevice(String deviceId) async {
@@ -109,7 +132,9 @@ class MonitoringSyncService {
           path: '/',
         );
         final request = await client
-            .postUrl(Uri.parse('${baseUrl.toString()}${AppConstants.apiDevices}'))
+            .postUrl(
+              Uri.parse('${baseUrl.toString()}${AppConstants.apiDevices}'),
+            )
             .timeout(const Duration(seconds: 5));
         request.headers.contentType = ContentType.json;
         request.write(
@@ -118,14 +143,15 @@ class MonitoringSyncService {
             'device_name': await _getDeviceName(),
           }),
         );
-        final response = await request.close().timeout(const Duration(seconds: 5));
+        final response = await request.close().timeout(
+          const Duration(seconds: 5),
+        );
         if (response.statusCode >= 200 && response.statusCode < 300) {
           debugPrint('Device registered: $deviceId');
           return;
         }
         final responseBody = await utf8.decoder.bind(response).join();
-        final errorMessage = _parseServerError(responseBody) ?? 'Device registration failed: ${response.statusCode}';
-        throw HttpException(errorMessage);
+        throw _responseToSyncError(response.statusCode, responseBody);
       });
     } catch (e) {
       debugPrint('Device registration failed: $e');
@@ -156,23 +182,23 @@ class MonitoringSyncService {
           path: '/',
         );
         final request = await client
-            .postUrl(Uri.parse('${baseUrl.toString()}${AppConstants.apiSessions}'))
+            .postUrl(
+              Uri.parse('${baseUrl.toString()}${AppConstants.apiSessions}'),
+            )
             .timeout(const Duration(seconds: 5));
         request.headers.contentType = ContentType.json;
         request.write(
-          jsonEncode({
-            'session_id': sessionId,
-            'device_id': deviceId,
-          }),
+          jsonEncode({'session_id': sessionId, 'device_id': deviceId}),
         );
-        final response = await request.close().timeout(const Duration(seconds: 5));
+        final response = await request.close().timeout(
+          const Duration(seconds: 5),
+        );
         if (response.statusCode >= 200 && response.statusCode < 300) {
           debugPrint('Session ensured: $sessionId');
           return sessionId;
         }
         final responseBody = await utf8.decoder.bind(response).join();
-        final errorMessage = _parseServerError(responseBody) ?? 'Session creation failed: ${response.statusCode}';
-        throw HttpException(errorMessage);
+        throw _responseToSyncError(response.statusCode, responseBody);
       });
     } catch (e) {
       debugPrint('Session creation failed: $e');
@@ -202,17 +228,22 @@ class MonitoringSyncService {
           path: '/',
         );
         final request = await client
-            .postUrl(Uri.parse('${baseUrl.toString()}${AppConstants.apiSessionsEnd}/$sessionId/end'))
+            .postUrl(
+              Uri.parse(
+                '${baseUrl.toString()}${AppConstants.apiSessionsEnd}/$sessionId/end',
+              ),
+            )
             .timeout(const Duration(seconds: 5));
         request.headers.contentType = ContentType.json;
-        final response = await request.close().timeout(const Duration(seconds: 5));
+        final response = await request.close().timeout(
+          const Duration(seconds: 5),
+        );
         if (response.statusCode >= 200 && response.statusCode < 300) {
           debugPrint('Session ended: $sessionId');
           return;
         }
         final responseBody = await utf8.decoder.bind(response).join();
-        final errorMessage = _parseServerError(responseBody) ?? 'Session end failed: ${response.statusCode}';
-        throw HttpException(errorMessage);
+        throw _responseToSyncError(response.statusCode, responseBody);
       });
     } catch (e) {
       debugPrint('Session end failed: $e');
@@ -228,29 +259,27 @@ class MonitoringSyncService {
         final error = decoded['error'] as String?;
         final code = decoded['code'] as String?;
         if (error != null && error.isNotEmpty) {
-          return code != null && code.isNotEmpty ? '$error (code: $code)' : error;
+          return code != null && code.isNotEmpty
+              ? '$error (code: $code)'
+              : error;
         }
       }
-    } on FormatException catch (_) {}
-    on ArgumentError catch (_) {}
+    } on FormatException catch (_) {
+    } on ArgumentError catch (_) {}
     return null;
   }
 
   static Future<bool> syncCompletedScan(RecentTreeScan scan) async {
     final savedUrl = await _getEndpoint();
     if (savedUrl == null) {
-      debugPrint(
-        'Monitoring sync is disabled: no paired server URL.',
-      );
+      debugPrint('Monitoring sync is disabled: no paired server URL.');
       return false;
     }
     final endpoint = Uri.tryParse(savedUrl);
     if (endpoint == null ||
         !endpoint.hasScheme ||
         (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {
-      debugPrint(
-        'Monitoring sync is disabled: invalid API URL.',
-      );
+      debugPrint('Monitoring sync is disabled: invalid API URL.');
       return false;
     }
 
@@ -266,18 +295,20 @@ class MonitoringSyncService {
         port: endpoint.port,
         path: '/${AppConstants.apiScans}',
       );
-      final success = await _withRetry(() async {
+      await _withRetry(() async {
         final request = await client
             .postUrl(scansUrl)
             .timeout(const Duration(seconds: 5));
         request.headers.contentType = ContentType.json;
         request.write(
           jsonEncode({
-            'scan_id': 'scan-${scan.treeId}-${scan.scannedAt.millisecondsSinceEpoch}',
+            'scan_id':
+                'scan-${scan.treeId}-${scan.scannedAt.millisecondsSinceEpoch}',
             'session_id': sessionId,
             'tree_id': scan.treeId,
             'scanned_at': scan.scannedAt.toUtc().toIso8601String(),
-            'predicted_assessment': scan.predictedAssessment?.name ?? StabilityAssessment.low.name,
+            'predicted_assessment':
+                scan.predictedAssessment?.name ?? StabilityAssessment.low.name,
             if (imageBase64 != null) 'imageBase64': imageBase64,
           }),
         );
@@ -288,18 +319,15 @@ class MonitoringSyncService {
         if (response.statusCode >= 200 && response.statusCode < 300) {
           debugPrint('Monitoring scan synced to $endpoint');
           return true;
-        } else {
-          final errorMessage = _parseServerError(responseBody) ?? 'Server rejected the request';
-          debugPrint('Monitoring sync failed: $errorMessage');
-          return false;
         }
+        throw _responseToSyncError(response.statusCode, responseBody);
       }, baseDelay: const Duration(seconds: 1));
-      return success;
+      return true;
+    } on SyncError catch (e) {
+      debugPrint('Monitoring sync failed: ${e.message}');
+      return false;
     } on SocketException {
       debugPrint('Monitoring sync failed: dashboard server is unreachable.');
-      return false;
-    } on HttpException {
-      debugPrint('Monitoring sync failed: invalid server response.');
       return false;
     } on TimeoutException {
       debugPrint('Monitoring sync failed: request timed out.');
@@ -328,13 +356,23 @@ class MonitoringSyncService {
         path: '/',
       );
       return await _withRetry(() async {
-        final request = await client.getUrl(base).timeout(const Duration(seconds: 3));
-        final response = await request.close().timeout(const Duration(seconds: 3));
-        return response.statusCode >= 200 && response.statusCode < 500;
+        final request = await client
+            .getUrl(base)
+            .timeout(const Duration(seconds: 3));
+        final response = await request.close().timeout(
+          const Duration(seconds: 3),
+        );
+        if (response.statusCode >= 200 && response.statusCode < 300)
+          return true;
+        if (response.statusCode >= 500) {
+          throw SyncServerError(response.statusCode, 'Server unavailable');
+        }
+        return false;
       }, baseDelay: const Duration(seconds: 1));
-    } on SocketException {
+    } on SyncError catch (e) {
+      debugPrint('Ping failed: ${e.message}');
       return false;
-    } on HttpException {
+    } on SocketException {
       return false;
     } on TimeoutException {
       return false;
@@ -343,17 +381,17 @@ class MonitoringSyncService {
     }
   }
 
-  static Future<void> flushPendingScans(
+  static Future<int> flushPendingScans(
     List<RecentTreeScan> recentScans,
-    Function(int index) onScanSynced,
+    FutureOr<void> Function(int index) onScanSynced,
   ) async {
     final savedUrl = await _getEndpoint();
-    if (savedUrl == null) return;
+    if (savedUrl == null) return 0;
     final endpoint = Uri.tryParse(savedUrl);
     if (endpoint == null ||
         !endpoint.hasScheme ||
         (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {
-      return;
+      return 0;
     }
 
     final deviceId = await _getOrCreateDeviceId();
@@ -361,11 +399,11 @@ class MonitoringSyncService {
     final sessionId = await _ensureSession(deviceId);
 
     final pendingScans = recentScans.where((s) => !s.isSynced).toList();
-    if (pendingScans.isEmpty) return;
+    if (pendingScans.isEmpty) return 0;
 
     final client = HttpClient();
     try {
-      await _withRetry(() async {
+      return await _withRetry(() async {
         final batchUrl = Uri(
           scheme: endpoint.scheme,
           host: endpoint.host,
@@ -381,11 +419,13 @@ class MonitoringSyncService {
         for (final scan in pendingScans) {
           final imageBase64 = await _encodeImage(scan.capturedImagePath);
           batchPayload.add({
-            'scan_id': 'scan-${scan.treeId}-${scan.scannedAt.millisecondsSinceEpoch}',
+            'scan_id':
+                'scan-${scan.treeId}-${scan.scannedAt.millisecondsSinceEpoch}',
             'session_id': sessionId,
             'tree_id': scan.treeId,
             'scanned_at': scan.scannedAt.toUtc().toIso8601String(),
-            'predicted_assessment': scan.predictedAssessment?.name ?? StabilityAssessment.low.name,
+            'predicted_assessment':
+                scan.predictedAssessment?.name ?? StabilityAssessment.low.name,
             if (imageBase64 != null) 'imageBase64': imageBase64,
           });
         }
@@ -398,28 +438,34 @@ class MonitoringSyncService {
           }),
         );
 
-        final response = await request.close().timeout(const Duration(seconds: 10));
+        final response = await request.close().timeout(
+          const Duration(seconds: 10),
+        );
         final responseBody = await utf8.decoder.bind(response).join();
         if (response.statusCode >= 200 && response.statusCode < 300) {
           debugPrint('Batch synced ${pendingScans.length} scans');
+          var syncedCount = 0;
           for (int i = 0; i < pendingScans.length; i++) {
             final originalIndex = recentScans.indexOf(pendingScans[i]);
-            if (originalIndex >= 0) onScanSynced(originalIndex);
+            if (originalIndex >= 0) {
+              await onScanSynced(originalIndex);
+              syncedCount++;
+            }
           }
-        } else {
-          final errorMessage = _parseServerError(responseBody) ?? 'Batch sync failed';
-          debugPrint(errorMessage);
+          return syncedCount;
         }
+        throw _responseToSyncError(response.statusCode, responseBody);
       }, baseDelay: const Duration(seconds: 1));
+    } on SyncError catch (e) {
+      debugPrint('Batch sync failed: ${e.message}');
     } on SocketException {
       debugPrint('Batch sync failed: dashboard server is unreachable.');
-    } on HttpException {
-      debugPrint('Batch sync failed: invalid server response.');
     } on TimeoutException {
       debugPrint('Batch sync failed: request timed out.');
     } finally {
       client.close(force: true);
     }
+    return 0;
   }
 
   static Future<String?> _encodeImage(String? imagePath) async {

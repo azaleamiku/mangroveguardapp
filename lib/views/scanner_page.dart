@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:mangroveguardapp/models/mangrove_tree.dart';
+import 'package:mangroveguardapp/models/result.dart';
 import 'package:mangroveguardapp/services/mangrove_detector.dart';
 import '../constants/app_constants.dart';
 import 'scanner_camera.dart';
@@ -27,7 +28,6 @@ import 'scanner_ui/qr_dim_overlay_painter.dart';
 import 'scanner_ui/frame_dim_overlay_painter.dart';
 
 export 'scanner_controller.dart';
-
 
 class ScannerPage extends StatefulWidget {
   final ScannerPageController? controller;
@@ -45,7 +45,11 @@ class ScannerPage extends StatefulWidget {
   State<ScannerPage> createState() => _ScannerPageState();
 }
 
-class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStateMixin, WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
+class _ScannerPageState extends State<ScannerPage>
+    with
+        SingleTickerProviderStateMixin,
+        WidgetsBindingObserver,
+        AutomaticKeepAliveClientMixin {
   static const double _minPredictionConfidence = 0.10;
   static const Duration _realtimeInterval = Duration(milliseconds: 380);
   static const int _liveProcessingMaxDimension = 768;
@@ -85,6 +89,8 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
   double? _liveFramingScore;
   Rect? _liveBoundingBox;
   Rect? _smoothedBoundingBox;
+  CameraController? _previewController;
+  Widget? _cachedCameraPreview;
   Isolate? _liveIsolate;
   ReceivePort? _liveReceivePort;
   final LiveIsolateMessageHandler _liveIsolateHandler =
@@ -145,17 +151,26 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedUrl = prefs.getString(AppConstants.pairedServerUrlKey);
-      if (savedUrl != null && savedUrl.isNotEmpty) {
+      final deviceId = prefs.getString(AppConstants.deviceIdKey);
+      if (savedUrl != null &&
+          savedUrl.trim().isNotEmpty &&
+          deviceId != null &&
+          deviceId.trim().isNotEmpty) {
         setState(() {
           _isPaired = true;
         });
+        // Reconcile immediately so a stale local flag can't linger when the
+        // server has unpaired this device while the app was closed.
+        unawaited(_verifyServerPairing());
       }
     } catch (_) {}
   }
 
   void _startPairingStatusPolling() {
     _pairingStatusTimer?.cancel();
-    _pairingStatusTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+    _pairingStatusTimer = Timer.periodic(const Duration(seconds: 10), (
+      _,
+    ) async {
       if (!mounted) return;
       await _verifyServerPairing();
     });
@@ -166,7 +181,10 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
     final savedUrl = prefs.getString(AppConstants.pairedServerUrlKey);
     final deviceId = prefs.getString(AppConstants.deviceIdKey);
 
-    if (savedUrl == null || savedUrl.isEmpty || deviceId == null || deviceId.isEmpty) {
+    if (savedUrl == null ||
+        savedUrl.isEmpty ||
+        deviceId == null ||
+        deviceId.isEmpty) {
       return;
     }
 
@@ -179,12 +197,26 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
       if (response.statusCode == 200) {
         final devices = jsonDecode(response.body) as List<dynamic>;
         final device = devices.cast<Map<String, dynamic>>().firstWhere(
-          (d) => d['deviceId'] == deviceId,
+          (d) =>
+              d['deviceId'] == deviceId || d['device_id'] == deviceId,
           orElse: () => <String, dynamic>{},
         );
 
-        final lastPairedToken = device['lastPairedToken'] as String?;
-        if (lastPairedToken == null || lastPairedToken.isEmpty) {
+        // /api/devices no longer exposes lastPairedToken (secret-equivalent);
+        // it returns `isPaired` (1/0 or true/false) instead. Checking the old
+        // field always yielded null and incorrectly unpaired the app.
+        final rawPaired = device.isEmpty
+            ? null
+            : (device.containsKey('isPaired')
+                  ? device['isPaired']
+                  : device['is_paired']);
+        final stillPaired =
+            device.isNotEmpty &&
+            (rawPaired == 1 ||
+                rawPaired == true ||
+                rawPaired == '1' ||
+                rawPaired == 'true');
+        if (!stillPaired) {
           if (_isPaired) {
             await prefs.remove(AppConstants.pairedServerUrlKey);
             if (mounted) {
@@ -195,12 +227,16 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
               });
             }
           }
+        } else if (!_isPaired && mounted) {
+          setState(() {
+            _isPaired = true;
+          });
         }
       }
-    } on SocketException catch (_) {}
-    on TimeoutException catch (_) {}
-    on HttpException catch (_) {}
-    catch (_) {}
+    } on SocketException catch (_) {
+    } on TimeoutException catch (_) {
+    } on HttpException catch (_) {
+    } catch (_) {}
   }
 
   @override
@@ -215,6 +251,7 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
 
     if (widget.isActive && !oldWidget.isActive) {
       _camera.resetPermissionState();
+      unawaited(_verifyServerPairing());
       _resumeCameraForTabSwitch();
     } else if (!widget.isActive && oldWidget.isActive) {
       _collapseMenu();
@@ -241,6 +278,7 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(_verifyServerPairing());
       if (_camera.isPermissionDenied) {
         unawaited(_recheckDeniedPermission());
       } else if (!_isQrScanning) {
@@ -543,13 +581,16 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
               _smoothedBoundingBox ??= boundingBox;
               _smoothedBoundingBox = Rect.fromLTRB(
                 _liveBoundingBoxSmoothing * boundingBox.left +
-                    (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.left,
+                    (1 - _liveBoundingBoxSmoothing) *
+                        _smoothedBoundingBox!.left,
                 _liveBoundingBoxSmoothing * boundingBox.top +
                     (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.top,
                 _liveBoundingBoxSmoothing * boundingBox.right +
-                    (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.right,
+                    (1 - _liveBoundingBoxSmoothing) *
+                        _smoothedBoundingBox!.right,
                 _liveBoundingBoxSmoothing * boundingBox.bottom +
-                    (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.bottom,
+                    (1 - _liveBoundingBoxSmoothing) *
+                        _smoothedBoundingBox!.bottom,
               );
               _liveBoundingBox = _smoothedBoundingBox;
             }
@@ -569,7 +610,8 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
               _liveBoundingBoxSmoothing * boundingBox.right +
                   (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.right,
               _liveBoundingBoxSmoothing * boundingBox.bottom +
-                  (1 - _liveBoundingBoxSmoothing) * _smoothedBoundingBox!.bottom,
+                  (1 - _liveBoundingBoxSmoothing) *
+                      _smoothedBoundingBox!.bottom,
             );
             _liveBoundingBox = _smoothedBoundingBox;
           }
@@ -583,7 +625,10 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
       _isRealtimeProcessing = false;
       if (isConfident) {
         _liveStaleTimer?.cancel();
-        _liveStaleTimer = Timer(const Duration(seconds: 2), _clearStaleLiveAssessment);
+        _liveStaleTimer = Timer(
+          const Duration(seconds: 2),
+          _clearStaleLiveAssessment,
+        );
       }
       return;
     }
@@ -638,15 +683,15 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
   Future<void> _resumeCameraForTabSwitch() async {
     if (!mounted) return;
     if (_camera.isPermissionDenied) return;
-    
+
     final controller = _camera.controller;
     if (controller != null && controller.value.isInitialized) {
       _camera.startImageStream(_handleCameraImage);
-      
+
       if (_lastRealtimeSignal) {
         unawaited(_startRealtimeAssessment());
       }
-      
+
       setState(() {
         _camera.isInitializing = false;
         _camera.cameraError = null;
@@ -671,31 +716,44 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
       return ScanOutcome.captureOnly;
     }
 
-    try {
-      final detection = await detector.detect(imagePath);
-      final confidence = detection.predictionConfidence;
-      final isConfident =
-          confidence != null && confidence >= _minPredictionConfidence;
-      final predictedAssessment = detection.predictedAssessment;
-      widget.controller?.setLatestMeasuredTree(
-        tree: detection.tree,
-        predictionConfidence: confidence,
-        capturedImagePath: imagePath,
-        outcome: predictedAssessment != null && isConfident
-            ? ScanOutcome.detected
-            : ScanOutcome.noMangroveDetected,
-        predictedAssessment: predictedAssessment,
-      );
-      return predictedAssessment != null && isConfident
+    final result = await detector.detect(imagePath);
+    return switch (result) {
+      Ok(value: final detection) => _handleDetectionSuccess(
+        detection,
+        imagePath,
+      ),
+      Err(error: final error) => _handleDetectionFailure(error, imagePath),
+    };
+  }
+
+  ScanOutcome _handleDetectionSuccess(
+    MangroveDetectionResult detection,
+    String imagePath,
+  ) {
+    final confidence = detection.predictionConfidence;
+    final isConfident =
+        confidence != null && confidence >= _minPredictionConfidence;
+    final predictedAssessment = detection.predictedAssessment;
+    widget.controller?.setLatestMeasuredTree(
+      tree: detection.tree,
+      predictionConfidence: confidence,
+      capturedImagePath: imagePath,
+      outcome: predictedAssessment != null && isConfident
           ? ScanOutcome.detected
-          : ScanOutcome.noMangroveDetected;
-    } catch (e) {
-      debugPrint('Detector failed: $e');
-      _storeCapturedImageResult(imagePath);
-      if (!mounted) return ScanOutcome.captureOnly;
-      _showTopNotification('Detection failed. Saved photo only.');
-      return ScanOutcome.captureOnly;
-    }
+          : ScanOutcome.noMangroveDetected,
+      predictedAssessment: predictedAssessment,
+    );
+    return predictedAssessment != null && isConfident
+        ? ScanOutcome.detected
+        : ScanOutcome.noMangroveDetected;
+  }
+
+  ScanOutcome _handleDetectionFailure(DetectionError error, String imagePath) {
+    debugPrint('Detector failed: ${error.message}');
+    _storeCapturedImageResult(imagePath);
+    if (!mounted) return ScanOutcome.captureOnly;
+    _showTopNotification(error.message);
+    return ScanOutcome.captureOnly;
   }
 
   @override
@@ -744,7 +802,10 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
                   _camera.cameraError ??
                       'Camera permission is required to scan mangroves.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.antiFlashWhite, fontSize: 15),
+                  style: const TextStyle(
+                    color: AppColors.antiFlashWhite,
+                    fontSize: 15,
+                  ),
                 ),
                 const SizedBox(height: 20),
                 Wrap(
@@ -801,7 +862,10 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
                 Text(
                   _camera.cameraError!,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: AppColors.antiFlashWhite, fontSize: 15),
+                  style: const TextStyle(
+                    color: AppColors.antiFlashWhite,
+                    fontSize: 15,
+                  ),
                 ),
                 const SizedBox(height: 20),
                 Wrap(
@@ -831,7 +895,9 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
                         onPressed: () => openAppSettings(),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: AppColors.antiFlashWhite,
-                          side: const BorderSide(color: AppColors.caribbeanGreen),
+                          side: const BorderSide(
+                            color: AppColors.caribbeanGreen,
+                          ),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 12,
@@ -852,8 +918,14 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
       backgroundColor: AppColors.richBlack,
       body: Stack(
         children: [
-          if (!_isQrScanning) Positioned.fill(child: _buildCameraPreview()),
-          if (!_isQrScanning && !_isRealtimeAssessment) Positioned.fill(child: CustomPaint(painter: const FrameDimOverlayPainter())),
+          if (!_isQrScanning)
+            Positioned.fill(
+              child: RepaintBoundary(child: _buildCameraPreview()),
+            ),
+          if (!_isQrScanning && !_isRealtimeAssessment)
+            Positioned.fill(
+              child: CustomPaint(painter: const FrameDimOverlayPainter()),
+            ),
           if (!_isQrScanning) _buildFrameGuide(),
           if (_isQrScanning) _buildQrScannerOverlay(),
           if (!_isQrScanning)
@@ -872,8 +944,11 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
               frameRect: _lastFrameRectInViewport,
               assessment: _liveAssessment,
             ),
-          if (_isRealtimeAssessment && _liveBoundingBox != null)
-            LiveDetectionCard(assessment: _liveAssessment),
+          if (_isRealtimeAssessment) _buildLiveAssessmentIndicator(),
+          if (_isRealtimeAssessment)
+            LiveDetectionCard(
+              assessment: _liveBoundingBox == null ? null : _liveAssessment,
+            ),
           _buildScannerMenu(),
         ],
       ),
@@ -1098,8 +1173,7 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
 
   void _handleCameraImage(CameraImage image) {
     if (!_isRealtimeAssessment || _isCapturing) return;
-    if (!_liveIsolateHandler.isReady ||
-        _liveIsolateHandler.sendPort == null) {
+    if (!_liveIsolateHandler.isReady || _liveIsolateHandler.sendPort == null) {
       return;
     }
     if (image.planes.length < 3) return;
@@ -1148,15 +1222,19 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
         }
       }
 
-      final cachedImageBytes = Uint8List.fromList(img.encodeJpg(rgb, quality: 92));
-      widget.controller?.cacheLiveFrame(LiveFrameCache(
-        imageBytes: cachedImageBytes,
-        sharpnessScore: _liveSharpnessScore,
-        framingScore: _liveFramingScore,
-        assessment: _liveAssessment,
-        confidence: _liveConfidence,
-        boundingBox: _liveBoundingBox,
-      ));
+      final cachedImageBytes = Uint8List.fromList(
+        img.encodeJpg(rgb, quality: 92),
+      );
+      widget.controller?.cacheLiveFrame(
+        LiveFrameCache(
+          imageBytes: cachedImageBytes,
+          sharpnessScore: _liveSharpnessScore,
+          framingScore: _liveFramingScore,
+          assessment: _liveAssessment,
+          confidence: _liveConfidence,
+          boundingBox: _liveBoundingBox,
+        ),
+      );
 
       final requestId = ++_liveRequestId;
       _liveIsolateHandler.pendingRequestId = requestId;
@@ -1190,44 +1268,110 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
   Widget _buildCameraPreview() {
     final controller = _camera.controller;
     if (controller == null || !controller.value.isInitialized) {
+      _previewController = null;
+      _cachedCameraPreview = null;
       return const ColoredBox(color: Colors.black);
     }
     final previewSize = controller.value.previewSize;
     if (previewSize == null) {
+      _previewController = null;
+      _cachedCameraPreview = null;
       return const ColoredBox(color: Colors.black);
     }
 
-    return ClipRect(
-      child: OverflowBox(
-        alignment: Alignment.center,
-        child: FittedBox(
-          fit: BoxFit.cover,
-          child: SizedBox(
-            width: controller.value.previewSize!.height,
-            height: controller.value.previewSize!.width,
-            child: CameraPreview(controller),
+    if (_previewController != controller || _cachedCameraPreview == null) {
+      _previewController = controller;
+      _cachedCameraPreview = ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.center,
+          child: FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: previewSize.height,
+              height: previewSize.width,
+              child: CameraPreview(controller),
+            ),
           ),
         ),
-      ),
-    );
+      );
+    }
+
+    return _cachedCameraPreview!;
   }
 
   Widget _buildFrameGuide() {
     const width = 260.0;
     const height = 420.0;
-    return Align(
-      alignment: const Alignment(0, -0.50),
+    const frameAlignment = Alignment(0, -0.50);
+
+    return Positioned.fill(
       child: IgnorePointer(
-        child: Container(
-          key: _frameGuideInnerKey,
-          width: width,
-          height: height,
-          decoration: _isRealtimeAssessment
-              ? null
-              : BoxDecoration(
-                  border: Border.all(color: AppColors.caribbeanGreen, width: 2.5),
-                  borderRadius: BorderRadius.circular(8),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final frameLeft =
+                (constraints.maxWidth - width) / 2 +
+                frameAlignment.x * (constraints.maxWidth - width) / 2;
+            final frameTop =
+                (constraints.maxHeight - height) / 2 +
+                frameAlignment.y * (constraints.maxHeight - height) / 2;
+
+            return Stack(
+              children: [
+                Positioned(
+                  left: frameLeft,
+                  top: frameTop,
+                  child: Container(
+                    key: _frameGuideInnerKey,
+                    width: width,
+                    height: height,
+                    decoration: _isRealtimeAssessment
+                        ? null
+                        : BoxDecoration(
+                            border: Border.all(
+                              color: AppColors.caribbeanGreen,
+                              width: 2.5,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                  ),
                 ),
+                if (!_isRealtimeAssessment)
+                  Positioned(
+                    left: frameLeft,
+                    top: frameTop + height + 10,
+                    child: Container(
+                      width: width,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.darkGreen.withValues(alpha: 0.72),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppColors.caribbeanGreen.withValues(
+                            alpha: 0.32,
+                          ),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        'Center the trunk and visible roots inside the frame.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.antiFlashWhite.withValues(
+                            alpha: 0.86,
+                          ),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          height: 1.25,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -1244,12 +1388,10 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
         ignoring: true,
         child: Stack(
           children: [
-            MobileScanner(
-              controller: controller,
-              onDetect: _onQrCodeDetected,
-            ),
+            MobileScanner(controller: controller, onDetect: _onQrCodeDetected),
             _buildQrDimOverlay(),
             _buildQrViewfinder(),
+            _buildQrScanHint(),
             if (_isQrVerifying) _buildQrVerifyingOverlay(),
           ],
         ),
@@ -1260,9 +1402,7 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
   Widget _buildQrDimOverlay() {
     return Positioned.fill(
       child: IgnorePointer(
-        child: CustomPaint(
-          painter: const QrDimOverlayPainter(),
-        ),
+        child: CustomPaint(painter: const QrDimOverlayPainter()),
       ),
     );
   }
@@ -1282,6 +1422,42 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
           decoration: BoxDecoration(
             border: Border.all(color: AppColors.caribbeanGreen, width: 2.5),
             borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQrScanHint() {
+    final size = MediaQuery.of(context).size;
+    const cutoutSize = 250.0;
+    const hintWidth = 250.0;
+    final frameTop = (size.height - cutoutSize) / 2 - 40;
+
+    return Positioned(
+      top: frameTop + cutoutSize + 10,
+      left: (size.width - hintWidth) / 2,
+      child: IgnorePointer(
+        child: Container(
+          width: hintWidth,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.darkGreen.withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: AppColors.caribbeanGreen.withValues(alpha: 0.32),
+              width: 1,
+            ),
+          ),
+          child: Text(
+            'Align the dashboard QR code inside the frame.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppColors.antiFlashWhite.withValues(alpha: 0.86),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              height: 1.25,
+            ),
           ),
         ),
       ),
@@ -1314,7 +1490,9 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
               )
             else
               const CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(AppColors.caribbeanGreen),
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  AppColors.caribbeanGreen,
+                ),
                 strokeWidth: 3,
               ),
             const SizedBox(height: 16),
@@ -1586,28 +1764,42 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.darkGreen.withValues(alpha: 0.9),
         shape: RoundedRectangleBorder(
-          side: BorderSide(color: AppColors.caribbeanGreen.withValues(alpha: 0.4), width: 1),
+          side: BorderSide(
+            color: AppColors.caribbeanGreen.withValues(alpha: 0.4),
+            width: 1,
+          ),
           borderRadius: BorderRadius.circular(16),
         ),
         elevation: 0,
         title: const Text(
           'Unpair device?',
-          style: TextStyle(color: AppColors.antiFlashWhite, fontWeight: FontWeight.w800),
+          style: TextStyle(
+            color: AppColors.antiFlashWhite,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         content: Text(
           'This will remove the saved server connection.',
-          style: TextStyle(color: AppColors.antiFlashWhite.withValues(alpha: 0.7), fontSize: 14, height: 1.4),
+          style: TextStyle(
+            color: AppColors.antiFlashWhite.withValues(alpha: 0.7),
+            fontSize: 14,
+            height: 1.4,
+          ),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            style: TextButton.styleFrom(foregroundColor: AppColors.caribbeanGreen),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.caribbeanGreen,
+            ),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.caribbeanGreen),
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.caribbeanGreen,
+            ),
             child: const Text('Unpair'),
           ),
         ],
@@ -1630,9 +1822,9 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
               body: jsonEncode({'deviceId': deviceId}),
             )
             .timeout(const Duration(seconds: 5));
-      } on SocketException catch (_) {}
-      on TimeoutException catch (_) {}
-      on HttpException catch (_) {}
+      } on SocketException catch (_) {
+      } on TimeoutException catch (_) {
+      } on HttpException catch (_) {}
     }
 
     await prefs.remove(AppConstants.pairedServerUrlKey);
@@ -1881,12 +2073,16 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
 
     for (final endpoint in endpoints) {
       try {
-        final response = await http.get(endpoint).timeout(const Duration(seconds: 5));
+        final response = await http
+            .get(endpoint)
+            .timeout(const Duration(seconds: 5));
         if (response.statusCode == 200) {
           if (token != null && token.isNotEmpty) {
             try {
               final prefs = await SharedPreferences.getInstance();
-              final deviceId = prefs.getString(AppConstants.deviceIdKey) ?? 'device-${DateTime.now().millisecondsSinceEpoch}';
+              final deviceId =
+                  prefs.getString(AppConstants.deviceIdKey) ??
+                  'device-${DateTime.now().millisecondsSinceEpoch}';
               if (!prefs.containsKey(AppConstants.deviceIdKey)) {
                 await prefs.setString(AppConstants.deviceIdKey, deviceId);
               }
@@ -1895,15 +2091,16 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
                   .post(
                     Uri.parse('$baseUrl/${AppConstants.apiPairConfirm}'),
                     headers: {'Content-Type': 'application/json'},
-                     body: jsonEncode({
-                       'token': token,
-                       'deviceId': deviceId,
-                       'deviceName': await _getDeviceName(),
-                     }),
-                   )
+                    body: jsonEncode({
+                      'token': token,
+                      'deviceId': deviceId,
+                      'deviceName': await _getDeviceName(),
+                    }),
+                  )
                   .timeout(const Duration(seconds: 5));
               if (confirmResponse.statusCode >= 400) {
-                String errorMessage = 'Pair confirm rejected: ${confirmResponse.statusCode}';
+                String errorMessage =
+                    'Pair confirm rejected: ${confirmResponse.statusCode}';
                 try {
                   final decoded = jsonDecode(confirmResponse.body);
                   if (decoded is Map<String, dynamic>) {
@@ -1915,8 +2112,8 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
                           : serverError;
                     }
                   }
-                } on FormatException catch (_) {}
-                on ArgumentError catch (_) {}
+                } on FormatException catch (_) {
+                } on ArgumentError catch (_) {}
                 debugPrint(errorMessage);
                 return false;
               }
@@ -1970,6 +2167,102 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
     action();
   }
 
+  String get _guidanceLabel {
+    if (_isQrScanning) return 'QR Scanner Guidance';
+    if (_isRealtimeAssessment) return 'Live Scan Guidance';
+    return 'Capture Guidance';
+  }
+
+  VoidCallback get _guidanceAction {
+    if (_isQrScanning) return _showQrScannerGuidance;
+    if (_isRealtimeAssessment) return _showLiveScanGuidance;
+    return _showCaptureGuidance;
+  }
+
+  Widget _buildLiveAssessmentIndicator() {
+    final statusText = _liveAssessment == null
+        ? 'Analyzing frame'
+        : _liveAssessment!.label;
+
+    return Positioned(
+      top: 10,
+      right: 16,
+      child: SafeArea(
+        bottom: false,
+        child: Align(
+          alignment: Alignment.topRight,
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 176),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.darkGreen.withValues(alpha: 0.86),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: AppColors.caribbeanGreen.withValues(alpha: 0.55),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      AppColors.caribbeanGreen,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Live Assessment',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.antiFlashWhite,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text(
+                        statusText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.antiFlashWhite.withValues(
+                            alpha: 0.74,
+                          ),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildScannerMenu() {
     final isQrScreen = _isQrScanning;
     final isPaired = _isPaired;
@@ -1996,20 +2289,20 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
               icon: isPaired
                   ? Icons.link_off_rounded
                   : isQrScreen
-                      ? Icons.photo_camera_rounded
-                      : Icons.qr_code_scanner_rounded,
+                  ? Icons.photo_camera_rounded
+                  : Icons.qr_code_scanner_rounded,
               label: isPaired
                   ? 'Unpair'
                   : isQrScreen
-                      ? 'Camera'
-                      : 'Scan QR',
+                  ? 'Camera'
+                  : 'Scan QR',
               animation: _menuQr,
               onTap: () => _handleMenuAction(
                 isPaired
                     ? _unpair
                     : isQrScreen
-                        ? _stopQrScanning
-                        : _toggleQrScanning,
+                    ? _stopQrScanning
+                    : _toggleQrScanning,
               ),
             ),
           ),
@@ -2018,11 +2311,9 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
             ignoring: !_isMenuExpanded,
             child: ScannerMenuAction(
               icon: Icons.info_rounded,
-              label: isQrScreen ? 'QR Scanner Guidance' : 'Field Guidance',
+              label: _guidanceLabel,
               animation: _menuGuidance,
-              onTap: () => _handleMenuAction(
-                isQrScreen ? _showQrScannerGuidance : _showFieldGuidance,
-              ),
+              onTap: () => _handleMenuAction(_guidanceAction),
             ),
           ),
           const SizedBox(height: 14),
@@ -2089,15 +2380,28 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
     );
   }
 
-  void _showFieldGuidance() {
+  void _showCaptureGuidance() {
     _showGuidanceDialog(
-      title: 'Field Guidance',
+      title: 'Capture Guidance',
       steps: const <String>[
-        'Point the camera at the mangrove root structure and keep it centered in the frame guide.',
-        'Hold the central shutter button to start the live stability assessment.',
-        'Wait for the live assessment frame to turn green, then tap the shutter to capture a scan.',
-        'Keep the device steady and avoid harsh backlight for sharper detections.',
-        'Pair the device with the QR scanner to sync scans to the web dashboard.',
+        'Place the mangrove root structure inside the capture frame.',
+        'Keep the trunk and visible roots centered before taking the photo.',
+        'Tap the shutter once the subject is clear and steady.',
+        'Avoid glare, heavy shadows, or cropped roots so the saved scan is easier to assess.',
+        'Use upload for an existing photo instead of the camera capture.',
+      ],
+    );
+  }
+
+  void _showLiveScanGuidance() {
+    _showGuidanceDialog(
+      title: 'Live Scan Guidance',
+      steps: const <String>[
+        'Live assessment is active while the camera analyzes frames on this device.',
+        'Keep the mangrove root structure inside the frame guide until the detection box appears.',
+        'Use the stability label and colored detection box as the current live assessment.',
+        'Tap the shutter to save the current live assessment as a scan.',
+        'Hold the shutter again to stop live assessment and return to standard capture.',
       ],
     );
   }
@@ -2249,5 +2553,3 @@ class _ScannerPageState extends State<ScannerPage> with SingleTickerProviderStat
     );
   }
 }
-
-

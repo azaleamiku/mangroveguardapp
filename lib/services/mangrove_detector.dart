@@ -7,6 +7,7 @@ import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 import '../models/mangrove_tree.dart';
+import '../models/result.dart';
 
 class MangroveDetectionResult {
   final MangroveTree tree;
@@ -97,21 +98,43 @@ class MangroveDetector {
     _interpreter.close();
   }
 
-  Future<MangroveDetectionResult> detect(String imagePath) async {
-    final bytes = await File(imagePath).readAsBytes();
+  Future<Result<MangroveDetectionResult, DetectionError>> detect(
+    String imagePath,
+  ) async {
+    final Uint8List bytes;
+    try {
+      bytes = await File(imagePath).readAsBytes();
+    } on FileSystemException catch (e) {
+      return Err(
+        DetectionImageDecodeFailed('File not accessible: ${e.message}'),
+      );
+    } on FormatException catch (e) {
+      return Err(
+        DetectionImageDecodeFailed('Invalid file format: ${e.message}'),
+      );
+    } catch (e) {
+      return Err(DetectionImageDecodeFailed(e.toString()));
+    }
+
     final decoded = img.decodeImage(bytes);
     if (decoded == null) {
-      throw StateError('Unable to decode image.');
+      return const Err(
+        DetectionImageDecodeFailed('Image could not be decoded.'),
+      );
     }
     final oriented = img.bakeOrientation(decoded);
     return _detectFromImage(oriented);
   }
 
-  Future<MangroveDetectionResult> detectFromImage(img.Image image) async {
+  Future<Result<MangroveDetectionResult, DetectionError>> detectFromImage(
+    img.Image image,
+  ) async {
     return _detectFromImage(image);
   }
 
-  MangroveDetectionResult _detectFromImage(img.Image image) {
+  Result<MangroveDetectionResult, DetectionError> _detectFromImage(
+    img.Image image,
+  ) {
     final resized = img.copyResize(
       image,
       width: _inputWidth,
@@ -121,7 +144,11 @@ class MangroveDetector {
 
     final input = _buildInput(resized);
     final outputs = _allocateOutputBuffers();
-    _interpreter.runForMultipleInputs([input], outputs.buffers);
+    try {
+      _interpreter.runForMultipleInputs([input], outputs.buffers);
+    } catch (e) {
+      return Err(DetectionInferenceFailed(e.toString()));
+    }
 
     _logDebugOnce(outputs);
 
@@ -131,20 +158,18 @@ class MangroveDetector {
           detection.classIndex >= 0 && detection.classIndex < _classOrder.length
           ? _classOrder[detection.classIndex]
           : null;
-      final tree = MangroveTree(
-        treeBounds: detection.bounds,
-      );
-      return MangroveDetectionResult(
-        tree: tree,
-        predictionConfidence: detection.confidence,
-        predictedAssessment: assessment,
-        boundingBox: detection.bounds,
+      final tree = MangroveTree(treeBounds: detection.bounds);
+      return Ok(
+        MangroveDetectionResult(
+          tree: tree,
+          predictionConfidence: detection.confidence,
+          predictedAssessment: assessment,
+          boundingBox: detection.bounds,
+        ),
       );
     }
 
-    return MangroveDetectionResult(
-      tree: const MangroveTree(),
-    );
+    return const Err(DetectionNoResult());
   }
 
   Object _buildInput(img.Image image) {

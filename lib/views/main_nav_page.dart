@@ -26,7 +26,6 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   static const String _recentScansStorageKey = 'recent_tree_scans_v1';
   static const int _maxRecentScans = 10000;
 
-
   int _selectedIndex = 0;
   final ScannerPageController _scannerController = ScannerPageController();
   final ValueNotifier<List<RecentTreeScan>> _recentScans = ValueNotifier([]);
@@ -49,6 +48,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       onDeleteScan: _deleteRecentScan,
       onRescan: _handleRescanRequested,
       onUploadScan: _handleUploadScanRequested,
+      onScanSynced: _markRecentScanSynced,
       onClearQueue: _handleClearQueue,
     ),
   ];
@@ -153,6 +153,23 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     return success;
   }
 
+  Future<void> _markRecentScanSynced(int index) async {
+    if (index < 0 || index >= _recentScans.value.length) return;
+    final updated = List<RecentTreeScan>.from(_recentScans.value);
+    if (updated[index].isSynced) return;
+    updated[index] = RecentTreeScan(
+      treeId: updated[index].treeId,
+      scannedAt: updated[index].scannedAt,
+      tree: updated[index].tree,
+      predictionConfidence: updated[index].predictionConfidence,
+      predictedAssessment: updated[index].predictedAssessment,
+      capturedImagePath: updated[index].capturedImagePath,
+      isSynced: true,
+    );
+    _recentScans.value = updated;
+    await _persistRecentScans(updated);
+  }
+
   void _handleScannerHoldStart() {
     if (!mounted) return;
     if (_selectedIndex != 1) return;
@@ -181,7 +198,8 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
         : alphanumeric.substring(alphanumeric.length - 4);
 
     final now = DateTime.now();
-    final timePart = '${now.hour.toString().padLeft(2, '0')}'
+    final timePart =
+        '${now.hour.toString().padLeft(2, '0')}'
         '${now.minute.toString().padLeft(2, '0')}'
         '${now.second.toString().padLeft(2, '0')}';
 
@@ -234,17 +252,17 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     if (!mounted) return;
     _recentScans.value = trimmed;
     await _persistRecentScans(trimmed);
-      await _appendActivityLogEntry({
-        'event': 'scan_completed',
-        'treeId': newScan.treeId,
-        'scannedAt': newScan.scannedAt.toIso8601String(),
-        'predictedAssessment': newScan.predictedAssessment?.name,
-        if (newScan.predictionConfidence != null)
-          'predictionConfidence': newScan.predictionConfidence,
-      });
-      for (final scan in removed) {
-        await _deleteManagedCaptureFile(scan.capturedImagePath);
-      }
+    await _appendActivityLogEntry({
+      'event': 'scan_completed',
+      'treeId': newScan.treeId,
+      'scannedAt': newScan.scannedAt.toIso8601String(),
+      'predictedAssessment': newScan.predictedAssessment?.name,
+      if (newScan.predictionConfidence != null)
+        'predictionConfidence': newScan.predictionConfidence,
+    });
+    for (final scan in removed) {
+      await _deleteManagedCaptureFile(scan.capturedImagePath);
+    }
   }
 
   Future<void> _loadRecentScans() async {
@@ -435,7 +453,9 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
                       color: AppColors.darkGreen.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(35),
                       border: Border.all(
-                        color: AppColors.bangladeshGreen.withValues(alpha: 0.85),
+                        color: AppColors.bangladeshGreen.withValues(
+                          alpha: 0.85,
+                        ),
                         width: 1.5,
                       ),
                       boxShadow: [

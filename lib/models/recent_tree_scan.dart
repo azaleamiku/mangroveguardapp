@@ -88,12 +88,10 @@ class RecentTreeScan {
       predictedAssessment: predictedAssessment,
       capturedImagePath:
           ((json['capturedImagePath'] as String?)?.trim().isNotEmpty ?? false)
-              ? (json['capturedImagePath'] as String).trim()
-              : null,
+          ? (json['capturedImagePath'] as String).trim()
+          : null,
       isSynced: (json['isSynced'] as bool?) ?? false,
-      tree: MangroveTree(
-        treeBounds: treeBounds,
-      ),
+      tree: MangroveTree(treeBounds: treeBounds),
     );
   }
 

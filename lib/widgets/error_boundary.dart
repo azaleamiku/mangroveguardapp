@@ -5,11 +5,7 @@ class ErrorBoundary extends StatefulWidget {
   final Widget child;
   final Widget Function(Object error, VoidCallback onRetry)? fallback;
 
-  const ErrorBoundary({
-    super.key,
-    required this.child,
-    this.fallback,
-  });
+  const ErrorBoundary({super.key, required this.child, this.fallback});
 
   @override
   State<ErrorBoundary> createState() => _ErrorBoundaryState();
@@ -47,7 +43,11 @@ class _DefaultFallback extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 48),
+            const Icon(
+              Icons.error_outline_rounded,
+              color: Colors.redAccent,
+              size: 48,
+            ),
             const SizedBox(height: 16),
             Text(
               'Something went wrong.',

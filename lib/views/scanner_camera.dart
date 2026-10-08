@@ -147,9 +147,7 @@ class CameraLifecycle {
       selectedCamera,
       ResolutionPreset.high,
       enableAudio: false,
-      imageFormatGroup: resolveCameraFormatGroup(
-        isAndroid: Platform.isAndroid,
-      ),
+      imageFormatGroup: resolveCameraFormatGroup(isAndroid: Platform.isAndroid),
     );
     return controller;
   }

@@ -10,9 +10,18 @@ class FrameDimOverlayPainter extends CustomPainter {
     const frameHeight = 420.0;
     const frameAlignment = Alignment(0, -0.50);
 
-    final frameLeft = (size.width - frameWidth) / 2 + frameAlignment.x * (size.width - frameWidth) / 2;
-    final frameTop = (size.height - frameHeight) / 2 + frameAlignment.y * (size.height - frameHeight) / 2;
-    final frameRect = Rect.fromLTWH(frameLeft, frameTop, frameWidth, frameHeight);
+    final frameLeft =
+        (size.width - frameWidth) / 2 +
+        frameAlignment.x * (size.width - frameWidth) / 2;
+    final frameTop =
+        (size.height - frameHeight) / 2 +
+        frameAlignment.y * (size.height - frameHeight) / 2;
+    final frameRect = Rect.fromLTWH(
+      frameLeft,
+      frameTop,
+      frameWidth,
+      frameHeight,
+    );
 
     final paint = Paint()
       ..color = AppColors.richBlack.withValues(alpha: 0.5)

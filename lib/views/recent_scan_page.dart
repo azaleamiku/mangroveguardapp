@@ -11,8 +11,6 @@ import '../models/mangrove_tree.dart';
 import '../models/recent_tree_scan.dart';
 import '../services/monitoring_sync_service.dart';
 
-
-
 enum RecentScanNoticeKind { success, delete, error }
 
 class RecentScanNotice {
@@ -52,6 +50,7 @@ class RecentScanPage extends StatefulWidget {
   final Future<void> Function(int index)? onDeleteScan;
   final VoidCallback? onRescan;
   final Future<bool> Function(int index)? onUploadScan;
+  final Future<void> Function(int index)? onScanSynced;
   final VoidCallback? onClearQueue;
 
   const RecentScanPage({
@@ -61,6 +60,7 @@ class RecentScanPage extends StatefulWidget {
     this.onDeleteScan,
     this.onRescan,
     this.onUploadScan,
+    this.onScanSynced,
     this.onClearQueue,
   });
 
@@ -308,7 +308,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
     } else if (notification is ScrollEndNotification) {
       final shouldShowSheet =
           (_connectionTriggerArmed || _connectionReleaseQueued) &&
-              !_connectionSheetOpen;
+          !_connectionSheetOpen;
       if (_connectionPullExtent > 0 ||
           _connectionTriggerArmed ||
           _connectionReleaseQueued) {
@@ -356,23 +356,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
         isScrollControlled: true,
         builder: (context) => _ConnectionStatusSheet(
           scansListenable: widget.scansListenable,
-          onScanSynced: (index) {
-            final listenable = widget.scansListenable;
-            if (listenable is! ValueNotifier<List<RecentTreeScan>>) return;
-            final scans = listenable.value;
-            if (index < 0 || index >= scans.length) return;
-            final updated = List<RecentTreeScan>.from(scans);
-            updated[index] = RecentTreeScan(
-              treeId: updated[index].treeId,
-              scannedAt: updated[index].scannedAt,
-              tree: updated[index].tree,
-              predictionConfidence: updated[index].predictionConfidence,
-              predictedAssessment: updated[index].predictedAssessment,
-              capturedImagePath: updated[index].capturedImagePath,
-              isSynced: true,
-            );
-            listenable.value = updated;
-          },
+          onScanSynced: widget.onScanSynced ?? _markScanSyncedLocally,
           onClearQueue: widget.onClearQueue,
         ),
       );
@@ -433,6 +417,24 @@ class _RecentScanPageState extends State<RecentScanPage> {
         setState(() => _uploadingIndices.remove(index));
       }
     }
+  }
+
+  Future<void> _markScanSyncedLocally(int index) async {
+    final listenable = widget.scansListenable;
+    if (listenable is! ValueNotifier<List<RecentTreeScan>>) return;
+    final scans = listenable.value;
+    if (index < 0 || index >= scans.length) return;
+    final updated = List<RecentTreeScan>.from(scans);
+    updated[index] = RecentTreeScan(
+      treeId: updated[index].treeId,
+      scannedAt: updated[index].scannedAt,
+      tree: updated[index].tree,
+      predictionConfidence: updated[index].predictionConfidence,
+      predictedAssessment: updated[index].predictedAssessment,
+      capturedImagePath: updated[index].capturedImagePath,
+      isSynced: true,
+    );
+    listenable.value = updated;
   }
 
   Future<Size?> _loadImageSize(String path) async {
@@ -666,8 +668,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
             const extraBottomPadding = 12.0;
             final contentBottomPadding =
                 bottomInset + bottomNavHeight + extraBottomPadding;
-            final frameAspect =
-                _scannerFrameAspect(MediaQuery.sizeOf(context));
+            final frameAspect = _scannerFrameAspect(MediaQuery.sizeOf(context));
             final mangroveRects = _normalizedMangroveRects(scan.tree);
             final hasAnyHighlight = mangroveRects.isNotEmpty;
             final hasPrediction = scan.predictedAssessment != null;
@@ -716,10 +717,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                     future: _loadImageSize(
                                                       imagePath,
                                                     ),
-                                                    builder: (
-                                                      context,
-                                                      snapshot,
-                                                    ) {
+                                                    builder: (context, snapshot) {
                                                       final imageSize =
                                                           snapshot.data;
                                                       if (imageSize == null) {
@@ -730,27 +728,30 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                               double.infinity,
                                                           height:
                                                               double.infinity,
-                                                          errorBuilder: (
-                                                            context,
-                                                            error,
-                                                            stackTrace,
-                                                          ) {
-                                                            return Container(
-                                                              color: AppColors.darkGreen
-                                                                  .withValues(
-                                                                    alpha: 0.55,
+                                                          errorBuilder:
+                                                              (
+                                                                context,
+                                                                error,
+                                                                stackTrace,
+                                                              ) {
+                                                                return Container(
+                                                                  color: AppColors
+                                                                      .darkGreen
+                                                                      .withValues(
+                                                                        alpha:
+                                                                            0.55,
+                                                                      ),
+                                                                  child: const Center(
+                                                                    child: Icon(
+                                                                      Icons
+                                                                          .broken_image_rounded,
+                                                                      color: AppColors
+                                                                          .antiFlashWhite,
+                                                                      size: 36,
+                                                                    ),
                                                                   ),
-                                                              child: const Center(
-                                                                child: Icon(
-                                                                  Icons
-                                                                      .broken_image_rounded,
-                                                                  color:
-                                                                      AppColors.antiFlashWhite,
-                                                                  size: 36,
-                                                                ),
-                                                              ),
-                                                            );
-                                                          },
+                                                                );
+                                                              },
                                                         );
                                                       }
 
@@ -776,39 +777,39 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                                 height:
                                                                     imageSize
                                                                         .height,
-                                                                errorBuilder: (
-                                                                  context,
-                                                                  error,
-                                                                  stackTrace,
-                                                                ) {
-                                                                  return Container(
-                                                                    color: AppColors.darkGreen
-                                                                        .withValues(
-                                                                          alpha:
-                                                                              0.55,
+                                                                errorBuilder:
+                                                                    (
+                                                                      context,
+                                                                      error,
+                                                                      stackTrace,
+                                                                    ) {
+                                                                      return Container(
+                                                                        color: AppColors
+                                                                            .darkGreen
+                                                                            .withValues(
+                                                                              alpha: 0.55,
+                                                                            ),
+                                                                        child: const Center(
+                                                                          child: Icon(
+                                                                            Icons.broken_image_rounded,
+                                                                            color:
+                                                                                AppColors.antiFlashWhite,
+                                                                            size:
+                                                                                36,
+                                                                          ),
                                                                         ),
-                                                                    child: const Center(
-                                                                      child: Icon(
-                                                                        Icons
-                                                                            .broken_image_rounded,
-                                                                        color:
-                                                                            AppColors.antiFlashWhite,
-                                                                        size: 36,
-                                                                      ),
-                                                                    ),
-                                                                  );
-                                                                },
+                                                                      );
+                                                                    },
                                                               ),
                                                               if (showHighlights &&
                                                                   mangroveRects
                                                                       .isNotEmpty)
                                                                 CustomPaint(
-                                                                  painter:
-                                                                      _TreeHighlightPainter(
+                                                                  painter: _TreeHighlightPainter(
                                                                     rects:
                                                                         mangroveRects,
-                                                                    color:
-                                                                        AppColors.caribbeanGreen,
+                                                                    color: AppColors
+                                                                        .caribbeanGreen,
                                                                   ),
                                                                 ),
                                                             ],
@@ -818,13 +819,15 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                     },
                                                   )
                                                 : Container(
-                                                    color: AppColors.darkGreen.withValues(
-                                                      alpha: 0.55,
-                                                    ),
+                                                    color: AppColors.darkGreen
+                                                        .withValues(
+                                                          alpha: 0.55,
+                                                        ),
                                                     child: const Center(
                                                       child: Icon(
                                                         Icons.image_rounded,
-                                                        color: AppColors.antiFlashWhite,
+                                                        color: AppColors
+                                                            .antiFlashWhite,
                                                         size: 36,
                                                       ),
                                                     ),
@@ -838,8 +841,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                               left: 12,
                                               child: _DetectionBadge(
                                                 accent: statusColor,
-                                                stabilityLabel:
-                                                    _stabilityLabel(
+                                                stabilityLabel: _stabilityLabel(
                                                   scan.assessment,
                                                 ),
                                               ),
@@ -853,8 +855,8 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                 onPressedChanged: (pressed) {
                                                   if (!mounted) return;
                                                   setState(
-                                                    () => _peekRawPhoto =
-                                                        pressed,
+                                                    () =>
+                                                        _peekRawPhoto = pressed,
                                                   );
                                                 },
                                               ),
@@ -951,17 +953,15 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                     Icon(
                                       Icons.access_time_rounded,
                                       size: 14,
-                                      color: AppColors.antiFlashWhite.withValues(
-                                        alpha: 0.75,
-                                      ),
+                                      color: AppColors.antiFlashWhite
+                                          .withValues(alpha: 0.75),
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
                                       _formatTimestamp(scan.scannedAt),
                                       style: TextStyle(
-                                        color: AppColors.antiFlashWhite.withValues(
-                                          alpha: 0.7,
-                                        ),
+                                        color: AppColors.antiFlashWhite
+                                            .withValues(alpha: 0.7),
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -970,7 +970,9 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                 ),
                                 const SizedBox(height: 12),
                                 Divider(
-                                  color: AppColors.bangladeshGreen.withValues(alpha: 0.5),
+                                  color: AppColors.bangladeshGreen.withValues(
+                                    alpha: 0.5,
+                                  ),
                                   height: 1,
                                 ),
                                 const SizedBox(height: 12),
@@ -1026,16 +1028,18 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                               backgroundColor:
                                                   Colors.transparent,
                                               shadowColor: Colors.transparent,
-                                              foregroundColor: AppColors.antiFlashWhite,
+                                              foregroundColor:
+                                                  AppColors.antiFlashWhite,
                                               alignment: Alignment.center,
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                vertical: 12,
-                                              ),
+                                                    vertical: 12,
+                                                  ),
                                               shape:
                                                   const RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.zero,
-                                              ),
+                                                    borderRadius:
+                                                        BorderRadius.zero,
+                                                  ),
                                               textStyle: const TextStyle(
                                                 fontWeight: FontWeight.w800,
                                               ),
@@ -1067,12 +1071,12 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                                   begin: Alignment.topLeft,
                                                   end: Alignment.bottomRight,
                                                   colors: [
-                                                    AppColors.bangladeshGreen.withValues(
-                                                      alpha: 0.7,
-                                                    ),
-                                                    AppColors.darkGreen.withValues(
-                                                      alpha: 0.85,
-                                                    ),
+                                                    AppColors.bangladeshGreen
+                                                        .withValues(alpha: 0.7),
+                                                    AppColors.darkGreen
+                                                        .withValues(
+                                                          alpha: 0.85,
+                                                        ),
                                                   ],
                                                 )
                                               : const LinearGradient(
@@ -1088,17 +1092,16 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                           ),
                                           border: Border.all(
                                             color: scan.isSynced
-                                                ? AppColors.caribbeanGreen.withValues(
-                                                    alpha: 0.45,
-                                                  )
-                                                : AppColors.antiFlashWhite.withValues(
-                                                    alpha: 0.15,
-                                                  ),
+                                                ? AppColors.caribbeanGreen
+                                                      .withValues(alpha: 0.45)
+                                                : AppColors.antiFlashWhite
+                                                      .withValues(alpha: 0.15),
                                           ),
                                           boxShadow: scan.isSynced
                                               ? [
                                                   BoxShadow(
-                                                    color: AppColors.caribbeanGreen
+                                                    color: AppColors
+                                                        .caribbeanGreen
                                                         .withValues(
                                                           alpha: 0.18,
                                                         ),
@@ -1115,10 +1118,10 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                           child: FilledButton(
                                             onPressed:
                                                 scan.isSynced ||
-                                                        _uploadAttempted
-                                                    ? null
-                                                    : () =>
-                                                        _handleUploadScan(index),
+                                                    _uploadAttempted
+                                                ? null
+                                                : () =>
+                                                      _handleUploadScan(index),
                                             style: FilledButton.styleFrom(
                                               backgroundColor:
                                                   Colors.transparent,
@@ -1133,65 +1136,71 @@ class _RecentScanPageState extends State<RecentScanPage> {
                                               alignment: Alignment.center,
                                               padding:
                                                   const EdgeInsets.symmetric(
-                                                vertical: 12,
-                                              ),
+                                                    vertical: 12,
+                                                  ),
                                               shape:
                                                   const RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.zero,
-                                              ),
+                                                    borderRadius:
+                                                        BorderRadius.zero,
+                                                  ),
                                               textStyle: const TextStyle(
                                                 fontWeight: FontWeight.w800,
                                               ),
                                             ),
                                             child:
-                                                _uploadingIndices.contains(index)
-                                                    ? const SizedBox(
-                                                        height: 18,
-                                                        width: 18,
-                                                        child: CircularProgressIndicator(
-                                                          strokeWidth: 2,
-                                                          valueColor:
-                                                              AlwaysStoppedAnimation<
-                                                                Color
-                                                              >(
-                                                            AppColors.antiFlashWhite,
+                                                _uploadingIndices.contains(
+                                                  index,
+                                                )
+                                                ? const SizedBox(
+                                                    height: 18,
+                                                    width: 18,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      valueColor:
+                                                          AlwaysStoppedAnimation<
+                                                            Color
+                                                          >(
+                                                            AppColors
+                                                                .antiFlashWhite,
                                                           ),
+                                                    ),
+                                                  )
+                                                : FittedBox(
+                                                    fit: BoxFit.scaleDown,
+                                                    child: Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Icon(
+                                                          scan.isSynced
+                                                              ? Icons
+                                                                    .cloud_done_rounded
+                                                              : _failedUploadTreeIds
+                                                                    .contains(
+                                                                      scan.treeId,
+                                                                    )
+                                                              ? Icons
+                                                                    .cloud_off_rounded
+                                                              : Icons
+                                                                    .cloud_upload_rounded,
+                                                          size: 18,
                                                         ),
-                                                      )
-                                                    : FittedBox(
-                                                        fit: BoxFit.scaleDown,
-                                                        child: Row(
-                                                          mainAxisSize:
-                                                              MainAxisSize.min,
-                                                          children: [
-                                                            Icon(
-                                                              scan.isSynced
-                                                                  ? Icons
-                                                                      .cloud_done_rounded
-                                                                  : _failedUploadTreeIds
-                                                                          .contains(
-                                                                              scan.treeId)
-                                                                      ? Icons
-                                                                          .cloud_off_rounded
-                                                                      : Icons
-                                                                          .cloud_upload_rounded,
-                                                              size: 18,
-                                                            ),
-                                                            const SizedBox(
-                                                              width: 8,
-                                                            ),
-                                                            Text(
-                                                              scan.isSynced
-                                                                  ? 'Synced'
-                                                                  : _failedUploadTreeIds
-                                                                          .contains(
-                                                                              scan.treeId)
-                                                                      ? 'Pending'
-                                                                      : 'Upload',
-                                                            ),
-                                                          ],
+                                                        const SizedBox(
+                                                          width: 8,
                                                         ),
-                                                      ),
+                                                        Text(
+                                                          scan.isSynced
+                                                              ? 'Synced'
+                                                              : _failedUploadTreeIds
+                                                                    .contains(
+                                                                      scan.treeId,
+                                                                    )
+                                                              ? 'Pending'
+                                                              : 'Upload',
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
                                           ),
                                         ),
                                       ),
@@ -1253,18 +1262,18 @@ class _ConnectionOverscrollNotice extends StatelessWidget {
     final title = isArmed
         ? 'Release for Server Status'
         : hasPending
-            ? 'Pull up for Server Status ($pendingCount Pending)'
-            : 'Pull up for Server Status';
+        ? 'Pull up for Server Status ($pendingCount Pending)'
+        : 'Pull up for Server Status';
     final icon = isArmed
         ? Icons.touch_app_rounded
         : hasPending
-            ? Icons.cloud_off_rounded
-            : Icons.cloud_done_rounded;
+        ? Icons.cloud_off_rounded
+        : Icons.cloud_done_rounded;
     final iconColor = isArmed
         ? AppColors.caribbeanGreen
         : hasPending
-            ? const Color(0xFFF59E0B)
-            : AppColors.caribbeanGreen;
+        ? const Color(0xFFF59E0B)
+        : AppColors.caribbeanGreen;
 
     return IgnorePointer(
       child: AnimatedSlide(
@@ -1327,7 +1336,7 @@ class _ConnectionOverscrollNotice extends StatelessWidget {
 
 class _ConnectionStatusSheet extends StatefulWidget {
   final ValueListenable<List<RecentTreeScan>> scansListenable;
-  final void Function(int index) onScanSynced;
+  final Future<void> Function(int index) onScanSynced;
   final VoidCallback? onClearQueue;
 
   const _ConnectionStatusSheet({
@@ -1345,17 +1354,14 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
   bool _isConnected = false;
   bool _isSyncing = false;
   int _pendingCount = 0;
-  String? _endpoint;
 
   @override
   void initState() {
     super.initState();
-    _endpoint = const String.fromEnvironment(
-      'MANGROVE_GUARD_API_URL',
-      defaultValue: 'http://10.173.168.10:8080',
-    );
     widget.scansListenable.addListener(_refreshPendingCount);
-    _pendingCount = widget.scansListenable.value.where((scan) => !scan.isSynced).length;
+    _pendingCount = widget.scansListenable.value
+        .where((scan) => !scan.isSynced)
+        .length;
     _checkConnectionAndSync();
   }
 
@@ -1405,14 +1411,11 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
       _pendingCount = pending.length;
     });
 
-    int syncedCount = 0;
+    var syncedCount = 0;
     try {
-      await MonitoringSyncService.flushPendingScans(
+      syncedCount = await MonitoringSyncService.flushPendingScans(
         scans,
-        (index) {
-          syncedCount++;
-          widget.onScanSynced(index);
-        },
+        widget.onScanSynced,
       );
     } on SocketException catch (_) {
       if (!mounted) return;
@@ -1506,17 +1509,27 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.darkGreen.withValues(alpha: 0.9),
         shape: RoundedRectangleBorder(
-          side: BorderSide(color: AppColors.caribbeanGreen.withValues(alpha: 0.4), width: 1),
+          side: BorderSide(
+            color: AppColors.caribbeanGreen.withValues(alpha: 0.4),
+            width: 1,
+          ),
           borderRadius: BorderRadius.circular(16),
         ),
         elevation: 0,
         title: const Text(
           'Clear Queued Scans?',
-          style: TextStyle(color: AppColors.antiFlashWhite, fontWeight: FontWeight.w800),
+          style: TextStyle(
+            color: AppColors.antiFlashWhite,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         content: const Text(
           'This will permanently remove all offline pending scans from your device that haven\'t been synced to the server.',
-          style: TextStyle(color: AppColors.antiFlashWhite, fontSize: 14, height: 1.4),
+          style: TextStyle(
+            color: AppColors.antiFlashWhite,
+            fontSize: 14,
+            height: 1.4,
+          ),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
@@ -1524,7 +1537,9 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
             onPressed: () => Navigator.pop(ctx, false),
             child: Text(
               'Cancel',
-              style: TextStyle(color: AppColors.antiFlashWhite.withValues(alpha: 0.7)),
+              style: TextStyle(
+                color: AppColors.antiFlashWhite.withValues(alpha: 0.7),
+              ),
             ),
           ),
           OutlinedButton(
@@ -1610,7 +1625,9 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                         Text(
                           'Server & Sync Status',
                           style: TextStyle(
-                            color: AppColors.antiFlashWhite.withValues(alpha: 0.94),
+                            color: AppColors.antiFlashWhite.withValues(
+                              alpha: 0.94,
+                            ),
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.2,
@@ -1620,10 +1637,12 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                           _isChecking
                               ? 'Checking connection...'
                               : _isConnected
-                                  ? 'Connected to server'
-                                  : 'Server unreachable',
+                              ? 'Connected to server'
+                              : 'Server unreachable',
                           style: TextStyle(
-                            color: AppColors.antiFlashWhite.withValues(alpha: 0.66),
+                            color: AppColors.antiFlashWhite.withValues(
+                              alpha: 0.66,
+                            ),
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                           ),
@@ -1662,7 +1681,9 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                           child: Text(
                             'Target Endpoint',
                             style: TextStyle(
-                              color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
+                              color: AppColors.antiFlashWhite.withValues(
+                                alpha: 0.9,
+                              ),
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.2,
@@ -1676,25 +1697,29 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                           ),
                           decoration: BoxDecoration(
                             color: _isConnected
-                                ? AppColors.caribbeanGreen.withValues(alpha: 0.18)
-                                : const Color(0xFFEF4444).withValues(
+                                ? AppColors.caribbeanGreen.withValues(
                                     alpha: 0.18,
-                                  ),
+                                  )
+                                : const Color(
+                                    0xFFEF4444,
+                                  ).withValues(alpha: 0.18),
                             borderRadius: BorderRadius.circular(999),
                             border: Border.all(
                               color: _isConnected
-                                  ? AppColors.caribbeanGreen.withValues(alpha: 0.6)
-                                  : const Color(0xFFEF4444).withValues(
+                                  ? AppColors.caribbeanGreen.withValues(
                                       alpha: 0.6,
-                                    ),
+                                    )
+                                  : const Color(
+                                      0xFFEF4444,
+                                    ).withValues(alpha: 0.6),
                             ),
                           ),
                           child: Text(
                             _isChecking
                                 ? 'Checking...'
                                 : _isConnected
-                                    ? 'Connected'
-                                    : 'Unreachable',
+                                ? 'Connected'
+                                : 'Unreachable',
                             style: TextStyle(
                               color: _isConnected
                                   ? AppColors.caribbeanGreen
@@ -1780,10 +1805,10 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
                             ),
                           ),
                         )
-                       : const Text(
-                           'Sync Now',
-                           style: TextStyle(fontWeight: FontWeight.w800),
-                         ),
+                      : const Text(
+                          'Sync Now',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -1926,14 +1951,14 @@ class _TreeHighlightPainter extends CustomPainter {
         Offset(right, bottom - radius * 0.6 - tick),
         Offset(right, bottom - radius * 0.6),
         tickPaint,
-   );
-   }
-}
+      );
+    }
+  }
 
   @override
   bool shouldRepaint(covariant _TreeHighlightPainter oldDelegate) {
     return oldDelegate.color != color || !listEquals(oldDelegate.rects, rects);
-   }
+  }
 }
 
 class _PeekHighlightButton extends StatelessWidget {
@@ -1947,9 +1972,13 @@ class _PeekHighlightButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = pressed ? AppColors.antiFlashWhite : AppColors.caribbeanGreen;
+    final accent = pressed
+        ? AppColors.antiFlashWhite
+        : AppColors.caribbeanGreen;
     final semanticLabel = pressed ? 'Show overlay' : 'Hide overlay';
-    final labelColor = AppColors.antiFlashWhite.withValues(alpha: pressed ? 0.78 : 0.86);
+    final labelColor = AppColors.antiFlashWhite.withValues(
+      alpha: pressed ? 0.78 : 0.86,
+    );
     return Semantics(
       label: semanticLabel,
       button: true,
@@ -2155,7 +2184,9 @@ class _HighlightLegendChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dotColor = dim ? color.withValues(alpha: 0.6) : color;
-    final textColor = AppColors.antiFlashWhite.withValues(alpha: dim ? 0.68 : 0.86);
+    final textColor = AppColors.antiFlashWhite.withValues(
+      alpha: dim ? 0.68 : 0.86,
+    );
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

@@ -23,17 +23,18 @@ class ScannerMenuAction extends StatelessWidget {
       child: FadeTransition(
         opacity: animation,
         child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.4),
-            end: Offset.zero,
-          ).animate(
-            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-          ),
+          position: Tween<Offset>(begin: const Offset(0, 0.4), end: Offset.zero)
+              .animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 7,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.darkGreen.withValues(alpha: 0.9),
                   borderRadius: BorderRadius.circular(999),
@@ -71,7 +72,9 @@ class ScannerMenuAction extends StatelessWidget {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.caribbeanGreen.withValues(alpha: 0.18),
+                          color: AppColors.caribbeanGreen.withValues(
+                            alpha: 0.18,
+                          ),
                           blurRadius: 10,
                           spreadRadius: 0.2,
                         ),
@@ -109,8 +112,7 @@ class TopNotificationContent extends StatefulWidget {
   });
 
   @override
-  State<TopNotificationContent> createState() =>
-      _TopNotificationContentState();
+  State<TopNotificationContent> createState() => _TopNotificationContentState();
 }
 
 class _TopNotificationContentState extends State<TopNotificationContent> {
@@ -136,10 +138,7 @@ class _TopNotificationContentState extends State<TopNotificationContent> {
       child: Material(
         color: Colors.transparent,
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 12,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: AppColors.darkGreen.withValues(alpha: 0.94),
             borderRadius: BorderRadius.circular(14),
@@ -164,8 +163,8 @@ class _TopNotificationContentState extends State<TopNotificationContent> {
               ),
               const SizedBox(width: 10),
               Flexible(
-                  child: Text(
-                    widget.message,
+                child: Text(
+                  widget.message,
                   style: const TextStyle(
                     color: AppColors.antiFlashWhite,
                     fontSize: 14,

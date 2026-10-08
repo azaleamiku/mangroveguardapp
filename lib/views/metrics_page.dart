@@ -12,8 +12,6 @@ class MetricsPage extends StatefulWidget {
 
   const MetricsPage({super.key, required this.scansListenable});
 
-
-
   @override
   State<MetricsPage> createState() => _MetricsPageState();
 }
@@ -423,9 +421,7 @@ class _AboutOverscrollNotice extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: AppColors.antiFlashWhite.withValues(
-                          alpha: 0.9,
-                        ),
+                        color: AppColors.antiFlashWhite.withValues(alpha: 0.9),
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
                       ),
@@ -516,27 +512,27 @@ class _AboutAppSheet extends StatelessWidget {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                               Text(
-                                 'About MangroveGuard',
-                                 style: TextStyle(
-                                   color: AppColors.antiFlashWhite.withValues(
-                                     alpha: 0.94,
-                                   ),
-                                   fontSize: 16,
-                                   fontWeight: FontWeight.w900,
-                                   letterSpacing: 0.2,
-                                 ),
-                               ),
-                               Text(
-                                 'Field capture meets web intelligence.',
-                                 style: TextStyle(
-                                   color: AppColors.antiFlashWhite.withValues(
-                                     alpha: 0.66,
-                                   ),
-                                   fontSize: 12,
-                                   fontWeight: FontWeight.w600,
-                                 ),
-                               ),
+                              Text(
+                                'About MangroveGuard',
+                                style: TextStyle(
+                                  color: AppColors.antiFlashWhite.withValues(
+                                    alpha: 0.94,
+                                  ),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                              Text(
+                                'Field capture meets web intelligence.',
+                                style: TextStyle(
+                                  color: AppColors.antiFlashWhite.withValues(
+                                    alpha: 0.66,
+                                  ),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -625,8 +621,8 @@ class _AboutAppSheet extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                                                    'MangroveGuard is a coastal mangrove monitoring platform that turns field scans into actionable stability assessments. The mobile client captures and classifies scans on-site, while the web dashboard lets conservation teams review observations, monitor activity, and compare stability trends.',
-                                                                     style: TextStyle(
+                                    'MangroveGuard is a coastal mangrove monitoring platform that turns field scans into actionable stability assessments. The mobile client captures and classifies scans on-site, while the web dashboard lets conservation teams review observations, monitor activity, and compare stability trends.',
+                                    style: TextStyle(
                                       color: AppColors.antiFlashWhite
                                           .withValues(alpha: 0.82),
                                       fontSize: 12,
@@ -635,39 +631,39 @@ class _AboutAppSheet extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 10),
-                                   Row(
-                                     children: const [
-                                       Expanded(
-                                         child: _AboutPillMetric(
-                                           icon: Icons.memory_rounded,
-                                           label: 'Inference',
-                                           value: 'On-device',
-                                         ),
-                                       ),
-                                       SizedBox(width: 10),
-                                       Expanded(
-                                         child: _AboutPillMetric(
-                                           icon: Icons.history_rounded,
-                                           label: 'History',
-                                           value: 'Local',
-                                         ),
-                                       ),
-                                       SizedBox(width: 10),
-                                       Expanded(
-                                         child: _AboutPillMetric(
-                                           icon: Icons.cloud_sync_rounded,
-                                           label: 'Sync',
-                                           value: 'Web',
-                                         ),
-                                       ),
-                                     ],
-                                   ),
+                                  Row(
+                                    children: const [
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.memory_rounded,
+                                          label: 'Inference',
+                                          value: 'On-device',
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.history_rounded,
+                                          label: 'History',
+                                          value: 'Local',
+                                        ),
+                                      ),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: _AboutPillMetric(
+                                          icon: Icons.cloud_sync_rounded,
+                                          label: 'Sync',
+                                          value: 'Web',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
                             const SizedBox(height: 12),
 
-                              Text(
+                            Text(
                               'Built and maintained by the MangroveGuard team.',
                               style: TextStyle(
                                 color: AppColors.antiFlashWhite.withValues(
@@ -852,13 +848,9 @@ class _AverageStabilityGaugeCard extends StatelessWidget {
       }
     }
 
-    final majorityLabel = hasData
-        ? '$majorityCount'
-        : '--';
+    final majorityLabel = hasData ? '$majorityCount' : '--';
 
-    final statusLabel = hasData
-        ? majorityAssessment!.label
-        : 'No data yet';
+    final statusLabel = hasData ? majorityAssessment!.label : 'No data yet';
     final statusColor = hasData
         ? _statusColorForAssessment(majorityAssessment!)
         : AppColors.antiFlashWhite.withValues(alpha: 0.6);

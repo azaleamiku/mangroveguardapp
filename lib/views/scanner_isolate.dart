@@ -5,6 +5,7 @@ import 'dart:ui' show Rect;
 
 import 'package:image/image.dart' as img;
 
+import '../models/result.dart';
 import '../services/mangrove_detector.dart';
 
 const String liveIsolateReady = 'ready';
@@ -169,21 +170,33 @@ void liveAssessmentIsolate(Map<String, Object?> config) async {
         }
       }
 
-      final detection = await detector.detectFromImage(rgb);
-      sendPort.send({
-        'type': liveIsolateResult,
-        'requestId': requestId,
-        'assessment': detection.predictedAssessment?.name,
-        'confidence': detection.predictionConfidence,
-        'boundingBox': detection.boundingBox != null
-            ? {
-                'left': detection.boundingBox!.left,
-                'top': detection.boundingBox!.top,
-                'right': detection.boundingBox!.right,
-                'bottom': detection.boundingBox!.bottom,
-              }
-            : null,
-      });
+      final result = await detector.detectFromImage(rgb);
+      switch (result) {
+        case Ok(value: final detection):
+          final boundingBox = detection.boundingBox;
+          sendPort.send({
+            'type': liveIsolateResult,
+            'requestId': requestId,
+            'assessment': detection.predictedAssessment?.name,
+            'confidence': detection.predictionConfidence,
+            'boundingBox': boundingBox != null
+                ? {
+                    'left': boundingBox.left,
+                    'top': boundingBox.top,
+                    'right': boundingBox.right,
+                    'bottom': boundingBox.bottom,
+                  }
+                : null,
+          });
+        case Err():
+          sendPort.send({
+            'type': liveIsolateResult,
+            'requestId': requestId,
+            'assessment': null,
+            'confidence': null,
+            'boundingBox': null,
+          });
+      }
     } catch (e) {
       sendPort.send({
         'type': liveIsolateError,

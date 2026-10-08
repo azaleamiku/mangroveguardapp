@@ -1,4 +1,3 @@
-
 class TreeBounds {
   final double left;
   final double top;
@@ -42,7 +41,5 @@ extension StabilityAssessmentExtension on StabilityAssessment {
 class MangroveTree {
   final TreeBounds? treeBounds;
 
-  const MangroveTree({
-    this.treeBounds,
-  });
+  const MangroveTree({this.treeBounds});
 }
