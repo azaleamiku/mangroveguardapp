@@ -96,4 +96,15 @@ class RecentTreeScan {
       ),
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RecentTreeScan &&
+          runtimeType == other.runtimeType &&
+          treeId == other.treeId &&
+          scannedAt == other.scannedAt;
+
+  @override
+  int get hashCode => Object.hash(treeId, scannedAt);
 }
