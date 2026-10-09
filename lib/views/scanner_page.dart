@@ -2276,7 +2276,7 @@ class _ScannerPageState extends State<ScannerPage>
           IgnorePointer(
             ignoring: !_isMenuExpanded,
             child: ScannerMenuAction(
-              icon: Icons.cloud_upload_rounded,
+              icon: Icons.image_rounded,
               label: 'Upload',
               animation: _menuUpload,
               onTap: () => _handleMenuAction(_handleUploadPhoto),
