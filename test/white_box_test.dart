@@ -62,6 +62,19 @@ class _Http implements ScanHttpClient {
     calls++;
     return response;
   }
+
+  @override
+  Future<ScanHttpResponse> getJson(
+    Uri url, {
+    required Map<String, String> headers,
+  }) async {
+    urls.add(url);
+    final response = calls < responses.length
+        ? responses[calls]
+        : responses.last;
+    calls++;
+    return response;
+  }
 }
 
 SyncClient _client({
@@ -319,6 +332,38 @@ void main() {
       expect(recent.tree.treeBounds?.right, 3);
     });
   });
+
+  group('SyncClient pingServer', () {
+    test('returns true when the server answers 2xx', () async {
+      final http = _Http(const [ScanHttpResponse(200, '{}')]);
+      final client = _client(http: http);
+
+      final connected = await client.pingServer();
+
+      expect(connected, isTrue);
+      expect(http.calls, 1);
+      expect(http.urls.last.path, '/');
+    });
+
+    test('returns false when no server is paired', () async {
+      final http = _Http(const []);
+      final client = _client(http: http, endpoint: null);
+
+      final connected = await client.pingServer();
+
+      expect(connected, isFalse);
+      expect(http.calls, 0);
+    });
+
+    test('returns false on a non-2xx response', () async {
+      final http = _Http(const [ScanHttpResponse(503, 'down')]);
+      final client = _client(http: http, delayOverride: (_) async {});
+
+      final connected = await client.pingServer();
+
+      expect(connected, isFalse);
+    });
+  });
 }
 
 class _ThrowingTimeoutHttp implements ScanHttpClient {
@@ -329,6 +374,16 @@ class _ThrowingTimeoutHttp implements ScanHttpClient {
     Uri url, {
     required Map<String, String> headers,
     required String body,
+  }) async {
+    calls++;
+    if (calls <= 2) return const ScanHttpResponse(200, '{}');
+    throw TimeoutException('slow');
+  }
+
+  @override
+  Future<ScanHttpResponse> getJson(
+    Uri url, {
+    required Map<String, String> headers,
   }) async {
     calls++;
     if (calls <= 2) return const ScanHttpResponse(200, '{}');

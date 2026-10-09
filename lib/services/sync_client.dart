@@ -163,6 +163,22 @@ class IoScanHttpClient implements ScanHttpClient {
       client.close(force: true);
     }
   }
+
+  @override
+  Future<ScanHttpResponse> getJson(Uri url,
+      {required Map<String, String> headers}) async {
+    final client = clientFactory();
+    try {
+      final request = await client.getUrl(url).timeout(const Duration(seconds: 5));
+      headers.forEach(request.headers.set);
+      final response =
+          await request.close().timeout(const Duration(seconds: 5));
+      final responseBody = await utf8.decoder.bind(response).join();
+      return ScanHttpResponse(response.statusCode, responseBody);
+    } finally {
+      client.close(force: true);
+    }
+  }
 }
 
 
@@ -243,6 +259,43 @@ class SyncClient {
       return SyncServerError(statusCode, body);
     }
     return SyncUnknownError('Unexpected status $statusCode. $body');
+  }
+
+  /// Liveness probe used by the UI to gate sync actions. Returns `true`
+  /// when the paired server answers 2xx on its root path.
+  Future<bool> pingServer() async {
+    final endpointRaw = await endpointProvider.getEndpoint();
+    if (endpointRaw == null) return false;
+    final endpoint = Uri.parse(endpointRaw);
+    if (!endpoint.hasScheme ||
+        (endpoint.scheme != 'http' && endpoint.scheme != 'https')) {
+      return false;
+    }
+    final base = Uri(
+      scheme: endpoint.scheme,
+      host: endpoint.host,
+      port: endpoint.port,
+      path: '/',
+    );
+    try {
+      return await withRetry(() async {
+        final response = await httpClient.getJson(base, headers: const {});
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          return true;
+        }
+        if (response.statusCode >= 500) {
+          throw SyncServerError(response.statusCode, 'Server unavailable');
+        }
+        return false;
+      }, baseDelay: const Duration(seconds: 1));
+    } on SyncError catch (e) {
+      debugPrint('Ping failed: ${e.message}');
+      return false;
+    } on SocketException {
+      return false;
+    } on TimeoutException {
+      return false;
+    }
   }
 }
 

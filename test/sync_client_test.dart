@@ -42,6 +42,16 @@ class _ScriptedHttp implements ScanHttpClient {
     calls++;
     return response;
   }
+
+  @override
+  Future<ScanHttpResponse> getJson(Uri url,
+      {required Map<String, String> headers}) async {
+    requestedUrls.add(url);
+    final response =
+        calls < script.length ? script[calls] : script.last;
+    calls++;
+    return response;
+  }
 }
 
 Scan _scan(String id) => Scan(
@@ -147,6 +157,42 @@ void main() {
 
       expect(result.syncedCount, 0);
       expect(http.calls, 0);
+    });
+  });
+
+  group('pingServer', () {
+    test('returns true when the server answers 2xx', () async {
+      final http = _ScriptedHttp([const ScanHttpResponse(200, '{}')]);
+      final client = _client(http);
+
+      final connected = await client.pingServer();
+
+      expect(connected, isTrue);
+      expect(http.calls, 1);
+      expect(http.requestedUrls.last.path, '/');
+    });
+
+    test('returns false when no server is paired', () async {
+      final http = _ScriptedHttp([]);
+      final client = _client(http, unpaired: true);
+
+      final connected = await client.pingServer();
+
+      expect(connected, isFalse);
+      expect(http.calls, 0);
+    });
+
+    test('returns false on a non-2xx response', () async {
+      final http = _ScriptedHttp([
+        const ScanHttpResponse(503, 'down'),
+        const ScanHttpResponse(503, 'down'),
+        const ScanHttpResponse(503, 'down'),
+      ]);
+      final client = _client(http);
+
+      final connected = await client.pingServer();
+
+      expect(connected, isFalse);
     });
   });
 }

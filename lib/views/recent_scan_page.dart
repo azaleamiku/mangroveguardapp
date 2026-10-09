@@ -9,7 +9,7 @@ import 'package:mangroveguardapp/theme/colors.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/mangrove_tree.dart';
 import '../models/recent_tree_scan.dart';
-import '../services/monitoring_sync_service.dart';
+import '../services/sync_client.dart';
 
 enum RecentScanNoticeKind { success, delete, error }
 
@@ -57,6 +57,10 @@ class RecentScanPage extends StatefulWidget {
   final Future<void> Function(String scanId)? onScanSynced;
   final VoidCallback? onClearQueue;
 
+  /// Injectable sync client (replaces the legacy static
+  /// `MonitoringSyncService` so ping/flush paths are unit-testable).
+  final SyncClient syncClient;
+
   const RecentScanPage({
     super.key,
     required this.scansListenable,
@@ -66,6 +70,7 @@ class RecentScanPage extends StatefulWidget {
     this.onUploadScan,
     this.onScanSynced,
     this.onClearQueue,
+    required this.syncClient,
   });
 
   @override
@@ -362,6 +367,7 @@ class _RecentScanPageState extends State<RecentScanPage> {
           scansListenable: widget.scansListenable,
           onScanSynced: widget.onScanSynced ?? _markScanSyncedLocally,
           onClearQueue: widget.onClearQueue,
+          syncClient: widget.syncClient,
         ),
       );
       if (mounted) {
@@ -1338,11 +1344,13 @@ class _ConnectionStatusSheet extends StatefulWidget {
   final ValueListenable<List<RecentTreeScan>> scansListenable;
   final Future<void> Function(String scanId) onScanSynced;
   final VoidCallback? onClearQueue;
+  final SyncClient syncClient;
 
   const _ConnectionStatusSheet({
     required this.scansListenable,
     required this.onScanSynced,
     this.onClearQueue,
+    required this.syncClient,
   });
 
   @override
@@ -1385,7 +1393,7 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
     setState(() {
       _isChecking = true;
     });
-    final connected = await MonitoringSyncService.pingServer();
+    final connected = await widget.syncClient.pingServer();
     if (!mounted) return;
     setState(() {
       _isConnected = connected;
@@ -1418,19 +1426,19 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
       // index-based onScanSynced(index) could mark the wrong row).
       final pendingIds =
           pending.map((scan) => scan.effectiveScanId).toList(growable: false);
-      syncedCount = await MonitoringSyncService.flushPendingScans(
-        scans,
-        (index) async {
-          final current = widget.scansListenable.value;
-          String? id;
-          if (index >= 0 && index < current.length) {
-            id = current[index].effectiveScanId;
-          } else if (index >= 0 && index < pendingIds.length) {
-            id = pendingIds[index];
-          }
-          if (id != null) await widget.onScanSynced(id);
-        },
-      );
+      final domainScans = pending
+          .map((scan) => SyncClient.scanFromRecent(scan))
+          .toList(growable: false);
+      final result = await widget.syncClient.flushPendingScans(domainScans);
+      for (final id in result.syncedIds) {
+        final current = widget.scansListenable.value;
+        final index = current.indexWhere((s) => s.effectiveScanId == id);
+        if (index >= 0 && index < pendingIds.length) {
+          final resolvedId = pendingIds[index];
+          await widget.onScanSynced(resolvedId);
+          syncedCount++;
+        }
+      }
     } on SocketException catch (_) {
       if (!mounted) return;
       _showSyncResultToast('Server unreachable. Scans remain queued.');

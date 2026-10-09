@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/monitoring_sync_service.dart';
 import '../services/sync_client.dart';
 import '../data/prefs_scan_repository.dart';
 import '../data/scan_repository.dart';
@@ -64,6 +63,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       onUploadScan: _handleUploadScanById,
       onScanSynced: _markRecentScanSyncedById,
       onClearQueue: _handleClearQueue,
+      syncClient: _syncClient,
     ),
   ];
 
@@ -83,7 +83,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       prefs.then((p) {
         final sessionId = p.getString(AppConstants.sessionIdKey);
         if (sessionId != null && sessionId.isNotEmpty) {
-          unawaited(MonitoringSyncService.endSession(sessionId));
+          unawaited(_syncClient.endSession(sessionId));
         }
       });
     }
@@ -249,17 +249,6 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       await _scanRepository.markSynced(scanId);
       return true;
     } catch (_) {
-      // Fall back to the legacy static path (handles pairing/session edge
-      // cases identically) before recording the failure.
-      try {
-        final recent = SyncClient.recentFromScan(current);
-        final success =
-            await MonitoringSyncService.syncCompletedScan(recent);
-        if (success) {
-          await _scanRepository.markSynced(scanId);
-          return true;
-        }
-      } catch (_) {}
       await _scanRepository.markFailed(scanId, 'upload failed');
       return false;
     }

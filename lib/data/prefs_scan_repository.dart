@@ -126,8 +126,7 @@ class PrefsScanRepository implements ScanRepository {
         id,
         (s) => s.copyWith(
             syncState: SyncState.synced,
-            lastError: () => null,
-            retryCount: s.retryCount + 1));
+            lastError: () => null));
   }
 
   @override

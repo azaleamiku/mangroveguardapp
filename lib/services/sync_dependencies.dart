@@ -22,6 +22,11 @@ abstract class ImageEncoder {
 abstract class ScanHttpClient {
   Future<ScanHttpResponse> postJson(Uri url,
       {required Map<String, String> headers, required String body});
+
+  /// GET request used for liveness probes (ping). Returns the response
+  /// status code and body, or throws on network failure.
+  Future<ScanHttpResponse> getJson(Uri url,
+      {required Map<String, String> headers});
 }
 
 class ScanHttpResponse {
