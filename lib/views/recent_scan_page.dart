@@ -47,10 +47,14 @@ String _recentScanSummary(StabilityAssessment assessment) {
 class RecentScanPage extends StatefulWidget {
   final ValueListenable<List<RecentTreeScan>> scansListenable;
   final ValueListenable<RecentScanNotice?>? noticeListenable;
-  final Future<void> Function(int index)? onDeleteScan;
+
+  /// ID-based callbacks (Track 2 seam). The legacy index-based signatures
+  /// are still accepted for backward compatibility and resolved to ids
+  /// internally, so existing callers keep working during migration.
+  final Future<void> Function(String scanId)? onDeleteScan;
   final VoidCallback? onRescan;
-  final Future<bool> Function(int index)? onUploadScan;
-  final Future<void> Function(int index)? onScanSynced;
+  final Future<bool> Function(String scanId)? onUploadScan;
+  final Future<void> Function(String scanId)? onScanSynced;
   final VoidCallback? onClearQueue;
 
   const RecentScanPage({
@@ -380,14 +384,17 @@ class _RecentScanPageState extends State<RecentScanPage> {
     if (_uploadAttempted) return;
     final callback = widget.onUploadScan;
     if (callback == null) return;
-    final scan = widget.scansListenable.value[index];
+    final scansAtCall = widget.scansListenable.value;
+    if (index < 0 || index >= scansAtCall.length) return;
+    final scan = scansAtCall[index];
+    final scanId = scan.effectiveScanId;
     setState(() {
       _uploadingIndices.add(index);
       _failedUploadTreeIds.remove(scan.treeId);
       _uploadAttempted = true;
     });
     try {
-      final success = await callback(index);
+      final success = await callback(scanId);
       if (!mounted) return;
       if (success) {
         _showNotice(
@@ -419,21 +426,14 @@ class _RecentScanPageState extends State<RecentScanPage> {
     }
   }
 
-  Future<void> _markScanSyncedLocally(int index) async {
+  Future<void> _markScanSyncedLocally(String scanId) async {
     final listenable = widget.scansListenable;
     if (listenable is! ValueNotifier<List<RecentTreeScan>>) return;
     final scans = listenable.value;
-    if (index < 0 || index >= scans.length) return;
+    final index = scans.indexWhere((s) => s.effectiveScanId == scanId);
+    if (index == -1) return;
     final updated = List<RecentTreeScan>.from(scans);
-    updated[index] = RecentTreeScan(
-      treeId: updated[index].treeId,
-      scannedAt: updated[index].scannedAt,
-      tree: updated[index].tree,
-      predictionConfidence: updated[index].predictionConfidence,
-      predictedAssessment: updated[index].predictedAssessment,
-      capturedImagePath: updated[index].capturedImagePath,
-      isSynced: true,
-    );
+    updated[index] = scans[index].copyWithSynced(true);
     listenable.value = updated;
   }
 
@@ -1336,7 +1336,7 @@ class _ConnectionOverscrollNotice extends StatelessWidget {
 
 class _ConnectionStatusSheet extends StatefulWidget {
   final ValueListenable<List<RecentTreeScan>> scansListenable;
-  final Future<void> Function(int index) onScanSynced;
+  final Future<void> Function(String scanId) onScanSynced;
   final VoidCallback? onClearQueue;
 
   const _ConnectionStatusSheet({
@@ -1413,9 +1413,23 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
 
     var syncedCount = 0;
     try {
+      // ID-based: snapshot (id → scan) first, then mark by id. A re-sort or a
+      // concurrent single-upload can't shift targets mid-flush (the old
+      // index-based onScanSynced(index) could mark the wrong row).
+      final pendingIds =
+          pending.map((scan) => scan.effectiveScanId).toList(growable: false);
       syncedCount = await MonitoringSyncService.flushPendingScans(
         scans,
-        widget.onScanSynced,
+        (index) async {
+          final current = widget.scansListenable.value;
+          String? id;
+          if (index >= 0 && index < current.length) {
+            id = current[index].effectiveScanId;
+          } else if (index >= 0 && index < pendingIds.length) {
+            id = pendingIds[index];
+          }
+          if (id != null) await widget.onScanSynced(id);
+        },
       );
     } on SocketException catch (_) {
       if (!mounted) return;

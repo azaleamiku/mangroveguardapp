@@ -9,6 +9,15 @@ class RecentTreeScan {
   final String? capturedImagePath;
   final bool isSynced;
 
+  /// Stable identity minted at creation and persisted in JSON.
+  ///
+  /// Previously the UI identified scans by list index and the sync layer
+  /// derived `scan_id` per-attempt (`scan-{treeId}-{ms}`), so a rescan in
+  /// the same millisecond or a re-sort could collide/shift targets. This id
+  /// is now the single identity shared with the domain [Scan] layer and the
+  /// backend `INSERT OR IGNORE` idempotency key.
+  final String scanId;
+
   const RecentTreeScan({
     required this.treeId,
     required this.scannedAt,
@@ -17,13 +26,40 @@ class RecentTreeScan {
     this.predictedAssessment,
     this.capturedImagePath,
     this.isSynced = false,
+    this.scanId = '',
   });
+
+  /// Effective stable id: explicit [scanId] when present, otherwise the
+  /// legacy derived key. Used everywhere identity matters so rows created
+  /// before ids were minted still resolve deterministically.
+  String get effectiveScanId => scanId.trim().isNotEmpty
+      ? scanId
+      : 'scan-$treeId-${scannedAt.millisecondsSinceEpoch}';
+
+  /// Mint a copy with a stable id when this instance predates ids.
+  RecentTreeScan withStableId([String? id]) {
+    if (scanId.trim().isNotEmpty) return this;
+    final stable = (id != null && id.trim().isNotEmpty)
+        ? id.trim()
+        : 'scan-$treeId-${scannedAt.millisecondsSinceEpoch}';
+    return RecentTreeScan(
+      scanId: stable,
+      treeId: treeId,
+      scannedAt: scannedAt,
+      tree: tree,
+      predictionConfidence: predictionConfidence,
+      predictedAssessment: predictedAssessment,
+      capturedImagePath: capturedImagePath,
+      isSynced: isSynced,
+    );
+  }
 
   StabilityAssessment get assessment =>
       predictedAssessment ?? StabilityAssessment.low;
 
   Map<String, dynamic> toJson() {
     return {
+      'scanId': scanId,
       'treeId': treeId,
       'scannedAt': scannedAt.toIso8601String(),
       if (predictionConfidence != null)
@@ -77,13 +113,20 @@ class RecentTreeScan {
         }
       }
     }
+    final scannedAtValue = scannedAtRaw == null
+        ? DateTime.now()
+        : (DateTime.tryParse(scannedAtRaw) ?? DateTime.now());
+    final treeIdValue = (json['treeId'] as String?)?.trim().isNotEmpty == true
+        ? json['treeId'] as String
+        : 'Tree';
+    final scanIdValue =
+        (json['scanId'] as String?)?.trim().isNotEmpty == true
+        ? (json['scanId'] as String)
+        : 'scan-$treeIdValue-${scannedAtValue.millisecondsSinceEpoch}';
     return RecentTreeScan(
-      treeId: (json['treeId'] as String?)?.trim().isNotEmpty == true
-          ? json['treeId'] as String
-          : 'Tree',
-      scannedAt: scannedAtRaw == null
-          ? DateTime.now()
-          : (DateTime.tryParse(scannedAtRaw) ?? DateTime.now()),
+      scanId: scanIdValue,
+      treeId: treeIdValue,
+      scannedAt: scannedAtValue,
       predictionConfidence: (json['predictionConfidence'] as num?)?.toDouble(),
       predictedAssessment: predictedAssessment,
       capturedImagePath:
@@ -100,9 +143,22 @@ class RecentTreeScan {
       identical(this, other) ||
       other is RecentTreeScan &&
           runtimeType == other.runtimeType &&
-          treeId == other.treeId &&
-          scannedAt == other.scannedAt;
+          effectiveScanId == other.effectiveScanId;
 
   @override
-  int get hashCode => Object.hash(treeId, scannedAt);
+  int get hashCode => effectiveScanId.hashCode;
+
+  /// Copy with a new sync flag, preserving the stable [scanId].
+  RecentTreeScan copyWithSynced(bool synced) {
+    return RecentTreeScan(
+      scanId: scanId,
+      treeId: treeId,
+      scannedAt: scannedAt,
+      tree: tree,
+      predictionConfidence: predictionConfidence,
+      predictedAssessment: predictedAssessment,
+      capturedImagePath: capturedImagePath,
+      isSynced: synced,
+    );
+  }
 }

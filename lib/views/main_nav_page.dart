@@ -7,6 +7,11 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/monitoring_sync_service.dart';
+import '../services/sync_client.dart';
+import '../data/prefs_scan_repository.dart';
+import '../data/scan_repository.dart';
+import '../data/sqlite_scan_repository.dart';
+import '../domain/scan.dart' as domain;
 import '../constants/app_constants.dart';
 import 'package:mangroveguardapp/theme/colors.dart';
 import 'scanner_page.dart';
@@ -29,6 +34,15 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   final ScannerPageController _scannerController = ScannerPageController();
   final ValueNotifier<List<RecentTreeScan>> _recentScans = ValueNotifier([]);
+
+  /// Storage seam (Track 2): SQLite-backed as of step 2, with a one-time
+  /// copy from the legacy prefs store (see [_initScanRepository]). The widget
+  /// keeps a `RecentTreeScan` view-model list for the existing pages, but all
+  /// persistence flows through [_scanRepository] keyed by stable scan ids.
+  late final ScanRepository _scanRepository;
+  late final SyncClient _syncClient = SyncClient.production();
+  StreamSubscription<List<domain.Scan>>? _scanSubscription;
+  bool _repositoryMigrated = false;
   final ValueNotifier<RecentScanNotice?> _recentScanNotice = ValueNotifier(
     null,
   );
@@ -45,10 +59,10 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     RecentScanPage(
       scansListenable: _recentScans,
       noticeListenable: _recentScanNotice,
-      onDeleteScan: _deleteRecentScan,
+      onDeleteScan: _deleteRecentScanById,
       onRescan: _handleRescanRequested,
-      onUploadScan: _handleUploadScanRequested,
-      onScanSynced: _markRecentScanSynced,
+      onUploadScan: _handleUploadScanById,
+      onScanSynced: _markRecentScanSyncedById,
       onClearQueue: _handleClearQueue,
     ),
   ];
@@ -58,7 +72,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _markOnboardingComplete();
-    unawaited(_loadRecentScans());
+    unawaited(_initScanRepository());
   }
 
   @override
@@ -103,11 +117,104 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     _setSelectedIndex(1);
   }
 
+  /// Boot the repository seam: open SQLite, one-time copy from the legacy
+  /// prefs `StringList` (idempotent — see
+  /// [SqliteScanRepository.openMigratingFromPrefs]), then mirror repository
+  /// state into the `_recentScans` view-model list consumed by existing
+  /// pages. The prefs key is intentionally left intact as a rollback safety
+  /// net; it's only overwritten by future prefs writes we no longer make.
+  Future<void> _initScanRepository() async {
+    try {
+      _scanRepository = await SqliteScanRepository.openMigratingFromPrefs(
+        legacyRows: () => _readLegacyPrefsScans(),
+      );
+    } catch (e) {
+      // SQLite unavailable (e.g. test/desktop without ffi): fall back to
+      // prefs so the app still works; migration becomes a no-op.
+      debugPrint('SQLite unavailable, falling back to prefs: $e');
+      _scanRepository = PrefsScanRepository();
+      try {
+        await _migrateLegacyPrefsOnce();
+      } catch (_) {}
+    }
+    _scanSubscription = _scanRepository.watch().listen((scans) {
+      if (!mounted) return;
+      _recentScans.value = scans
+          .map(SyncClient.recentFromScan)
+          .toList(growable: false);
+    }, onError: (_) {});
+    // Prime the view-model immediately so first paint isn't empty.
+    try {
+      final scans = await _scanRepository.getAll();
+      if (!mounted) return;
+      _recentScans.value =
+          scans.map(SyncClient.recentFromScan).toList(growable: false);
+    } catch (_) {}
+  }
+
+  /// Read the legacy prefs `StringList` as domain [Scan] rows (stable ids
+  /// minted via [RecentTreeScan.withStableId]). Safe to call repeatedly —
+  /// callers gate on the SQLite `meta` flag.
+  Future<List<domain.Scan>> _readLegacyPrefsScans() async {
+    final prefs = await SharedPreferences.getInstance();
+    final rawList =
+        prefs.getStringList(_recentScansStorageKey) ?? const [];
+    final scans = <domain.Scan>[];
+    for (final raw in rawList) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map<String, dynamic>) continue;
+        final recent = RecentTreeScan.fromJson(decoded).withStableId();
+        scans.add(SyncClient.scanFromRecent(recent, id: recent.scanId));
+      } catch (_) {}
+    }
+    scans.sort((a, b) => b.scannedAt.compareTo(a.scannedAt));
+    return scans;
+  }
+
+  /// One-time format migration: legacy `RecentTreeScan` JSON blobs (keyed by
+  /// index, ids derived per-read) become [domain.Scan] rows with stable ids
+  /// persisted in JSON. Idempotent — skips when already migrated or empty.
+  Future<void> _migrateLegacyPrefsOnce() async {
+    if (_repositoryMigrated) return;
+    _repositoryMigrated = true;
+    if (_scanRepository is! PrefsScanRepository) return;
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('scan_repo_migrated_v1') == true) return;
+    final rawList =
+        prefs.getStringList(_recentScansStorageKey) ?? const [];
+    if (rawList.isEmpty) {
+      await prefs.setBool('scan_repo_migrated_v1', true);
+      return;
+    }
+    final migrated = <domain.Scan>[];
+    for (final raw in rawList) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map<String, dynamic>) continue;
+        final recent = RecentTreeScan.fromJson(decoded).withStableId();
+        migrated.add(SyncClient.scanFromRecent(recent, id: recent.scanId));
+      } catch (_) {}
+    }
+    migrated.sort((a, b) => b.scannedAt.compareTo(a.scannedAt));
+    final trimmed = migrated.length <= _maxRecentScans
+        ? migrated
+        : migrated.sublist(0, _maxRecentScans);
+    await _scanRepository.replaceAll(trimmed);
+    await prefs.setBool('scan_repo_migrated_v1', true);
+    // Drop capture files orphaned by the retention trim.
+    if (migrated.length > trimmed.length) {
+      for (final scan in migrated.sublist(trimmed.length)) {
+        await _deleteManagedCaptureFile(scan.capturedImagePath);
+      }
+    }
+  }
+
   Future<void> _handleClearQueue() async {
     final scans = List<RecentTreeScan>.from(_recentScans.value);
     _recentScans.value = const [];
     if (!mounted) return;
-    await _persistRecentScans(const []);
+    await _scanRepository.replaceAll(const []);
     unawaited(_deleteManagedCaptureFiles(scans));
   }
 
@@ -117,59 +224,53 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<bool> _handleUploadScanRequested(int index) async {
-    if (index < 0 || index >= _recentScans.value.length) return false;
-    final scan = _recentScans.value[index];
-    if (scan.predictedAssessment == null) return false;
-    final success = await MonitoringSyncService.syncCompletedScan(scan);
-    if (!mounted) return success;
-    if (success) {
-      final updated = List<RecentTreeScan>.from(_recentScans.value);
-      updated[index] = RecentTreeScan(
-        treeId: updated[index].treeId,
-        scannedAt: updated[index].scannedAt,
-        tree: updated[index].tree,
-        predictionConfidence: updated[index].predictionConfidence,
-        predictedAssessment: updated[index].predictedAssessment,
-        capturedImagePath: updated[index].capturedImagePath,
-        isSynced: true,
-      );
-      _recentScans.value = updated;
-      await _persistRecentScans(updated);
-    } else if (!scan.isSynced) {
-      final updated = List<RecentTreeScan>.from(_recentScans.value);
-      updated[index] = RecentTreeScan(
-        treeId: updated[index].treeId,
-        scannedAt: updated[index].scannedAt,
-        tree: updated[index].tree,
-        predictionConfidence: updated[index].predictionConfidence,
-        predictedAssessment: updated[index].predictedAssessment,
-        capturedImagePath: updated[index].capturedImagePath,
-        isSynced: false,
-      );
-      _recentScans.value = updated;
-      await _persistRecentScans(updated);
+  /// ID-based upload: repository is the source of truth, so a re-sort or a
+  /// concurrent batch flush can't shift the target under us (the old
+  /// index-based version could upload/mark the wrong row).
+  Future<bool> _handleUploadScanById(String scanId) async {
+    domain.Scan? scan;
+    try {
+      final scans = await _scanRepository.getAll();
+      for (final candidate in scans) {
+        if (candidate.id == scanId || candidate.serverScanId == scanId) {
+          scan = candidate;
+          break;
+        }
+      }
+    } catch (_) {
+      return false;
     }
-    return success;
+    if (scan == null) return false;
+    if (scan.syncState == domain.SyncState.synced) return true;
+    final current = scan;
+    await _scanRepository.markSyncing(scanId);
+    try {
+      await _syncClient.syncSingleScan(current);
+      await _scanRepository.markSynced(scanId);
+      return true;
+    } catch (_) {
+      // Fall back to the legacy static path (handles pairing/session edge
+      // cases identically) before recording the failure.
+      try {
+        final recent = SyncClient.recentFromScan(current);
+        final success =
+            await MonitoringSyncService.syncCompletedScan(recent);
+        if (success) {
+          await _scanRepository.markSynced(scanId);
+          return true;
+        }
+      } catch (_) {}
+      await _scanRepository.markFailed(scanId, 'upload failed');
+      return false;
+    }
   }
 
-  Future<void> _markRecentScanSynced(int index) async {
-    if (index < 0 || index >= _recentScans.value.length) return;
-    final updated = List<RecentTreeScan>.from(_recentScans.value);
-    if (updated[index].isSynced) return;
-    updated[index] = RecentTreeScan(
-      treeId: updated[index].treeId,
-      scannedAt: updated[index].scannedAt,
-      tree: updated[index].tree,
-      predictionConfidence: updated[index].predictionConfidence,
-      predictedAssessment: updated[index].predictedAssessment,
-      capturedImagePath: updated[index].capturedImagePath,
-      isSynced: true,
-    );
-    _recentScans.value = updated;
-    await _persistRecentScans(updated);
+  Future<void> _markRecentScanSyncedById(String scanId) async {
+    await _scanRepository.markSynced(scanId);
   }
 
+  /// Legacy index-based upload kept for compatibility: resolves the index to
+  /// a stable id once, then runs the repository-backed upload path.
   void _handleScannerHoldStart() {
     if (!mounted) return;
     if (_selectedIndex != 1) return;
@@ -240,6 +341,17 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       isSynced: false,
     );
 
+    // Persist through the repository seam (stable id, retention cap, and
+    // stream fan-out handled there). The `_recentScans` list below is a
+    // view-model mirror for immediate paint; the repository stream is the
+    // source of truth and will re-emit the canonical list.
+    try {
+      final stabledNewScan = newScan.withStableId();
+      await _scanRepository.add(
+        SyncClient.scanFromRecent(stabledNewScan, id: stabledNewScan.scanId),
+      );
+    } catch (_) {}
+
     final updated = [newScan, ..._recentScans.value];
 
     final trimmed = updated.length <= _maxRecentScans
@@ -251,7 +363,6 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
 
     if (!mounted) return;
     _recentScans.value = trimmed;
-    await _persistRecentScans(trimmed);
     await _appendActivityLogEntry({
       'event': 'scan_completed',
       'treeId': newScan.treeId,
@@ -265,53 +376,17 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadRecentScans() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final rawList = prefs.getStringList(_recentScansStorageKey) ?? const [];
-      final loaded = <RecentTreeScan>[];
-      for (final raw in rawList) {
-        try {
-          final decoded = jsonDecode(raw);
-          if (decoded is! Map<String, dynamic>) continue;
-          loaded.add(RecentTreeScan.fromJson(decoded));
-        } catch (_) {}
+  Future<void> _deleteRecentScanById(String scanId) async {
+    RecentTreeScan? removed;
+    for (final candidate in _recentScans.value) {
+      if (candidate.effectiveScanId == scanId) {
+        removed = candidate;
+        break;
       }
-      loaded.sort((a, b) => b.scannedAt.compareTo(a.scannedAt));
-      final limited = loaded.length <= _maxRecentScans
-          ? loaded
-          : loaded.sublist(0, _maxRecentScans);
-      final removed = loaded.length <= _maxRecentScans
-          ? const <RecentTreeScan>[]
-          : loaded.sublist(_maxRecentScans);
-      if (!mounted) return;
-      _recentScans.value = limited;
-      if (removed.isNotEmpty) {
-        await _persistRecentScans(limited);
-        for (final scan in removed) {
-          await _deleteManagedCaptureFile(scan.capturedImagePath);
-        }
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _persistRecentScans(List<RecentTreeScan> scans) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final encoded = scans
-          .map((scan) => jsonEncode(scan.toJson()))
-          .toList(growable: false);
-      await prefs.setStringList(_recentScansStorageKey, encoded);
-    } catch (_) {}
-  }
-
-  Future<void> _deleteRecentScan(int index) async {
-    if (index < 0 || index >= _recentScans.value.length) return;
-    final removedScan = _recentScans.value[index];
-    final updated = List<RecentTreeScan>.from(_recentScans.value)
-      ..removeAt(index);
-    _recentScans.value = updated;
-    await _persistRecentScans(updated);
+    }
+    await _scanRepository.removeById(scanId);
+    if (removed == null) return;
+    final removedScan = removed;
     await _deleteManagedCaptureFile(removedScan.capturedImagePath);
     await _appendActivityLogEntry({
       'event': 'scan_deleted',
@@ -420,7 +495,12 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _scanSubscription?.cancel();
     _scannerController.dispose();
+    final repo = _scanRepository;
+    if (repo is SqliteScanRepository) {
+      unawaited(repo.dispose());
+    }
     _recentScans.dispose();
     _recentScanNotice.dispose();
     super.dispose();
