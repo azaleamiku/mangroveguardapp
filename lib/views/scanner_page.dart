@@ -50,7 +50,7 @@ class _ScannerPageState extends State<ScannerPage>
         SingleTickerProviderStateMixin,
         WidgetsBindingObserver,
         AutomaticKeepAliveClientMixin {
-  static const double _minPredictionConfidence = 0.10;
+  static const double _minPredictionConfidence = 0.70;
   static const Duration _realtimeInterval = Duration(milliseconds: 380);
   static const int _liveProcessingMaxDimension = 768;
   static const double _liveBoundingBoxSmoothing = 0.35;
