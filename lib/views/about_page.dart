@@ -80,7 +80,7 @@ class AboutPage extends StatelessWidget {
             _AboutSection(
               title: 'Technology',
               body:
-                  'Flutter mobile app • YOLOv8 on-device inference • React + Vite web dashboard • Express REST API • Server-Sent Events • Dockerized deployment',
+                  'Flutter mobile app • YOLOv8 on-device inference • React + Vite web dashboard • Express REST API • Server-Sent Events',
             ),
             const SizedBox(height: 28),
             Text(
