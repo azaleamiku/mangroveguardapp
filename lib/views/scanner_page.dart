@@ -225,6 +225,9 @@ class _ScannerPageState extends State<ScannerPage>
                 _qrVerificationMessage = null;
                 _qrTemporaryError = null;
               });
+              _showTopNotification(
+                'Unpaired from the web dashboard. Scan a QR code to reconnect.',
+              );
             }
           }
         } else if (!_isPaired && mounted) {
