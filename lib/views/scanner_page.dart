@@ -50,7 +50,7 @@ class _ScannerPageState extends State<ScannerPage>
         SingleTickerProviderStateMixin,
         WidgetsBindingObserver,
         AutomaticKeepAliveClientMixin {
-  static const double _minPredictionConfidence = 0.70;
+  static const double _minPredictionConfidence = 0.60;
   static const Duration _realtimeInterval = Duration(milliseconds: 380);
   static const int _liveProcessingMaxDimension = 768;
   static const double _liveBoundingBoxSmoothing = 0.35;
@@ -197,8 +197,7 @@ class _ScannerPageState extends State<ScannerPage>
       if (response.statusCode == 200) {
         final devices = jsonDecode(response.body) as List<dynamic>;
         final device = devices.cast<Map<String, dynamic>>().firstWhere(
-          (d) =>
-              d['deviceId'] == deviceId || d['device_id'] == deviceId,
+          (d) => d['deviceId'] == deviceId || d['device_id'] == deviceId,
           orElse: () => <String, dynamic>{},
         );
 
