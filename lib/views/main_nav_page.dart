@@ -33,6 +33,9 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   int _selectedIndex = 0;
   final ScannerPageController _scannerController = ScannerPageController();
   final ValueNotifier<List<RecentTreeScan>> _recentScans = ValueNotifier([]);
+  // Metrics represent the device's scan history, while _recentScans also
+  // serves as the local sync queue. Clearing the queue must not erase metrics.
+  final ValueNotifier<List<RecentTreeScan>> _metricsScans = ValueNotifier([]);
 
   /// Storage seam (Track 2): SQLite-backed as of step 2, with a one-time
   /// copy from the legacy prefs store (see [_initScanRepository]). The widget
@@ -47,7 +50,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   );
 
   List<Widget> _buildPages() => [
-    MetricsPage(scansListenable: _recentScans),
+    MetricsPage(scansListenable: _metricsScans),
     ErrorBoundary(
       child: ScannerPage(
         controller: _scannerController,
@@ -139,9 +142,16 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
     }
     _scanSubscription = _scanRepository.watch().listen((scans) {
       if (!mounted) return;
-      _recentScans.value = scans
+      final current = scans
           .map(SyncClient.recentFromScan)
           .toList(growable: false);
+      _recentScans.value = current;
+      final byId = <String, RecentTreeScan>{
+        for (final scan in _metricsScans.value) scan.effectiveScanId: scan,
+        for (final scan in current) scan.effectiveScanId: scan,
+      };
+      _metricsScans.value = byId.values.toList(growable: false)
+        ..sort((a, b) => b.scannedAt.compareTo(a.scannedAt));
     }, onError: (_) {});
     // Prime the view-model immediately so first paint isn't empty.
     try {
@@ -149,6 +159,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       if (!mounted) return;
       _recentScans.value =
           scans.map(SyncClient.recentFromScan).toList(growable: false);
+      _metricsScans.value = List<RecentTreeScan>.from(_recentScans.value);
     } catch (_) {}
   }
 
@@ -211,11 +222,11 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
   }
 
   Future<void> _handleClearQueue() async {
-    final scans = List<RecentTreeScan>.from(_recentScans.value);
-    _recentScans.value = const [];
-    if (!mounted) return;
-    await _scanRepository.replaceAll(const []);
-    unawaited(_deleteManagedCaptureFiles(scans));
+    final removed = await _scanRepository.clearPending();
+    final recentRemoved = removed
+        .map(SyncClient.recentFromScan)
+        .toList(growable: false);
+    unawaited(_deleteManagedCaptureFiles(recentRemoved));
   }
 
   Future<void> _deleteManagedCaptureFiles(List<RecentTreeScan> scans) async {
@@ -491,6 +502,7 @@ class _MainNavPageState extends State<MainNavPage> with WidgetsBindingObserver {
       unawaited(repo.dispose());
     }
     _recentScans.dispose();
+    _metricsScans.dispose();
     _recentScanNotice.dispose();
     super.dispose();
   }

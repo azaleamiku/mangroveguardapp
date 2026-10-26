@@ -28,5 +28,8 @@ abstract class ScanRepository {
   /// Remove synced scans (retention); returns number removed.
   Future<int> clearSynced();
 
+  /// Remove only scans that have not been synced to the server.
+  Future<List<Scan>> clearPending();
+
   Future<void> replaceAll(List<Scan> scans);
 }

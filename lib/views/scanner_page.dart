@@ -951,6 +951,19 @@ class _ScannerPageState extends State<ScannerPage>
             LiveDetectionCard(
               assessment: _liveBoundingBox == null ? null : _liveAssessment,
             ),
+          if (_isMenuExpanded)
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: _collapseMenu,
+                child: AnimatedOpacity(
+                  duration: const Duration(milliseconds: 220),
+                  opacity: 1,
+                  child: Container(
+                    color: Colors.black.withValues(alpha: 0.58),
+                  ),
+                ),
+              ),
+            ),
           _buildScannerMenu(),
         ],
       ),
@@ -1307,8 +1320,7 @@ class _ScannerPageState extends State<ScannerPage>
     const frameAlignment = Alignment(0, -0.50);
 
     return Positioned.fill(
-      child: IgnorePointer(
-        child: LayoutBuilder(
+      child: LayoutBuilder(
           builder: (context, constraints) {
             final frameLeft =
                 (constraints.maxWidth - width) / 2 +
@@ -1322,59 +1334,89 @@ class _ScannerPageState extends State<ScannerPage>
                 Positioned(
                   left: frameLeft,
                   top: frameTop,
-                  child: Container(
-                    key: _frameGuideInnerKey,
-                    width: width,
-                    height: height,
-                    decoration: _isRealtimeAssessment
-                        ? null
-                        : BoxDecoration(
-                            border: Border.all(
-                              color: AppColors.caribbeanGreen,
-                              width: 2.5,
+                  child: IgnorePointer(
+                    child: Container(
+                      key: _frameGuideInnerKey,
+                      width: width,
+                      height: height,
+                      decoration: _isRealtimeAssessment
+                          ? null
+                          : BoxDecoration(
+                              border: Border.all(
+                                color: AppColors.caribbeanGreen,
+                                width: 2.5,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                    ),
                   ),
                 ),
                 if (!_isRealtimeAssessment)
                   Positioned(
                     left: frameLeft,
                     top: frameTop + height + 10,
-                    child: Container(
+                    bottom: 168,
+                    child: _buildGuidanceDescription(
+                      steps: const [
+                        'Place the mangrove root structure inside the capture frame.',
+                        'Keep the trunk and visible roots centered and clear.',
+                        'Hold steady and tap the shutter to capture the scan.',
+                      ],
                       width: width,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.darkGreen.withValues(alpha: 0.72),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: AppColors.caribbeanGreen.withValues(
-                            alpha: 0.32,
-                          ),
-                          width: 1,
-                        ),
-                      ),
-                      child: Text(
-                        'Center the trunk and visible roots inside the frame.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: AppColors.antiFlashWhite.withValues(
-                            alpha: 0.86,
-                          ),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          height: 1.25,
-                        ),
-                      ),
+                    ),
+                  ),
+                if (_isRealtimeAssessment && _liveBoundingBox == null)
+                  Positioned(
+                    left: frameLeft,
+                    top: frameTop + height + 10,
+                    bottom: 168,
+                    child: _buildGuidanceDescription(
+                      steps: const [
+                        'Keep the mangrove root structure inside the frame.',
+                        'Wait for the detection box and stability result.',
+                        'Tap the shutter to save the live assessment.',
+                      ],
+                      width: width,
                     ),
                   ),
               ],
             );
           },
         ),
+    );
+  }
+
+  Widget _buildGuidanceDescription({
+    required List<String> steps,
+    required double width,
+  }) {
+    return Container(
+      width: width,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.darkGreen.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: AppColors.caribbeanGreen.withValues(alpha: 0.32),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var index = 0; index < steps.length; index++) ...[
+            if (index > 0) const SizedBox(height: 5),
+            Text(
+              '• ${steps[index]}',
+              style: TextStyle(
+                color: AppColors.antiFlashWhite.withValues(alpha: 0.86),
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                height: 1.25,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1386,17 +1428,20 @@ class _ScannerPageState extends State<ScannerPage>
     }
 
     return Positioned.fill(
-      child: IgnorePointer(
-        ignoring: true,
-        child: Stack(
-          children: [
-            MobileScanner(controller: controller, onDetect: _onQrCodeDetected),
-            _buildQrDimOverlay(),
-            _buildQrViewfinder(),
-            _buildQrScanHint(),
-            if (_isQrVerifying) _buildQrVerifyingOverlay(),
-          ],
-        ),
+      child: Stack(
+        children: [
+          IgnorePointer(
+            child: Stack(
+              children: [
+                MobileScanner(controller: controller, onDetect: _onQrCodeDetected),
+                _buildQrDimOverlay(),
+                _buildQrViewfinder(),
+              ],
+            ),
+          ),
+          _buildQrScanHint(),
+          if (_isQrVerifying) _buildQrVerifyingOverlay(),
+        ],
       ),
     );
   }
@@ -1438,30 +1483,15 @@ class _ScannerPageState extends State<ScannerPage>
 
     return Positioned(
       top: frameTop + cutoutSize + 10,
+      bottom: 168,
       left: (size.width - hintWidth) / 2,
-      child: IgnorePointer(
-        child: Container(
-          width: hintWidth,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: AppColors.darkGreen.withValues(alpha: 0.72),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: AppColors.caribbeanGreen.withValues(alpha: 0.32),
-              width: 1,
-            ),
-          ),
-          child: Text(
-            'Align the dashboard QR code inside the frame.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.antiFlashWhite.withValues(alpha: 0.86),
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              height: 1.25,
-            ),
-          ),
-        ),
+      child: _buildGuidanceDescription(
+        steps: const [
+          'Scan the QR code displayed on the MangroveGuard web dashboard.',
+          'Keep the QR code inside the frame until pairing completes.',
+          'Return to Camera after pairing to continue field capture.',
+        ],
+        width: hintWidth,
       ),
     );
   }
@@ -1515,9 +1545,11 @@ class _ScannerPageState extends State<ScannerPage>
 
   Future<void> _startRealtimeAssessment() async {
     if (_isRealtimeAssessment) return;
+    if (_isQrScanning) return;
     final controller = _camera.controller;
     if (controller == null || !controller.value.isInitialized) return;
     await _ensureLiveIsolateReady();
+    if (_isQrScanning) return;
     if (!_liveIsolateHandler.isReady) {
       if (!mounted) return;
       _showTopNotification('Live assessment failed to initialize.');
@@ -1841,6 +1873,11 @@ class _ScannerPageState extends State<ScannerPage>
     if (_isQrScanning) return;
 
     _collapseMenu();
+    // QR scanning uses its own camera stream. Stop live assessment first so
+    // the previous image stream cannot continue while the QR screen is open.
+    widget.controller?.stopRealtimeAssessment();
+    _lastRealtimeSignal = false;
+    _stopRealtimeAssessment();
     await _camera.disposeControllerAsync();
 
     setState(() {
@@ -2281,7 +2318,14 @@ class _ScannerPageState extends State<ScannerPage>
               icon: Icons.image_rounded,
               label: 'Upload',
               animation: _menuUpload,
-              onTap: () => _handleMenuAction(_handleUploadPhoto),
+              onTap: () => _handleMenuAction(
+                isQrScreen
+                    ? () => _showTopNotification(
+                        'Upload is unavailable while scanning a QR code. '
+                        'Return to Camera to upload a photo.',
+                      )
+                    : _handleUploadPhoto,
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -2306,16 +2350,6 @@ class _ScannerPageState extends State<ScannerPage>
                     ? _stopQrScanning
                     : _toggleQrScanning,
               ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          IgnorePointer(
-            ignoring: !_isMenuExpanded,
-            child: ScannerMenuAction(
-              icon: Icons.info_rounded,
-              label: _guidanceLabel,
-              animation: _menuGuidance,
-              onTap: () => _handleMenuAction(_guidanceAction),
             ),
           ),
           const SizedBox(height: 14),

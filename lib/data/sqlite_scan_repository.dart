@@ -293,6 +293,20 @@ class SqliteScanRepository implements ScanRepository {
   }
 
   @override
+  Future<List<Scan>> clearPending() async {
+    final pending = await getPending();
+    if (pending.isEmpty) return const [];
+    final db = await _database();
+    await db.delete(
+      'scans',
+      where: 'sync_state != ?',
+      whereArgs: [SyncState.synced.name],
+    );
+    await _emit();
+    return pending;
+  }
+
+  @override
   Future<void> replaceAll(List<Scan> scans) async {
     final db = await _database();
     await db.transaction((txn) async {

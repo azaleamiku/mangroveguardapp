@@ -1597,8 +1597,6 @@ class _ConnectionStatusSheetState extends State<_ConnectionStatusSheet> {
       });
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('recent_tree_scans_v1');
   }
 
   @override

@@ -161,6 +161,16 @@ class PrefsScanRepository implements ScanRepository {
   }
 
   @override
+  Future<List<Scan>> clearPending() async {
+    final scans = await _ensureLoaded();
+    final removed = scans.where((scan) => !scan.isSynced).toList(growable: false);
+    if (removed.isEmpty) return const [];
+    _cache = scans.where((scan) => scan.isSynced).toList(growable: false);
+    await _persist();
+    return removed;
+  }
+
+  @override
   Future<void> replaceAll(List<Scan> scans) async {
     await _ensureLoaded();
     final sorted = _sorted(scans);
